@@ -4,6 +4,7 @@ shell 0.1.1 (unreleased)
 + CI uploads a debug automation build per arch for verifying packaged apps; never a release asset
 + `scripts/dev/linuxvm.sh`: clean Ubuntu 22.04, Fedora 43 and Arch VMs, installed unattended by their own installers
 + `scripts/dev/macvm.sh`: clean macOS 12 and 27 VMs, restored by tart from Apple's IPSWs pinned by SHA-256
++ ADR 0001: the macOS webview path (the shell owns WKWebView through objc2), measured on macOS 12 and 27
 ~ The parity script waits for the app's own page, not the window's placeholder, and names a missing keyboard focus
 
 shell 0.1.0

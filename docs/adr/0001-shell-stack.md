@@ -1,6 +1,6 @@
 # ADR 0001 — Shell stack, deployment floors, architectures, licence
 
-- **Status:** Accepted. Verified at runtime on Linux and Windows; no open items.
+- **Status:** Accepted. Verified at runtime on Linux, Windows and macOS (Phase 4: the macOS webview path, and arm64 only).
 - **Date:** 2026-11-09
 - **Context issue:** [grafida/grafida#82](https://github.com/grafida/grafida/issues/82), Phase 0
 
@@ -119,6 +119,80 @@ The `conhost` in the tree is only there because the spike is a console-subsystem
 proper is GUI-subsystem. The other `msedgewebview2` processes in the VM belong to `SearchHost.exe`
 (Windows Search), which is worth knowing before blaming the shell for stray WebView2 processes.
 
+## The macOS question (Phase 4, grafida/grafida#88)
+
+ADR 0001 left macOS to Phase 4: wry's `WKURLSchemeHandler` path was acceptable if it passed the
+Linux tests. **wry was not spiked.** Its 0.57 macOS handler (`src/wkwebview/class/url_scheme_handler.rs`)
+was ruled out by reading it:
+
+- it reads a body stream 128 bytes at a time **on the UI thread**, in a loop on `hasBytesAvailable`,
+  so it stops at the first moment no bytes happen to be ready, not at the end of the stream (the
+  same class of bug as its Linux reader), and a `-1` read is cast to `usize`;
+- it builds response headers with a dictionary `insert`, so a repeated header keeps only its last
+  value (Foundation's header fields are a dictionary on any path; joining with `", "` is the most
+  any path can do, and what fetch shows anyway);
+- its navigation handler is given only a URL, with no `navigationType` or `targetFrame`, and nothing
+  exposes the `WKUIDelegate` or `willOpenMenu:withEvent:` (context-menu filtering, file drops);
+- the shell depends on neither wry nor muda today: Linux already builds its own webview.
+
+Instead, `spikes/macos/` has the shell own the webview through objc2, as Linux does through the
+`webkit2gtk` crate: its own `WKWebViewConfiguration`, a `WKURLSchemeHandler` class, tasks parked in a
+main-thread map, answers from other threads posted back through tao's event loop and completed on
+the main thread, `stopURLSchemeTask:` honoured. It serves `spikes/common/index.html` with the same
+tests as the Phase 0 spikes, then `spikes/macos/extra.html` for what is specific to macOS: an aborted
+request (WebKit stops the task; the late answer must be dropped, never sent to it) and the body
+*forms* WebKit hands over. `spikes/macos/measure-macos.sh` measures idle CPU. WebKit's helpers there
+are XPC services started by launchd, not children of the app, so "the tree" is the spike plus every
+`com.apple.WebKit.*` process started after it.
+
+### Results (macOS)
+
+Run on 2026-11-09, on an Apple Silicon host and in tart VMs restored from Apple's IPSWs
+(`scripts/dev/macvm.sh`, `docs/dev/macos-test-vms.md`). One binary throughout, built on the host with
+`MACOSX_DEPLOYMENT_TARGET=12.0` (`minos 12.0`, SDK 27.2). A Safari update on macOS replaces the system
+WebKit every WKWebView uses, so the Safari version is part of each target.
+
+| | 27.2 host | 27.2.1 VM | 12.7.6 + Safari 17.6 | 12.7.6 + Safari 15.6.1 | 12.6 as restored |
+|---|---|---|---|---|---|
+| `location.origin` / `self.origin` | `boson://app` ×2 | `boson://app` ×2 | `boson://app` ×2 | `boson://app` ×2 | `boson://app` ×2 |
+| Secure context | yes | yes | yes | yes | yes |
+| Bodies 0 B → 50 MiB intact (length + SHA-256) | ✅ 127 ms | ✅ 153 ms | ✅ 256 ms | ✅ 281 ms | ✅ 196 ms |
+| Token flow / forged / injected path | 200 / 400 / 400 | the same | the same | the same | the same |
+| Repeated header: response / request | `one, two` / `a, b` | the same | the same | the same | the same |
+| `Cache-Control` pass-through | `no-store` | the same | the same | the same | the same |
+| UI during a 3 s request (max frame gap) | 21 ms | 26 ms | 21 ms | 26 ms | 21 ms |
+| Answers completed on the main thread | 32 / 32 | 32 / 32 | 32 / 32 | 32 / 32 | 32 / 32 |
+| Aborted request | `stopURLSchemeTask:` called, the late answer dropped, no exception, the next request fine | the same | the same | the same | the same |
+| Idle CPU, spike + WebKit helpers, 60 s after 60 s | **0.01 %** | 0 % | 0 % | 0 % | 0 % |
+
+Every body arrived as `HTTPBody` (17 of 17 on every target; never a stream). macOS 12 runs WebKit
+with no separate GPU process (WebContent + Networking).
+
+**A hidden page measures the lock, not the bridge.** Four VM runs showed a ~1 s worst frame gap
+(9 timer ticks in 3 s instead of ~160): one on 12.7.6 straight after its update's restart, and three
+on 27.2.1, whose screen had **locked** after its update's restart. WebKit clamps
+the timers of a page it considers hidden to 1 s. Every bridge counter was normal in those runs, and
+each target gave the figures above once its screen was unlocked (`macvm.sh prepare` now switches the
+lock off). A timing check in the parity script must record `document.visibilityState` beside its
+result.
+
+### Finding: WKWebView drops file bodies
+
+**A `Blob` or `File` body, and a `FormData` that contains one, reaches a `WKURLSchemeHandler` as no
+body at all**: `HTTPBody` and `HTTPBodyStream` are both nil, through `fetch()` and
+`XMLHttpRequest` alike, on 12.6 and on 27.2. There is no `Content-Length` and nothing else to detect it
+by; only the `Content-Type` survives (and a `FormData` with a file part loses its text parts too).
+Strings, `ArrayBuffer`s, typed arrays, `URLSearchParams` and file-less `FormData` arrive intact.
+This is WebKit's behaviour, not the bridge's: wry's handler reads the same two properties, and it
+is the same on every target above. Grafida's internal API posts only strings (`apiFetch()` sends
+`JSON.stringify(body)`; images travel as base64 inside it, or as a dialog token PHP reads), so nothing
+breaks today.
+
+**Decided: fail loudly in the page.** On macOS the shell injects a document-start script that wraps
+`fetch()` and `XMLHttpRequest.send()` for same-origin requests and throws a `TypeError` naming the
+limitation for a `Blob`/`File` body or a `FormData` with a file part, rather than letting it go out
+empty. No conversion.
+
 ## Decision
 
 ### 1. Stack: **Rust + wry / tao / rfd / muda**
@@ -142,7 +216,9 @@ only the extension points wry already exposes. Beyond that:
   `webkit2gtk` crate rather than through `with_asynchronous_custom_protocol`. Read the body until
   EOF in bounded chunks, keep repeated headers, and register the scheme as secure **and**
   CORS-enabled. Offer the reader fix upstream to wry; do not depend on it. macOS is decided in
-  Phase 4: wry's `WKURLSchemeHandler` path is acceptable if it passes the same tests.
+  Phase 4: wry's `WKURLSchemeHandler` path is acceptable if it passes the same tests. **Decided
+  (grafida/grafida#88): the shell owns the macOS webview through objc2**, and wry is not used on
+  macOS either; see "The macOS question".
 - **Turn the WebKitGTK sandbox on** (`WebContext::set_sandbox_enabled`) unless it breaks the file
   dialogs. The editor renders article HTML fetched from sites, and saucer/WebKitGTK 6 already
   sandboxes by default, so we should not regress below that.
@@ -173,6 +249,9 @@ configure time. Together these outweigh the one advantage the Windows result abo
 
 `linux-{x86_64,aarch64}`, `macos-{arm64,x86_64}`, `windows-x86_64`. The worker SFX is per-arch
 anyway, so a universal2 macOS shell buys nothing.
+
+**Amended in Phase 4 (grafida/grafida#88): macOS is arm64 only.** No x86_64 shell build, release
+asset or test: Intel Mac support ends next year, and anyone who needs it can build their own.
 
 ### 4. Licence of `grafida/shell`, `grafida/shell-php`, `grafida/shell-packager`: **MIT**
 

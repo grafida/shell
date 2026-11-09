@@ -1,0 +1,57 @@
+<!doctype html>
+<html><head><meta charset="utf-8"><title>Shell spike (macOS extras)</title>
+<style>body{font:14px system-ui;background:#1e1e1e;color:#ddd;padding:16px}pre{white-space:pre-wrap}</style></head>
+<body><h1>macOS extras</h1><pre id="log"></pre>
+<script>
+// What wry's macOS handler gets wrong (grafida/grafida#88): an aborted request (WebKit stops the
+// task; a late answer must be dropped, never sent to it) and the body forms WebKit hands over.
+const show = v => document.getElementById('log').textContent += JSON.stringify(v, null, 1) + '\n';
+const hex = b => [...new Uint8Array(b)].map(x => x.toString(16).padStart(2, '0')).join('');
+const sha = async b => hex(await crypto.subtle.digest('SHA-256', b));
+function bytes(size) { const buf = new Uint8Array(size); for (let i = 0; i < size; i++) buf[i] = (i * 31 + (i >> 8)) & 0xff; return buf; }
+async function echo(label, body, want, size) {
+  try {
+    const r = await fetch('/api/echo', {method: 'POST', body});
+    const got = await r.json();
+    return {label, size, status: r.status, ok: got.bytes === size && got.sha256 === want, gotBytes: got.bytes, contentType: got.contentType};
+  } catch (e) { return {label, error: String(e)}; }
+}
+(async () => {
+  const res = {origin: location.origin, secure: isSecureContext};
+  // 1. Aborted mid-flight: the "worker" answers 1.5 s later, after WebKit has stopped the task.
+  const ac = new AbortController();
+  const p = fetch('/api/slow?ms=1500', {signal: ac.signal}).then(() => 'answered', e => e.name);
+  setTimeout(() => ac.abort(), 200);
+  res.aborted = await p;
+  await new Promise(r => setTimeout(r, 2000));
+  res.aliveAfterAbort = (await fetch('/api/headers')).status;
+  // 2. Body forms, 10 MiB each (plus a 50 MiB Blob: Grafida's media uploads are big JSON strings).
+  const size = 10 * 1048576, buf = bytes(size), want = await sha(buf);
+  const text = 'x'.repeat(size), wantText = await sha(new TextEncoder().encode(text));
+  const fd = new FormData(); fd.append('a', 'b');
+  res.forms = [
+    await echo('ArrayBuffer', buf.buffer, want, size),
+    await echo('Uint8Array', buf, want, size),
+    await echo('string', text, wantText, size),
+    await echo('Blob', new Blob([buf]), want, size),
+    await echo('Blob 50 MiB', new Blob([bytes(50 * 1048576)]), await sha(bytes(50 * 1048576)), 50 * 1048576),
+    await echo('URLSearchParams', new URLSearchParams({a: 'b'}), await sha(new TextEncoder().encode('a=b')), 3),
+  ];
+  const fdr = await (await fetch('/api/echo', {method: 'POST', body: fd})).json();
+  res.formData = {bytes: fdr.bytes, contentType: fdr.contentType};
+  // 3. A repeated request header (fetch joins it as "a, b" before it leaves the page).
+  const h = new Headers(); h.append('x-rep', 'a'); h.append('x-rep', 'b');
+  res.requestHeaders = (await (await fetch('/api/request-headers', {headers: h})).json()).headers.filter(l => l.startsWith('x-rep'));
+  // 4. What arrives with a body WebKit drops: is there anything to detect it by?
+  const probe = async (label, body) => { const r = await (await fetch('/api/request-headers', {method: 'POST', body})).json(); return {label, bodyBytes: r.bodyBytes, headers: r.headers}; };
+  const fdFile = new FormData(); fdFile.append('f', new Blob([bytes(1000)]), 'f.bin');
+  res.dropped = [
+    await probe('Blob 1000 B', new Blob([bytes(1000)])),
+    await probe('Blob, typed', new Blob([bytes(1000)], {type: 'image/png'})),
+    await probe('FormData + file part', fdFile),
+  ];
+  res.xhrBlob = await new Promise(ok => { const x = new XMLHttpRequest(); x.open('POST', '/api/echo'); x.onload = () => ok(JSON.parse(x.responseText).bytes); x.onerror = () => ok('error'); x.send(new Blob([bytes(1000)])); });
+  show(res);
+  await fetch('/report-extra', {method: 'POST', body: JSON.stringify(res)});
+})();
+</script></body></html>
