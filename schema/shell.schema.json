@@ -1,0 +1,185 @@
+{
+    "$schema": "https://json-schema.org/draft/2020-12/schema",
+    "$id": "https://github.com/grafida/shell/raw/main/schema/shell.schema.json",
+    "title": "Grafida Shell application manifest (shell.json)",
+    "description": "Everything app-specific the shell needs. The shell validates its manifest against this schema at startup and refuses to run on any error. Defaults stated here are the shell's own (src/manifest.rs); a test keeps the two in step.",
+    "type": "object",
+    "additionalProperties": false,
+    "required": ["id", "title", "scheme", "window", "worker"],
+    "properties": {
+        "$schema": {
+            "type": "string"
+        },
+        "id": {
+            "description": "Reverse-DNS application id: bundle id, AppUserModelID, the log and runtime-file names.",
+            "type": "string",
+            "pattern": "^[A-Za-z0-9-]+(\\.[A-Za-z0-9-]+)+$",
+            "maxLength": 255
+        },
+        "title": {
+            "description": "The window title until the page sets another (_native/window/title).",
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 255
+        },
+        "scheme": {
+            "description": "The custom scheme the app is served on. The page origin is <scheme>://app, byte for byte, on every platform.",
+            "type": "string",
+            "pattern": "^[a-z][a-z0-9+.-]*$",
+            "maxLength": 64,
+            "not": {
+                "enum": ["about", "blob", "data", "file", "ftp", "http", "https", "javascript", "mailto", "resource", "view-source", "ws", "wss"]
+            }
+        },
+        "dataDir": {
+            "description": "Name of the per-user directory the webview keeps its data in ($XDG_DATA_HOME/<dataDir>/webkit on Linux). Defaults to the id.",
+            "type": "string",
+            "pattern": "^[A-Za-z0-9_-][A-Za-z0-9._-]*$",
+            "maxLength": 255
+        },
+        "startPath": {
+            "description": "Path of the first page, loaded once the worker is ready.",
+            "type": "string",
+            "pattern": "^/",
+            "default": "/"
+        },
+        "window": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": ["width", "height"],
+            "properties": {
+                "width": {"$ref": "#/$defs/pixels"},
+                "height": {"$ref": "#/$defs/pixels"},
+                "minWidth": {"$ref": "#/$defs/pixels"},
+                "minHeight": {"$ref": "#/$defs/pixels"},
+                "theme": {
+                    "description": "Initial window decoration theme; the page changes it with _native/window/theme.",
+                    "enum": ["light", "dark", "system"],
+                    "default": "system"
+                }
+            }
+        },
+        "worker": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": ["binary"],
+            "properties": {
+                "binary": {
+                    "description": "The worker executable, relative to the shell's resources directory.",
+                    "type": "string",
+                    "minLength": 1
+                },
+                "args": {
+                    "type": "array",
+                    "items": {"type": "string"},
+                    "default": []
+                },
+                "readyTimeoutMs": {
+                    "description": "How long the worker has to send its ready frame.",
+                    "type": "integer",
+                    "minimum": 1000,
+                    "maximum": 600000,
+                    "default": 15000
+                },
+                "maxBodyBytes": {
+                    "description": "Body limit per direction (protocol v1 section 2). The shell passes it to the worker as SHELL_MAX_BODY_BYTES.",
+                    "type": "integer",
+                    "minimum": 1048576,
+                    "maximum": 9007199254740991,
+                    "default": 134217728
+                },
+                "restart": {
+                    "type": "object",
+                    "additionalProperties": false,
+                    "properties": {
+                        "max": {
+                            "description": "Restarts allowed within windowSeconds; one crash more and the shell gives up with an alert.",
+                            "type": "integer",
+                            "minimum": 0,
+                            "maximum": 100,
+                            "default": 3
+                        },
+                        "windowSeconds": {
+                            "type": "integer",
+                            "minimum": 1,
+                            "maximum": 86400,
+                            "default": 60
+                        }
+                    }
+                }
+            }
+        },
+        "dev": {
+            "description": "Used with --dev only.",
+            "type": "object",
+            "additionalProperties": false,
+            "properties": {
+                "worker": {
+                    "description": "The worker command, run with the app directory as its working directory, e.g. [\"php\", \"bin/worker.php\"].",
+                    "type": "array",
+                    "items": {"type": "string", "minLength": 1},
+                    "minItems": 1
+                }
+            }
+        },
+        "webview": {
+            "type": "object",
+            "additionalProperties": false,
+            "properties": {
+                "contextMenu": {
+                    "description": "Whether the webview's native context menu is available (it carries the spelling suggestions).",
+                    "type": "boolean",
+                    "default": true
+                },
+                "devtools": {
+                    "description": "true, false, or \"env:NAME\": enabled when the environment variable NAME is set to a non-empty value other than 0.",
+                    "oneOf": [
+                        {"type": "boolean"},
+                        {"type": "string", "pattern": "^env:[A-Za-z_][A-Za-z0-9_]*$"}
+                    ],
+                    "default": false
+                },
+                "spellCheck": {
+                    "description": "Turn on the webview's spell checker. Pages still decide per element with the spellcheck attribute.",
+                    "type": "boolean",
+                    "default": true
+                }
+            }
+        },
+        "menu": {
+            "type": "object",
+            "additionalProperties": false,
+            "properties": {
+                "preset": {
+                    "description": "\"standard\": on macOS the app, Edit and Window menus; on Linux and Windows no menu bar. \"none\": no menus anywhere.",
+                    "enum": ["standard", "none"],
+                    "default": "standard"
+                },
+                "reservedChords": {
+                    "description": "Key chords the page owns. The shell never binds them, since a menu accelerator fires before the webview sees the key.",
+                    "type": "array",
+                    "items": {
+                        "type": "string",
+                        "pattern": "^((CmdOrCtrl|Cmd|Ctrl|Alt|Shift|Super)\\+)*[A-Za-z0-9]+$"
+                    },
+                    "uniqueItems": true,
+                    "default": []
+                }
+            }
+        },
+        "logDir": {
+            "description": "\"auto\" for the platform log directory, or an absolute path. The shell's own log and the worker's stderr go there, rotated.",
+            "type": "string",
+            "minLength": 1,
+            "default": "auto"
+        }
+    },
+    "$defs": {
+        "pixels": {
+            "description": "Logical pixels.",
+            "type": "integer",
+            "minimum": 1,
+            "maximum": 32767
+        }
+    }
+}
