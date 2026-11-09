@@ -1,0 +1,12 @@
+# scripts/dev/macvm.sh's local settings. Copy to macvm.conf (git-ignored) and edit.
+# Both directories need a lot of room: ~15 GB (macOS 12) and ~26 GB (macOS 27) per IPSW, and up to
+# 80 GB per VM, twice over (the VM and its -clean twin; APFS clones share blocks until they diverge).
+
+# Where tart keeps its VMs and caches (it reads TART_HOME).
+TART_HOME=/Volumes/EXTERNAL/tart
+
+# Where the IPSW restore images are downloaded to.
+IPSW_DIR=/Volumes/EXTERNAL/ipsw
+
+# The guest account's password (default grafida-vm). macOS refuses one containing the account name.
+# MACVM_PASSWORD=grafida-vm

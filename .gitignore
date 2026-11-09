@@ -5,3 +5,4 @@
 /.idea/
 __pycache__/
 /tests/apps/*/logs/
+/scripts/dev/macvm.conf
