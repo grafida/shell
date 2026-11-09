@@ -165,6 +165,26 @@ else
     token=$(python3 -I -c 'import json,sys; print(json.load(sys.stdin)["result"]["folderToken"])' <<<"$answer")
     $CLIENT screenshot "$WORK/grafida.png" >/dev/null
 
+    # The editor: paste as plain text, and an image file dropped on it.
+    php -r '$p = new PDO("sqlite:" . $argv[1]); $p->exec("PRAGMA busy_timeout = 5000"); $n = gmdate("Y-m-d H:i:s");
+        $p->prepare("INSERT INTO sites (title, base_url, created_at, updated_at) VALUES (?, ?, ?, ?)")->execute(["Parity", "https://example.invalid", $n, $n]);' \
+        "$WORK/home/data/grafida/grafida.sqlite" 2>/dev/null
+    $CLIENT eval 'location.reload(); return true' >/dev/null
+    sleep 2
+    $CLIENT wait 'return !!document.querySelector("#sidebar") && State.sites && State.sites.length > 0' 30 >/dev/null
+    echo 'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNk+A8AAQUBAScY42YAAAAASUVORK5CYII=' | base64 -d >"$WORK/dropped.png"
+    answer=$($CLIENT eval-file "$SHELL_DIR/scripts/dev/parity/grafida-editor.js")
+    record "$( [ "$(ok_field <<<"$answer")" = yes ] && echo PASS || echo FAIL)" \
+        "Grafida: Ctrl+Shift+V pastes the clipboard as plain text (the shell reads it; no wl-paste needed)" "$(ok_field <<<"$answer")"
+    read -r dx dy < <(python3 -I -c 'import json,sys; print(*json.load(sys.stdin)["result"]["dropAt"])' <<<"$answer")
+    $CLIENT drop "$dx" "$dy" "$WORK/dropped.png" >/dev/null
+    sleep 2
+    dropped=$($CLIENT eval 'return [...State.tinyMCEEditor.getBody().querySelectorAll("img[data-grafida-media-id]")].map(i => i.getAttribute("src"))')
+    record "$(grep -q 'boson://app/api/media/' <<<"$dropped" && echo PASS || echo FAIL)" \
+        "Grafida: an image file dropped on the editor is inserted as offline media (delivered as in a real drop)" \
+        "$(tr -d '\n ' <<<"$dropped" | cut -c1-120)"
+    $CLIENT eval 'State.tinyMCEEditor.setDirty(false); showScreen("sites"); return true' >/dev/null
+
     # Idle CPU of the whole tree on a quiet screen.
     settle=60 sample=60
     [ -n "${QUICK:-}" ] && settle=5 sample=10
