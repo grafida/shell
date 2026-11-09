@@ -3,3 +3,4 @@
 /spikes/*/build/
 /spikes/results/
 /.idea/
+__pycache__/
