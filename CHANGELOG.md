@@ -1,4 +1,4 @@
-shell 0.1 (unreleased)
+shell 0.1.0
 ================================================================================
 + Repository skeleton: crate, CI, licence, protocol and schema placeholders
 + ADR 0001: Rust + wry/tao/rfd/muda; deployment floors; per-arch builds; MIT
