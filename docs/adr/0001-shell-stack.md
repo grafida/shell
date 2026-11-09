@@ -1,6 +1,7 @@
 # ADR 0001 — Shell stack, deployment floors, architectures, licence
 
-- **Status:** Accepted for Linux. **Windows runtime verification pending** (see "Open items").
+- **Status:** Accepted. Verified at runtime on Linux and Windows. One open item remains: interactive
+  dialogs (see "Open items").
 - **Date:** 2026-11-09
 - **Context issue:** [grafida/grafida#82](https://github.com/grafida/grafida/issues/82), Phase 0
 
@@ -74,7 +75,7 @@ For comparison, Boson idles at **~49 %** of a core today (see Grafida's `EventLo
 ## The Windows question
 
 **Can wry serve a real `boson://` scheme on WebView2 without a deep fork? Yes, with no fork at
-all, in principle. Runtime proof is pending (see Open items).**
+all. Verified at runtime on Windows 11 (see "Results (Windows)").**
 
 wry maps a custom protocol `boson` to `http://boson.localhost` (`custom_protocol_workaround.rs`).
 But wry 0.57 exposes everything needed to avoid that path:
@@ -96,6 +97,28 @@ But wry 0.57 exposes everything needed to avoid that path:
 `cargo xwin build --target x86_64-pc-windows-msvc` with no warnings. With
 `-C target-feature=+crt-static` it is a 1.2 MB executable importing only OS DLLs (no
 `VCRUNTIME140`), and the WebView2 loader is linked statically.
+
+### Results (Windows)
+
+Run on 2026-11-09 in a Windows 11 Pro build 26300 VM (quickemu/KVM, WebView2 Evergreen
+157.0.4341.42). The static-CRT build of `spikes/rust-wry` ran in the logged-on desktop session via
+an interactive scheduled task (`spikes/windows/run.ps1`), with the same page and the same tests as
+on Linux.
+
+| | Windows 11 + WebView2 157 |
+|---|---|
+| `location.origin` / `self.origin` | **`boson://app`** / `boson://app` |
+| Secure context | yes |
+| All body sizes 0 B → 50 MiB intact | ✅ (50 MiB in 865 ms; the first request ~1 s, environment warm-up) |
+| Token flow / forged token / injected path | ✅ 200 / 400 / 400, stripped |
+| Repeated response header | `one, two` |
+| UI during a 3 s request (max frame gap) | 17 ms |
+| Idle CPU, whole tree (spike + 6 `msedgewebview2` + `conhost`), 60 s | **0.47 %** of one core |
+| WebView2 children after the host is killed | all exited; no orphans |
+
+The `conhost` in the tree is only there because the spike is a console-subsystem binary; the shell
+proper is GUI-subsystem. The other `msedgewebview2` processes in the VM belong to `SearchHost.exe`
+(Windows Search), which is worth knowing before blaming the shell for stray WebView2 processes.
 
 ## Decision
 
@@ -159,14 +182,11 @@ windows-rs) are MIT/Apache-2.0. Grafida itself stays GPL-3.0-or-later.
 
 ## Open items (do not close Phase 0 without them)
 
-1. **Windows runtime proof.** Run `spikes/rust-wry` (static-CRT build) in the Windows 11 VM.
-   `location.origin` must equal `boson://app`, and the 50 MiB body, the token flow, the slow
-   request and repeated headers must pass, with `measure`-equivalent idle CPU via Task Manager or
-   `Get-Process`. If the origin is not `boson://app`, Decision 1 is reopened: try owning the
-   controller via `webview2-com`, else fall back to saucer.
-2. **Interactive dialogs on Linux.** Run both spikes once without `SPIKE_AUTOPICK` on KDE Plasma
-   (Wayland). Confirm that rfd's xdg-portal backend shows the native KDE dialog and that cancel
-   returns `{cancelled:true}`.
+1. ~~**Windows runtime proof.**~~ **Done 2026-11-09**: the origin is `boson://app` and every test
+   passes (see "Results (Windows)").
+2. **Interactive dialogs.** Run the wry spike once without `SPIKE_AUTOPICK` on KDE Plasma (Wayland)
+   and in the Windows VM. Confirm that the native dialog appears (on Linux, rfd's xdg-portal backend
+   should show the KDE dialog), and that cancelling returns `{cancelled:true}`.
 
 ## Consequences
 
