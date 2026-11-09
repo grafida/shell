@@ -15,6 +15,7 @@
 //! {"token":"…","cmd":"pick","paths":["/tmp/a.png"]}          → {"ok":true}   (next dialog answers this)
 //! {"token":"…","cmd":"pick","paths":null}                    → {"ok":true}   (next dialog is cancelled)
 //! {"token":"…","cmd":"opened"}                               → {"ok":true,"result":["https://…"]}
+//! {"token":"…","cmd":"drop","paths":["/tmp/a.png"],"x":400,"y":300} → {"ok":true}  (as if dropped)
 //! ```
 //!
 //! While the channel is open the shell **records** the URLs it would hand to the OS browser instead

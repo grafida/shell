@@ -72,6 +72,17 @@ the desktop session through an interactive scheduled task, never directly over S
   never reaches the worker; `x-shell-file-path` from the page is always dropped and an `x-shell-file`
   token is resolved into it (the token itself is not forwarded); `no-store` is added under the
   manifest's `noStorePaths` when the worker sent no `cache-control`/`expires`.
+- **The shell reads the clipboard for the app, and takes file drops for it**, because it is the
+  process that owns the window and the page is sandboxed. A request carrying `x-shell-clipboard:
+  read` gets the clipboard's text (GTK's own clipboard: no `wl-paste`/`xclip`, no prompt) as its
+  **body**, with `x-shell-clipboard: text`; any other value of that header from the page is dropped,
+  so a page cannot pass its own text off as the clipboard. A **file drag** (`text/uri-list` without
+  `text/html`) is taken in GTK's drag signals *before* WebKit's class handlers (they are RUN_LAST),
+  because the sandboxed web process cannot read the user's files — WebKit would hand the page only
+  the `file://` URI. The shell issues tokens for the files and dispatches `shell:drop`
+  (`{files: [{token, name, size}], x, y}`) into the page; a link or image dragged out of a browser
+  (it offers `text/html`) and any drag within the page stay WebKit's. The automation channel's
+  `drop` command delivers a drop the same way, since a native drag cannot be scripted on Wayland.
 - **The navigation policy is layered, because WebKitGTK cannot tell a main-frame navigation from a
   subframe one** (`src/navigation.rs`). A navigation *action* off-origin is cancelled only when it
   carries a **user gesture** (then http(s) opens in the OS browser); a gesture-less one may be an

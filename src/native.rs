@@ -14,7 +14,7 @@ use crate::{
     manifest::Theme,
     protocol::PROTOCOL_VERSION,
     supervisor::Responder,
-    tokens::Kind,
+    tokens::{Kind, TokenStore},
 };
 
 pub fn handle(bridge: &Bridge, request: Request, respond: Responder) {
@@ -200,15 +200,7 @@ fn with_dialog(
         let mut tokens = tokens.lock().unwrap();
         let mut entries: Vec<Value> = paths
             .into_iter()
-            .map(|path| {
-                let name = file_name(&path);
-                let size = std::fs::metadata(&path).map(|m| m.len()).ok();
-                let token = tokens.issue(path, kind);
-                match kind {
-                    Kind::File => json!({"token": token, "name": name, "size": size.unwrap_or(0)}),
-                    Kind::Folder | Kind::SaveTarget => json!({"token": token, "name": name}),
-                }
-            })
+            .map(|path| file_entry(&mut tokens, path, kind))
             .collect();
         let body = match kind {
             Kind::File => json!({"files": entries}),
@@ -217,6 +209,17 @@ fn with_dialog(
         };
         respond(Response::json(200, &body));
     }));
+}
+
+/// One picked file or folder as the page sees it: a fresh token and the name, never the path.
+pub(crate) fn file_entry(tokens: &mut TokenStore, path: std::path::PathBuf, kind: Kind) -> Value {
+    let name = file_name(&path);
+    let size = std::fs::metadata(&path).map(|m| m.len()).ok();
+    let token = tokens.issue(path, kind);
+    match kind {
+        Kind::File => json!({"token": token, "name": name, "size": size.unwrap_or(0)}),
+        Kind::Folder | Kind::SaveTarget => json!({"token": token, "name": name}),
+    }
 }
 
 fn file_name(path: &Path) -> String {
@@ -460,6 +463,9 @@ mod tests {
             fn set_window_theme(&self, _: crate::manifest::Theme) {}
             fn set_window_title(&self, _: &str) {}
             fn quit(&self) {}
+            fn read_clipboard(&self, done: crate::bridge::ClipboardDone) {
+                done(None);
+            }
             fn webview_version(&self) -> String {
                 String::new()
             }

@@ -37,7 +37,7 @@ use webkit2gtk::{
 };
 
 use crate::{
-    bridge::{Bridge, DialogDone, FileFilter, Host},
+    bridge::{Bridge, ClipboardDone, DialogDone, FileFilter, Host},
     cli::Launch,
     http::Response,
     log::Log,
@@ -48,13 +48,13 @@ use crate::{
 
 pub use alert::alert;
 
-#[derive(Debug)]
 pub enum UserEvent {
     Respond(u64, Response),
     Worker(Notice),
     SetTitle(String),
     SetTheme(Theme),
     Dialog(DialogRequest),
+    ReadClipboard(ClipboardDone),
     Quit,
     #[cfg(all(feature = "automation", debug_assertions))]
     Automation(crate::automation::Command),
@@ -239,6 +239,7 @@ pub fn run(launch: Launch, log: Arc<Log>) -> i32 {
     webview.set_background_color(&background(&window));
     install_policy(&webview, &origin, log.clone());
     install_context_menu(&webview, manifest.webview.context_menu);
+    install_file_drops(&webview, scheme.clone(), log.clone());
     {
         let log = log.clone();
         webview.connect_web_process_terminated(move |_, reason| {
@@ -353,7 +354,13 @@ pub fn run(launch: Launch, log: Arc<Log>) -> i32 {
             }
             #[cfg(all(feature = "automation", debug_assertions))]
             Event::UserEvent(UserEvent::Automation(command)) => {
-                automation(&webview, &picks, command);
+                automation(&webview, &picks, &scheme, &log, command);
+            }
+            Event::UserEvent(UserEvent::ReadClipboard(done)) => {
+                // GTK's own clipboard, read asynchronously on the UI thread: no wl-paste/xclip,
+                // and no prompt, because the window asking is the focused one.
+                gtk::Clipboard::get(&gtk::gdk::SELECTION_CLIPBOARD)
+                    .request_text(move |_, text| done(text.map(str::to_owned)));
             }
             Event::UserEvent(UserEvent::Quit) => stop(control_flow, exit.get()),
             _ => {}
@@ -496,6 +503,108 @@ fn install_policy(webview: &WebView, origin: &str, log: Arc<Log>) {
     });
 }
 
+/// Files dropped on the window (grafida/grafida#85).
+///
+/// The web process is sandboxed and cannot see the user's files, so a file WebKit took in itself
+/// would reach the page as nothing but its `file://` URI. The shell therefore takes a file drag
+/// from a file manager before WebKit does, issues the same per-session tokens a dialog does, and
+/// tells the page with a `shell:drop` event: `{files: [{token, name, size}], x, y}`, the drop point
+/// in viewport coordinates. The page reads the files through `X-Shell-File`, as after a dialog.
+///
+/// A file drag offers `text/uri-list` and no `text/html`; a link or an image dragged out of a
+/// browser offers `text/html` and stays WebKit's, as does any drag within the page. WebKit handles
+/// these signals in its class closures, which run after ours (they are RUN_LAST), so returning
+/// `true` from a boolean one, or stopping the emission of a void one, keeps the drag from it.
+fn install_file_drops(webview: &WebView, scheme: Rc<scheme::Scheme>, log: Arc<Log>) {
+    use gtk::gdk;
+    use std::cell::RefCell;
+
+    fn is_file_drag(context: &gdk::DragContext) -> bool {
+        let targets: Vec<String> = context
+            .list_targets()
+            .iter()
+            .map(|a| a.name().to_string())
+            .collect();
+        targets.iter().any(|t| t == "text/uri-list") && !targets.iter().any(|t| t == "text/html")
+    }
+
+    let active: Rc<RefCell<Option<gdk::DragContext>>> = Rc::default();
+    let is_active = |active: &RefCell<Option<gdk::DragContext>>, context: &gdk::DragContext| {
+        active.borrow().as_ref() == Some(context)
+    };
+
+    {
+        let active = active.clone();
+        webview.connect_drag_motion(move |_, context, _, _, time| {
+            if !is_file_drag(context) {
+                *active.borrow_mut() = None;
+                return false;
+            }
+            *active.borrow_mut() = Some(context.clone());
+            context.drag_status(gdk::DragAction::COPY, time);
+            true
+        });
+    }
+    {
+        let active = active.clone();
+        webview.connect_drag_leave(move |widget, context, _| {
+            // GTK sends drag-leave before drag-drop too, so the drag stays ours until it ends.
+            if is_active(&active, context) {
+                widget.stop_signal_emission_by_name("drag-leave");
+            }
+        });
+    }
+    {
+        let active = active.clone();
+        webview.connect_drag_drop(move |widget, context, _, _, time| {
+            if !is_active(&active, context) {
+                return false;
+            }
+            widget.drag_get_data(context, &gdk::Atom::intern("text/uri-list"), time);
+            true
+        });
+    }
+    webview.connect_drag_data_received(move |widget, context, x, y, data, _, time| {
+        if !is_active(&active, context) {
+            return;
+        }
+        widget.stop_signal_emission_by_name("drag-data-received");
+        *active.borrow_mut() = None;
+
+        let paths: Vec<PathBuf> = data
+            .uris()
+            .iter()
+            .filter_map(|uri| gio::File::for_uri(uri).path())
+            .filter(|path| path.is_file())
+            .collect();
+        context.drag_finish(!paths.is_empty(), false, time);
+        if let Some(webview) = widget.downcast_ref::<WebView>() {
+            deliver_drop(webview, &scheme, paths, x, y, &log);
+        }
+    });
+}
+
+/// Hands dropped files to the page: tokens, then the `shell:drop` event. Also what the automation
+/// channel's `drop` command calls, since a native drag cannot be scripted on Wayland.
+fn deliver_drop(
+    webview: &WebView,
+    scheme: &scheme::Scheme,
+    paths: Vec<PathBuf>,
+    x: i32,
+    y: i32,
+    log: &Log,
+) {
+    if paths.is_empty() {
+        return;
+    }
+    let count = paths.len();
+    let detail = serde_json::json!({"files": scheme.bridge.issue_files(paths), "x": x, "y": y});
+    let script =
+        format!("window.dispatchEvent(new CustomEvent('shell:drop', {{detail: {detail}}}));");
+    webview.evaluate_javascript(&script, None, None, gio::Cancellable::NONE, |_| {});
+    log.line("shell", &format!("{count} file(s) dropped at {x},{y}"));
+}
+
 /// The context menu: off when the manifest says so; otherwise WebKit's, minus the entries that
 /// would navigate away, reload the app, open a window or download.
 fn install_context_menu(webview: &WebView, enabled: bool) {
@@ -592,6 +701,10 @@ impl Host for LinuxHost {
 
     fn quit(&self) {
         self.post(UserEvent::Quit);
+    }
+
+    fn read_clipboard(&self, done: ClipboardDone) {
+        self.post(UserEvent::ReadClipboard(done));
     }
 
     fn webview_version(&self) -> String {
@@ -691,7 +804,13 @@ fn open_dialog(window: &Window, request: DialogRequest) {
 
 /// Runs one automation command on the UI thread.
 #[cfg(all(feature = "automation", debug_assertions))]
-fn automation(webview: &WebView, picks: &Picks, command: crate::automation::Command) {
+fn automation(
+    webview: &WebView,
+    picks: &Picks,
+    scheme: &scheme::Scheme,
+    log: &Log,
+    command: crate::automation::Command,
+) {
     use javascriptcore::ValueExt;
     use serde_json::{Value, json};
     use webkit2gtk::{SnapshotOptions, SnapshotRegion};
@@ -750,6 +869,21 @@ fn automation(webview: &WebView, picks: &Picks, command: crate::automation::Comm
                     let _ = reply.send(answer);
                 },
             );
+        }
+        Some("drop") => {
+            let paths: Vec<PathBuf> = request
+                .get("paths")
+                .and_then(Value::as_array)
+                .map(|p| {
+                    p.iter()
+                        .filter_map(Value::as_str)
+                        .map(PathBuf::from)
+                        .collect()
+                })
+                .unwrap_or_default();
+            let at = |k: &str| request.get(k).and_then(Value::as_i64).unwrap_or(0) as i32;
+            deliver_drop(webview, scheme, paths, at("x"), at("y"), log);
+            let _ = reply.send(json!({"ok": true}));
         }
         Some("opened") => {
             let urls = RECORDED_OPENS

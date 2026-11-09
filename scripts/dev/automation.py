@@ -13,6 +13,7 @@
 #   automation.py pick /abs/a.png [/abs/b.png …] # the next native dialog answers this
 #   automation.py pick --cancel                  # the next native dialog is cancelled
 #   automation.py opened                         # URLs recorded instead of opened in the browser
+#   automation.py drop X Y /abs/a.png […]         # as if those files were dropped at X,Y
 #   automation.py wait 'return document.readyState === "complete"' [timeout_s]
 #
 # Prints the JSON answer; exits 1 when the answer is not ok.
@@ -61,6 +62,9 @@ def main(argv):
     elif cmd == "pick":
         paths = None if args == ["--cancel"] else [os.path.abspath(a) for a in args]
         answer = send({"cmd": "pick", "paths": paths})
+    elif cmd == "drop":
+        answer = send({"cmd": "drop", "x": int(args[0]), "y": int(args[1]),
+                       "paths": [os.path.abspath(a) for a in args[2:]]})
     elif cmd == "opened":
         answer = send({"cmd": "opened"})
     elif cmd == "wait":

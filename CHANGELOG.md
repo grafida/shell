@@ -14,5 +14,7 @@ shell 0.1 (unreleased)
 + Navigation policy: off-origin links open in the OS browser; nothing else can navigate the app away
 + Native endpoints (`_native/*`): file dialogs that hand out per-session tokens, open-url, reveal, window title/theme
 + Failure alerts with the worker's last stderr lines; rotated log of the shell and the worker
++ The shell reads the clipboard for the app, so paste-as-plain-text needs no clipboard tool installed
++ Files dropped on the window reach the app as tokens, despite the sandboxed webview
 + `--dev [APP_DIR]` runs an app from its source tree with the manifest's `dev.worker` command
 + Debug-only automation channel (`--automation`) for driving the real window from scripts
