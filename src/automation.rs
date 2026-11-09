@@ -41,14 +41,22 @@ pub struct Command {
     pub reply: Sender<Value>,
 }
 
-/// The open channel. Dropping it removes the runtime file.
+/// The open channel. Dropping it removes the runtime file — but the event loop ends the process
+/// without dropping anything, so the platform layer also calls [`Channel::close`] as it stops.
 pub struct Channel {
     file: PathBuf,
 }
 
+impl Channel {
+    /// Removes the runtime file, so no client (or test script) mistakes it for a live shell.
+    pub fn close(&self) {
+        let _ = fs::remove_file(&self.file);
+    }
+}
+
 impl Drop for Channel {
     fn drop(&mut self) {
-        let _ = fs::remove_file(&self.file);
+        self.close();
     }
 }
 

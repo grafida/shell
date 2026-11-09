@@ -497,8 +497,13 @@ impl State {
     }
 
     /// Kills the worker at once and reaps it.
+    ///
+    /// The generation moves on as the worker goes: its reader threads report its end (EOF) a moment
+    /// later, and that must not register as yet another crash, which would mean a second fatal
+    /// alert after giving up.
     fn stop_worker_now(&mut self) -> Option<ExitStatus> {
         let mut w = self.worker.take()?;
+        self.generation += 1;
         drop(w.stdin.take());
         if let Ok(Some(status)) = w.child.try_wait() {
             return Some(status);

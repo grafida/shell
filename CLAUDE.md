@@ -88,6 +88,12 @@ the desktop session through an interactive scheduled task, never directly over S
   external URLs instead of launching the browser (`opened`). `tests/apps/echo/` (the fake worker in
   echo mode, behind a 60 MiB limit) holds the in-webview checks: `bridge.js`, `navigation.js`,
   `dialogs.js`.
+- **`scripts/dev/parity-linux.sh` is the automatable half of #82's Linux parity column**: it runs
+  the debug shell on the current desktop against `tests/apps/{echo,silent}` and against Grafida
+  (`GRAFIDA_DIR`, default `../grafida`) with every per-user directory in a temp dir, and prints a
+  PASS/FAIL Markdown table with the commits it ran on (`QUICK=1` shortens the idle-CPU sample). The
+  automation channel's runtime file is removed in the shell's stop path, not only in `Drop`: tao
+  ends the process without dropping anything, and a stale file hands a client a dead pid.
 - **Menu accelerators fire before the webview sees the key.** Never bind a chord the manifest
   reserves (Grafida: `CmdOrCtrl+Shift+V`).
 - Windows builds use a static CRT (`-C target-feature=+crt-static`).

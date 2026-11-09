@@ -136,6 +136,8 @@ fn a_worker_that_never_sends_ready_is_fatal_after_the_timeout() {
     );
     assert!(started.elapsed() >= Duration::from_millis(1500));
     assert!(started.elapsed() < Duration::from_secs(6));
+    // The worker it killed must not come back as a second crash and a second alert.
+    h.assert_no_notice_for(Duration::from_millis(800));
 }
 
 #[test]

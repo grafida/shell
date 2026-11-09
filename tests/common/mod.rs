@@ -91,6 +91,13 @@ impl Harness {
             .expect("a supervisor notice")
     }
 
+    /// Fails if the supervisor says anything more within `quiet`.
+    pub fn assert_no_notice_for(&self, quiet: Duration) {
+        if let Ok(extra) = self.notices.recv_timeout(quiet) {
+            panic!("unexpected extra notice: {extra:?}");
+        }
+    }
+
     pub fn submit(&self, method: &str, url: &str) -> Receiver<Response> {
         self.submit_full(method, url, &[], Vec::new())
     }

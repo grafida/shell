@@ -42,6 +42,8 @@ def send(command, timeout=130):
             if not chunk:
                 break
             buf += chunk
+    if not buf:
+        return {"ok": False, "error": "no answer: the connection closed (did the shell exit?)"}
     return json.loads(buf)
 
 

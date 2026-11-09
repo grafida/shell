@@ -305,6 +305,10 @@ pub fn run(launch: Launch, log: Arc<Log>) -> i32 {
     event_loop.run(move |event, _, control_flow| {
         *control_flow = ControlFlow::Wait;
         let stop = |control_flow: &mut ControlFlow, code: i32| {
+            #[cfg(all(feature = "automation", debug_assertions))]
+            if let Some(channel) = &_automation {
+                channel.close();
+            }
             window.set_visible(false);
             supervisor.shutdown();
             exit.set(code);
