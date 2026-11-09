@@ -1,7 +1,6 @@
 # ADR 0001 — Shell stack, deployment floors, architectures, licence
 
-- **Status:** Accepted. Verified at runtime on Linux and Windows. One open item remains: interactive
-  dialogs (see "Open items").
+- **Status:** Accepted. Verified at runtime on Linux and Windows; no open items.
 - **Date:** 2026-11-09
 - **Context issue:** [grafida/grafida#82](https://github.com/grafida/grafida/issues/82), Phase 0
 
@@ -180,18 +179,21 @@ anyway, so a universal2 macOS shell buys nothing.
 This lets non-GPL consumers use the shell. All dependencies (wry, tao, rfd, muda, webview2-com,
 windows-rs) are MIT/Apache-2.0. Grafida itself stays GPL-3.0-or-later.
 
-## Open items (do not close Phase 0 without them)
+## Open items
 
 1. ~~**Windows runtime proof.**~~ **Done 2026-11-09**: the origin is `boson://app` and every test
    passes (see "Results (Windows)").
-2. **Interactive dialogs.** Run the wry spike once without `SPIKE_AUTOPICK` on KDE Plasma (Wayland)
-   and in the Windows VM. Confirm that the native dialog appears (on Linux, rfd's xdg-portal backend
-   should show the KDE dialog), and that cancelling returns `{cancelled:true}`.
+2. ~~**Interactive dialogs.**~~ **Done 2026-11-09**: the wry spike, run without `SPIKE_AUTOPICK`,
+   showed the native dialog on KDE Plasma 6 (Wayland, rfd's default xdg-portal backend) and on
+   Windows 11. On both, a picked file came back through the token with a matching SHA-256 (a 36 MB
+   file on Linux), and cancelling returned `{cancelled:true}`. The forged token and the injected
+   path were refused again in the same runs.
 
 ## Consequences
 
 - `grafida/shell` is a Rust crate (edition 2024). Phase 2 builds it on Linux in dev mode.
-- Cross-compiling Windows binaries from Linux/macOS (`cargo-xwin`) and running them in a VM
-  (`build/readme`-style notes to follow in Phase 5) is the expected Windows workflow.
+- Cross-compiling Windows binaries from Linux/macOS (`cargo-xwin`) and running them in a VM is the
+  expected Windows workflow. The VM is set up as described in
+  [`docs/dev/windows-test-vm.md`](../dev/windows-test-vm.md).
 - The Linux packaging (Phase 3) documents `libwebkit2gtk-4.1-0` + `libgtk-3-0`, not the GTK 4
   stack Boson pulls in today.

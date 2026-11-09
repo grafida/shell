@@ -4,3 +4,5 @@ shell 0.1 (unreleased)
 + ADR 0001: Rust + wry/tao/rfd/muda; deployment floors; per-arch builds; MIT
 + Phase 0 spikes (wry, saucer) with the measurement harness
 + ADR 0001: Windows runtime results; the real boson:// scheme works on WebView2 without a wry fork
++ ADR 0001: native dialogs verified on KDE Plasma (Wayland) and Windows; no open items
++ Developer docs: Windows 11 test VM on a Linux host, with `scripts/dev/winvm-unattend.py`

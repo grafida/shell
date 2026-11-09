@@ -10,6 +10,7 @@ the shell; not maintained.
 - `cpp-saucer/` — C++23 + saucer (Linux): `cmake -S . -B build -G Ninja -DCMAKE_BUILD_TYPE=Release && cmake --build build`.
 - `windows/run.ps1` — the Windows counterpart of `measure.sh`, run inside the VM in the logged-on
   session (`schtasks /Create … /IT`, then `/Run`); writes `C:\spike\result.json`.
+  `windows/dialog.ps1 -Tag <t>` runs it once with the real dialog and waits for it to exit.
 - `measure.sh <label> <binary> [settle_s] [measure_s]` — runs a spike with `SPIKE_AUTOPICK` set,
   collects its `REPORT` line into `results/<label>.json`, then measures idle CPU of the whole
   process tree. Opens a window on the current desktop.

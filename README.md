@@ -14,6 +14,8 @@ those requests over a framed stdio protocol. It is driven entirely by a manifest
   [shell-packager](https://github.com/grafida/shell-packager) (build/sign/package),
   [phpmicro](https://github.com/grafida/phpmicro) (the worker's PHP runtime)
 
+Developer setup: [Windows 11 test VM on a Linux host](docs/dev/windows-test-vm.md).
+
 This repository is also the home of the **wire protocol specification and its conformance
 fixtures** (`protocol/`), which both the Rust and PHP sides test against.
 
