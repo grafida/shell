@@ -1,0 +1,57 @@
+<!doctype html>
+<html><head><meta charset="utf-8"><title>Shell spike</title>
+<style>body{font:14px system-ui;background:#1e1e1e;color:#ddd;padding:16px}pre{white-space:pre-wrap}</style></head>
+<body><h1>Shell spike</h1><pre id="log"></pre>
+<script>
+const out = [];
+const log = (k, v) => { out.push({k, v}); document.getElementById('log').textContent += k + ': ' + JSON.stringify(v) + '\n'; };
+const hex = b => [...new Uint8Array(b)].map(x => x.toString(16).padStart(2, '0')).join('');
+async function report(obj) {
+  await fetch('/report', {method: 'POST', headers: {'content-type': 'application/json'}, body: JSON.stringify(obj)});
+}
+async function echo(size) {
+  const buf = new Uint8Array(size);
+  for (let i = 0; i < size; i++) buf[i] = (i * 31 + (i >> 8)) & 0xff;
+  const want = hex(await crypto.subtle.digest('SHA-256', buf));
+  const t0 = performance.now();
+  const r = await fetch('/api/echo', {method: 'POST', headers: {'content-type': 'application/octet-stream'}, body: buf});
+  const got = await r.json();
+  return {size, status: r.status, gotBytes: got.bytes, ok: got.bytes === size && got.sha256 === want, ms: Math.round(performance.now() - t0)};
+}
+(async () => {
+  const res = {origin: location.origin, selfOrigin: self.origin, href: location.href, secure: window.isSecureContext, ua: navigator.userAgent};
+  try {
+    res.echo = [];
+    for (const s of [0, 1, 1023, 1024, 1025, 65536, 1048577, 10 * 1048576, 50 * 1048576]) res.echo.push(await echo(s));
+  } catch (e) { res.echoError = String(e); }
+  try {
+    const r = await fetch('/api/headers', {headers: {'x-test': 'a'}});
+    res.cacheControl = r.headers.get('cache-control');
+    res.repeatedHeader = r.headers.get('x-multi');
+  } catch (e) { res.headersError = String(e); }
+  try {
+    const d = await (await fetch('/_native/dialog/open-file', {method: 'POST', headers: {'content-type': 'application/json'}, body: JSON.stringify({filters: [{name: 'Any', extensions: ['*']}], multiple: false})})).json();
+    res.dialog = d;
+    if (d.files) {
+      const tok = d.files[0].token;
+      const good = await fetch('/api/read-file', {method: 'POST', headers: {'x-shell-file': tok}});
+      res.tokenGood = {status: good.status, body: await good.json()};
+      const forged = await fetch('/api/read-file', {method: 'POST', headers: {'x-shell-file': 'forged-token'}});
+      res.tokenForged = {status: forged.status};
+      const inject = await fetch('/api/read-file', {method: 'POST', headers: {'x-shell-file-path': '/etc/passwd'}});
+      res.pathInjection = {status: inject.status, body: await inject.text()};
+    }
+  } catch (e) { res.dialogError = String(e); }
+  try {
+    // A slow request must not block the UI thread: measure main-thread jank while it runs.
+    let ticks = 0, maxGap = 0, last = performance.now();
+    const iv = setInterval(() => { const n = performance.now(); maxGap = Math.max(maxGap, n - last); last = n; ticks++; }, 16);
+    const t0 = performance.now();
+    await fetch('/api/slow?ms=3000');
+    clearInterval(iv);
+    res.slow = {ms: Math.round(performance.now() - t0), ticks, maxGapMs: Math.round(maxGap)};
+  } catch (e) { res.slowError = String(e); }
+  log('result', res);
+  await report({type: 'DONE', result: res});
+})();
+</script></body></html>

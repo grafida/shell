@@ -1,0 +1,5 @@
+/target/
+/spikes/*/target*/
+/spikes/*/build/
+/spikes/results/
+/.idea/

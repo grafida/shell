@@ -1,0 +1,20 @@
+[package]
+name = "spike-rust-wry"
+version = "0.1.0"
+edition = "2024"
+
+[dependencies]
+hex = "0.4.3"
+pollster = "0.4"
+rfd = "0.18.0"
+serde_json = "1.0.154"
+sha2 = "0.11.1"
+tao = "0.37.2"
+wry = { version = "0.57.1", features = ["linux-body", "devtools"] }
+
+[target.'cfg(windows)'.dependencies]
+webview2-com = "0.39.1"
+windows-core = "0.62"
+windows = { version = "0.62", features = ["Win32_Foundation", "Win32_System_Com", "Win32_UI_Shell", "Win32_System_Com_StructuredStorage"] }
+
+[workspace]
