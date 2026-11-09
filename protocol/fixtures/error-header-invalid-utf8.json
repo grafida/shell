@@ -1,0 +1,5 @@
+{
+  "description": "Invalid UTF-8 inside a JSON string.",
+  "frames": [],
+  "end": "bad_json"
+}

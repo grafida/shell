@@ -1,0 +1,5 @@
+{
+  "description": "EOF after 3 of 10 body bytes.",
+  "frames": [],
+  "end": "truncated"
+}

@@ -1,0 +1,20 @@
+{
+  "description": "The method is a token whose case is preserved, not normalised.",
+  "frames": [
+    {
+      "header": {
+        "type": "request",
+        "id": 8,
+        "method": "patch",
+        "url": "boson://app/api/drafts/1",
+        "headers": {}
+      },
+      "body": {
+        "length": 0,
+        "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+        "text": ""
+      }
+    }
+  ],
+  "end": "eof"
+}

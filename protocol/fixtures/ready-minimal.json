@@ -1,0 +1,18 @@
+{
+  "description": "A ready frame with only the required members; optional ones stay absent.",
+  "frames": [
+    {
+      "header": {
+        "type": "ready",
+        "protocol": 1,
+        "pid": 0
+      },
+      "body": {
+        "length": 0,
+        "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+        "text": ""
+      }
+    }
+  ],
+  "end": "eof"
+}

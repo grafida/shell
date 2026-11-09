@@ -1,0 +1,5 @@
+{
+  "description": "ready must not carry a body.",
+  "frames": [],
+  "end": "bad_header"
+}

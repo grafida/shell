@@ -1,0 +1,5 @@
+{
+  "description": "H = 1 MiB + 1, with nothing after it.",
+  "frames": [],
+  "end": "header_too_large"
+}

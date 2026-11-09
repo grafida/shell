@@ -1,0 +1,5 @@
+{
+  "description": "CR LF in a value would smuggle a second header.",
+  "frames": [],
+  "end": "bad_header"
+}

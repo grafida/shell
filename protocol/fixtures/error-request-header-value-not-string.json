@@ -1,0 +1,5 @@
+{
+  "description": "Header values must be strings.",
+  "frames": [],
+  "end": "bad_header"
+}

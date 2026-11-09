@@ -1,0 +1,55 @@
+{
+  "description": "What a worker writes: ready, then two responses.",
+  "frames": [
+    {
+      "header": {
+        "type": "ready",
+        "protocol": 1,
+        "pid": 4242,
+        "app": "grafida",
+        "version": "1.4.0"
+      },
+      "body": {
+        "length": 0,
+        "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+        "text": ""
+      }
+    },
+    {
+      "header": {
+        "type": "response",
+        "id": 1,
+        "status": 200,
+        "headers": {
+          "content-type": [
+            "application/json"
+          ]
+        }
+      },
+      "body": {
+        "length": 11,
+        "sha256": "4062edaf750fb8074e7e83e0c9028c94e32468a8b6f1614774328ef045150f93",
+        "text": "{\"ok\":true}"
+      }
+    },
+    {
+      "header": {
+        "type": "response",
+        "id": 2,
+        "status": 404,
+        "headers": {
+          "x-multi": [
+            "one",
+            "two"
+          ]
+        }
+      },
+      "body": {
+        "length": 0,
+        "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+        "text": ""
+      }
+    }
+  ],
+  "end": "eof"
+}

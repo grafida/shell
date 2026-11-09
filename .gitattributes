@@ -1,0 +1,4 @@
+# Conformance fixtures are byte-exact: never let git rewrite line endings in them.
+protocol/fixtures/*.bin -text -diff
+protocol/fixtures/*.json -text
+protocol/fixtures/SHA256SUMS -text

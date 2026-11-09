@@ -1,0 +1,5 @@
+{
+  "description": "A malformed header is reported as soon as it has arrived, before any body length is read.",
+  "frames": [],
+  "end": "bad_json"
+}

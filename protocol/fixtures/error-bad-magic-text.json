@@ -1,0 +1,5 @@
+{
+  "description": "A stream that starts with text is not a frame stream.",
+  "frames": [],
+  "end": "bad_magic"
+}

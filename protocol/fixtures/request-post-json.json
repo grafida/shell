@@ -1,0 +1,24 @@
+{
+  "description": "A POST with a JSON body.",
+  "frames": [
+    {
+      "header": {
+        "type": "request",
+        "id": 17,
+        "method": "POST",
+        "url": "boson://app/api/drafts/3",
+        "headers": {
+          "content-type": [
+            "application/json"
+          ]
+        }
+      },
+      "body": {
+        "length": 38,
+        "sha256": "503e164679e6255a84d17e621df454089e7019be2d558706b45e0c42c1783e2a",
+        "text": "{\"title\":\"Καλημέρα\",\"state\":1}"
+      }
+    }
+  ],
+  "end": "eof"
+}

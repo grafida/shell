@@ -1,0 +1,5 @@
+{
+  "description": "A header value must be an array, even for a single value (arrays end to end).",
+  "frames": [],
+  "end": "bad_header"
+}

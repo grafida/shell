@@ -1,0 +1,48 @@
+{
+  "description": "What a shell writes: two requests, then shutdown.",
+  "frames": [
+    {
+      "header": {
+        "type": "request",
+        "id": 1,
+        "method": "GET",
+        "url": "boson://app/api/bootstrap",
+        "headers": {}
+      },
+      "body": {
+        "length": 0,
+        "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+        "text": ""
+      }
+    },
+    {
+      "header": {
+        "type": "request",
+        "id": 2,
+        "method": "POST",
+        "url": "boson://app/api/settings/language",
+        "headers": {
+          "content-type": [
+            "application/json"
+          ]
+        }
+      },
+      "body": {
+        "length": 20,
+        "sha256": "dd1521a3f38f8a1c130e5393c6ae729485953dbc72f615399d0a7103e3988d38",
+        "text": "{\"language\":\"el-GR\"}"
+      }
+    },
+    {
+      "header": {
+        "type": "shutdown"
+      },
+      "body": {
+        "length": 0,
+        "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+        "text": ""
+      }
+    }
+  ],
+  "end": "eof"
+}

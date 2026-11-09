@@ -1,0 +1,5 @@
+{
+  "description": "A header name with a non-ASCII letter.",
+  "frames": [],
+  "end": "bad_header"
+}

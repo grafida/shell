@@ -22,9 +22,20 @@ the desktop session through an interactive scheduled task, never directly over S
   CORS-enabled.
 - **Responses are completed on the UI thread.** Worker I/O runs off it; answers are posted back
   through the event loop. Never block the UI thread on the worker.
-- **The protocol is specified here** (`protocol/`), with fixtures both sides run. A failing fixture
-  is a question about which side is wrong — never a file to regenerate. `PROTOCOL_VERSION` must
+- **The protocol is specified here** (`protocol/v1.md`), with fixtures both sides run
+  (`tests/protocol_fixtures.rs` here; a vendored, checksummed copy in grafida/shell-php). A failing
+  fixture is a question about which side is wrong — never a file to regenerate.
+  `scripts/protocol/make-fixtures.py` is the fixtures' **independent** writer (it must never call
+  into either codec) and only ever *adds* cases; changing an existing `.bin`/`.json` is a protocol
+  change that needs its reason in the commit message. `PROTOCOL_VERSION` (`src/protocol.rs`) must
   equal `Grafida\Shell\Protocol::VERSION` in grafida/shell-php.
+- **The order of checks in v1.md §4 is normative**, because it decides which error code a byte
+  sequence produces on both sides. The header is validated *before* `B` is read; a body on
+  `ready`/`shutdown` is `bad_header` *before* the body limit applies; both length limits are
+  enforced before reading what they announce. Never scan for the next magic after a bad frame.
+- **Every integer on the wire is within 0 … 2^53 − 1**, not merely ids: PHP has no `u64`, so an
+  integer Rust would accept and PHP would turn into a float is a split-brain fixture waiting to
+  happen.
 - **Menu accelerators fire before the webview sees the key.** Never bind a chord the manifest
   reserves (Grafida: `CmdOrCtrl+Shift+V`).
 - Windows builds use a static CRT (`-C target-feature=+crt-static`).

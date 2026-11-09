@@ -1,0 +1,5 @@
+{
+  "description": "Trailing non-whitespace after the JSON value.",
+  "frames": [],
+  "end": "bad_json"
+}

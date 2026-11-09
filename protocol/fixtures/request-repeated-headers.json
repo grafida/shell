@@ -1,0 +1,34 @@
+{
+  "description": "Repeated headers keep every value, in order (the reason values are arrays).",
+  "frames": [
+    {
+      "header": {
+        "type": "request",
+        "id": 5,
+        "method": "GET",
+        "url": "boson://app/",
+        "headers": {
+          "accept": [
+            "text/html",
+            "application/json"
+          ],
+          "x-multi": [
+            "one",
+            "two",
+            "three"
+          ],
+          "cookie": [
+            "a=1",
+            "b=2"
+          ]
+        }
+      },
+      "body": {
+        "length": 0,
+        "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+        "text": ""
+      }
+    }
+  ],
+  "end": "eof"
+}

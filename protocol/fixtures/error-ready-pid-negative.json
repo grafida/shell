@@ -1,0 +1,5 @@
+{
+  "description": "pid must not be negative.",
+  "frames": [],
+  "end": "bad_header"
+}

@@ -1,0 +1,32 @@
+{
+  "description": "Statuses 100 and 599 are the inclusive bounds.",
+  "frames": [
+    {
+      "header": {
+        "type": "response",
+        "id": 21,
+        "status": 100,
+        "headers": {}
+      },
+      "body": {
+        "length": 0,
+        "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+        "text": ""
+      }
+    },
+    {
+      "header": {
+        "type": "response",
+        "id": 22,
+        "status": 599,
+        "headers": {}
+      },
+      "body": {
+        "length": 0,
+        "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+        "text": ""
+      }
+    }
+  ],
+  "end": "eof"
+}

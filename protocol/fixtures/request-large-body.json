@@ -1,0 +1,23 @@
+{
+  "description": "A 1 MiB + 1 body, crossing every pipe and stream buffer size, arrives intact.",
+  "frames": [
+    {
+      "header": {
+        "type": "request",
+        "id": 4,
+        "method": "POST",
+        "url": "boson://app/api/sites/1/media/files",
+        "headers": {
+          "content-type": [
+            "application/json"
+          ]
+        }
+      },
+      "body": {
+        "length": 1048577,
+        "sha256": "5769f52bc3eef28afa39c6fc68cadb7d0bd69812ae3a3d71452f519ec3c7aa56"
+      }
+    }
+  ],
+  "end": "eof"
+}

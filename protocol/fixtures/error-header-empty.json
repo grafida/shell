@@ -1,0 +1,5 @@
+{
+  "description": "H = 0: an empty header is not JSON.",
+  "frames": [],
+  "end": "bad_json"
+}

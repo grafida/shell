@@ -1,0 +1,28 @@
+{
+  "description": "A response keeps repeated headers, e.g. two Set-Cookie lines.",
+  "frames": [
+    {
+      "header": {
+        "type": "response",
+        "id": 18,
+        "status": 200,
+        "headers": {
+          "set-cookie": [
+            "a=1; Path=/",
+            "b=2; Path=/"
+          ],
+          "x-multi": [
+            "one",
+            "two"
+          ]
+        }
+      },
+      "body": {
+        "length": 0,
+        "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+        "text": ""
+      }
+    }
+  ],
+  "end": "eof"
+}

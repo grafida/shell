@@ -1,0 +1,5 @@
+{
+  "description": "Id 2^53 is beyond the JSON-safe range.",
+  "frames": [],
+  "end": "bad_header"
+}

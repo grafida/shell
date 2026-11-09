@@ -1,0 +1,24 @@
+{
+  "description": "A body with every byte value, invalid UTF-8, and bytes that look like a frame is opaque data.",
+  "frames": [
+    {
+      "header": {
+        "type": "request",
+        "id": 3,
+        "method": "POST",
+        "url": "boson://app/api/sites/1/media",
+        "headers": {
+          "content-type": [
+            "application/octet-stream"
+          ]
+        }
+      },
+      "body": {
+        "length": 300,
+        "sha256": "7695c7ecd9b66d2eeee5b02dac1ed9262bfa65e9d938b94bb6e73f5a68ef9677",
+        "base64": "AAECAwQFBgcICQoLDA0ODxAREhMUFRYXGBkaGxwdHh8gISIjJCUmJygpKissLS4vMDEyMzQ1Njc4OTo7PD0+P0BBQkNERUZHSElKS0xNTk9QUVJTVFVWV1hZWltcXV5fYGFiY2RlZmdoaWprbG1ub3BxcnN0dXZ3eHl6e3x9fn+AgYKDhIWGh4iJiouMjY6PkJGSk5SVlpeYmZqbnJ2en6ChoqOkpaanqKmqq6ytrq+wsbKztLW2t7i5uru8vb6/wMHCw8TFxsfIycrLzM3Oz9DR0tPU1dbX2Nna29zd3t/g4eLj5OXm5+jp6uvs7e7v8PHy8/T19vf4+fr7/P3+/0dTRjH//gDDKEdTRjETAAAAeyJ0eXBlIjoic2h1dGRvd24ifQAAAAAAAAAA"
+      }
+    }
+  ],
+  "end": "eof"
+}

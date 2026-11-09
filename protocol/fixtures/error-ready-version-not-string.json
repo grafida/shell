@@ -1,0 +1,5 @@
+{
+  "description": "version, when present, must be a string.",
+  "frames": [],
+  "end": "bad_header"
+}

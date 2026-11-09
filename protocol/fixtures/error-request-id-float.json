@@ -1,0 +1,5 @@
+{
+  "description": "17.0 is not an integer on the wire.",
+  "frames": [],
+  "end": "bad_header"
+}

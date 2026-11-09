@@ -1,0 +1,5 @@
+{
+  "description": "A header that is not JSON.",
+  "frames": [],
+  "end": "bad_json"
+}

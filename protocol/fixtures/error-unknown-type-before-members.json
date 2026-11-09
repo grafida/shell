@@ -1,0 +1,5 @@
+{
+  "description": "An unknown type is reported before any member is looked at.",
+  "frames": [],
+  "end": "unknown_type"
+}

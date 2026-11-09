@@ -1,0 +1,5 @@
+{
+  "description": "Id 2^64 - 1 is a u64 but beyond the JSON-safe range.",
+  "frames": [],
+  "end": "bad_header"
+}

@@ -6,3 +6,5 @@ shell 0.1 (unreleased)
 + ADR 0001: Windows runtime results; the real boson:// scheme works on WebView2 without a wry fork
 + ADR 0001: native dialogs verified on KDE Plasma (Wayland) and Windows; no open items
 + Developer docs: Windows 11 test VM on a Linux host, with `scripts/dev/winvm-unattend.py`
++ Wire protocol v1 specification (`protocol/v1.md`) with 97 conformance fixtures and their independent writer
++ Rust protocol codec (`src/protocol.rs`), tested against every fixture

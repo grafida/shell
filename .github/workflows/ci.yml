@@ -21,6 +21,12 @@ jobs:
       - run: cargo fmt --check
       - run: cargo clippy --all-targets -- -D warnings
       - run: cargo test
+      # The fixture writer only adds cases; anything it would add must already be committed.
+      - name: Fixtures are complete and untouched
+        run: |
+          python3 -I scripts/protocol/make-fixtures.py
+          git status --porcelain protocol/fixtures
+          test -z "$(git status --porcelain protocol/fixtures)"
 
   # Phase 0 evidence for the deployment floors (ADR 0001): the wry spike must build on the
   # oldest Linux we promise (Ubuntu 22.04 / glibc 2.35, webkit2gtk-4.1 >= 2.40), on macOS

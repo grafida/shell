@@ -4,8 +4,9 @@ A small, **app-agnostic native desktop shell**. It owns the window and the syste
 the app over a custom scheme (`<scheme>://app`), and supervises a **PHP worker process** that answers
 those requests over a framed stdio protocol. It is driven entirely by a manifest (`shell.json`).
 
-> **Status: Phase 0.** The stack has been chosen ([ADR 0001](docs/adr/0001-shell-stack.md)); the
-> shell itself is a skeleton. Design and roadmap: [grafida/grafida#82](https://github.com/grafida/grafida/issues/82).
+> **Status: Phase 1.** The stack has been chosen ([ADR 0001](docs/adr/0001-shell-stack.md)) and the
+> [wire protocol v1](protocol/v1.md) is specified, with conformance fixtures and a Rust codec. The
+> shell itself is a skeleton until Phase 2. Design and roadmap: [grafida/grafida#82](https://github.com/grafida/grafida/issues/82).
 
 - Stack: Rust + [wry](https://github.com/tauri-apps/wry) / [tao](https://github.com/tauri-apps/tao) /
   [rfd](https://github.com/PolyMeilex/rfd) / [muda](https://github.com/tauri-apps/muda)

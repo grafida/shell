@@ -1,0 +1,5 @@
+{
+  "description": "A body where none is allowed is bad_header, checked before the body limit.",
+  "frames": [],
+  "end": "bad_header"
+}

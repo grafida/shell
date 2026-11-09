@@ -1,0 +1,5 @@
+{
+  "description": "headers must be an object; an empty array is not one.",
+  "frames": [],
+  "end": "bad_header"
+}

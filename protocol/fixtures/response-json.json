@@ -1,0 +1,26 @@
+{
+  "description": "A 200 response with a JSON body.",
+  "frames": [
+    {
+      "header": {
+        "type": "response",
+        "id": 17,
+        "status": 200,
+        "headers": {
+          "content-type": [
+            "application/json; charset=utf-8"
+          ],
+          "cache-control": [
+            "no-store, no-cache, must-revalidate"
+          ]
+        }
+      },
+      "body": {
+        "length": 47,
+        "sha256": "7d00e8530d4dc86be4bb200bf17028f83d318c6ae55978c5ae81f181523d03a6",
+        "text": "{\"ok\":true,\"data\":{\"title\":\"Καλημέρα\"}}"
+      }
+    }
+  ],
+  "end": "eof"
+}

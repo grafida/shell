@@ -1,0 +1,20 @@
+{
+  "description": "Id 2^53 - 1 is the largest valid id.",
+  "frames": [
+    {
+      "header": {
+        "type": "request",
+        "id": 9007199254740991,
+        "method": "GET",
+        "url": "boson://app/",
+        "headers": {}
+      },
+      "body": {
+        "length": 0,
+        "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+        "text": ""
+      }
+    }
+  ],
+  "end": "eof"
+}

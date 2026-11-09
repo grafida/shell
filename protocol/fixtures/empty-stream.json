@@ -1,0 +1,5 @@
+{
+  "description": "Zero bytes is a clean end of stream with no frames.",
+  "frames": [],
+  "end": "eof"
+}

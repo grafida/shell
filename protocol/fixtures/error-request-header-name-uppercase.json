@@ -1,0 +1,5 @@
+{
+  "description": "Header names are lower-case; receivers reject, not fold.",
+  "frames": [],
+  "end": "bad_header"
+}

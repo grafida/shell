@@ -1,0 +1,5 @@
+{
+  "description": "response without status.",
+  "frames": [],
+  "end": "bad_header"
+}

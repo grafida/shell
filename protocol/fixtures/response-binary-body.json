@@ -1,0 +1,23 @@
+{
+  "description": "A binary response body (a 1x1 PNG) is opaque data.",
+  "frames": [
+    {
+      "header": {
+        "type": "response",
+        "id": 20,
+        "status": 200,
+        "headers": {
+          "content-type": [
+            "image/png"
+          ]
+        }
+      },
+      "body": {
+        "length": 71,
+        "sha256": "65386e2e9e1937d5c908ba192b369c4e1a0895798bf56f230736e5057fcc80e1",
+        "base64": "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP4z8DwHwAFAAIB/6nyuEYAAAAASUVORK5CYII="
+      }
+    }
+  ],
+  "end": "eof"
+}

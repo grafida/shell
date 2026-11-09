@@ -1,0 +1,5 @@
+{
+  "description": "A JSON array is not a header.",
+  "frames": [],
+  "end": "bad_header"
+}

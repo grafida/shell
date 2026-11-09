@@ -1,0 +1,5 @@
+{
+  "description": "An unpaired UTF-16 surrogate escape is not a Unicode string.",
+  "frames": [],
+  "end": "bad_json"
+}

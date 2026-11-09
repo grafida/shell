@@ -1,0 +1,5 @@
+{
+  "description": "Response header values are arrays too.",
+  "frames": [],
+  "end": "bad_header"
+}
