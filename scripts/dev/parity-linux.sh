@@ -12,6 +12,10 @@
 #   scripts/dev/parity-linux.sh            # everything, including the 2-minute idle-CPU sample
 #   QUICK=1 scripts/dev/parity-linux.sh    # a 10 s idle sample instead
 #
+# Against a packaged Grafida (grafida/grafida#86), e.g. on a clean VM, with the CI-built debug shell:
+#   GRAFIDA_PACKAGED=~/grafida SHELL_BIN=~/grafida-shell-debug scripts/dev/parity-linux.sh
+# Needs only python3 there (no Rust, no PHP).
+#
 # The checks that need a human (context menu, spelling, real dialogs, drag and drop, title bar,
 # Ctrl+Shift+V, AI streaming, …) are listed in the Phase 2 issue; this script does not pretend to
 # cover them.
@@ -21,7 +25,14 @@ set -uo pipefail
 SHELL_DIR=$(cd "$(dirname "$0")/../.." && pwd)
 GRAFIDA_DIR=${GRAFIDA_DIR:-$SHELL_DIR/../grafida}
 WORK=$(mktemp -d -t shell-parity-XXXXXX)
-BIN=$SHELL_DIR/target/debug/grafida-shell
+# SHELL_BIN: a prebuilt debug build with the automation channel (CI uploads one built on Ubuntu
+# 22.04, which runs on every supported distribution); otherwise it is built here.
+BIN=${SHELL_BIN:-$SHELL_DIR/target/debug/grafida-shell}
+# GRAFIDA_PACKAGED: an extracted shell tarball (its grafida/ directory). Grafida then runs as
+# installed — the packaged launcher's neighbours, the SFX worker and its PHAR, the manifest beside
+# the binary — with only grafida-shell swapped for $BIN, since a release build has no automation
+# channel (grafida/grafida#86). The tarball itself is copied, never modified.
+PACKAGED=${GRAFIDA_PACKAGED:-}
 CLIENT="python3 -I $SHELL_DIR/scripts/dev/automation.py"
 RESULTS=()
 
@@ -44,7 +55,11 @@ start_shell() { # app_dir app_id [extra env...]
     export SHELL_APP_ID=$id
     local channel="${XDG_RUNTIME_DIR:-/tmp}/$id.automation.json"
     rm -f -- "$channel" # a shell killed by a signal leaves its file behind
-    (cd "$dir" && isolated "$@" "$BIN" --dev . --automation >>"$WORK/shell-$id.log" 2>&1) &
+    if [ "$id" = app.grafida ] && [ -n "$PACKAGED" ]; then
+        (cd / && isolated "$@" "$WORK/packaged/grafida-shell" --automation >>"$WORK/shell-$id.log" 2>&1) &
+    else
+        (cd "$dir" && isolated "$@" "$BIN" --dev . --automation >>"$WORK/shell-$id.log" 2>&1) &
+    fi
     for _ in $(seq 1 100); do
         [ -f "$channel" ] && break
         sleep 0.1
@@ -74,8 +89,18 @@ js() { # file → the result object, or exit 1 with the answer
 
 ok_field() { python3 -I -c 'import json,sys; a=json.load(sys.stdin); r=a.get("result") or {}; print("yes" if a.get("ok") and (r.get("ok", True) is True) and not r.get("failures") else "no: " + json.dumps(r.get("failures", a))[:300])'; }
 
-echo "Building the shell with the automation channel…"
-(cd "$SHELL_DIR" && cargo build -q --features automation) || exit 1
+if [ -z "${SHELL_BIN:-}" ]; then
+    echo "Building the shell with the automation channel…"
+    (cd "$SHELL_DIR" && cargo build -q --features automation) || exit 1
+fi
+[ -x "$BIN" ] || { echo "No shell binary at $BIN" >&2; exit 1; }
+if [ -n "$PACKAGED" ]; then
+    [ -f "$PACKAGED/shell.json" ] && [ -x "$PACKAGED/grafida-worker" ] \
+        || { echo "GRAFIDA_PACKAGED=$PACKAGED is not an extracted Grafida shell tarball" >&2; exit 1; }
+    cp -a "$PACKAGED" "$WORK/packaged"
+    cp "$BIN" "$WORK/packaged/grafida-shell"
+    GRAFIDA_DIR=$WORK/packaged
+fi
 mkdir -p "$WORK/home" "$WORK/exports"
 printf 'PNG' >"$WORK/pick.png"
 printf '# Hello\n' >"$WORK/note.md"
@@ -147,7 +172,7 @@ record "$(grep -q "did not send \`ready\` within 2 s" "$SILENT/logs/shell.log" &
     "$(grep "giving up" "$SILENT/logs/shell.log" | tail -1 | cut -c26-150)"
 kill $silent_pid 2>/dev/null
 
-# ── Grafida in dev mode ───────────────────────────────────────────────────────────────────────
+# ── Grafida: in dev mode, or packaged (GRAFIDA_PACKAGED) ───────────────────────────────────────
 if [ ! -f "$GRAFIDA_DIR/shell.json" ]; then
     record SKIP "Grafida checks" "no Grafida clone with shell.json at $GRAFIDA_DIR"
 else
@@ -166,9 +191,14 @@ else
     $CLIENT screenshot "$WORK/grafida.png" >/dev/null
 
     # The editor: paste as plain text, and an image file dropped on it.
-    php -r '$p = new PDO("sqlite:" . $argv[1]); $p->exec("PRAGMA busy_timeout = 5000"); $n = gmdate("Y-m-d H:i:s");
-        $p->prepare("INSERT INTO sites (title, base_url, created_at, updated_at) VALUES (?, ?, ?, ?)")->execute(["Parity", "https://example.invalid", $n, $n]);' \
-        "$WORK/home/data/grafida/grafida.sqlite" 2>/dev/null
+    # Python, not PHP: a clean VM running the packaged app has no PHP.
+    python3 -I - "$WORK/home/data/grafida/grafida.sqlite" <<'PY'
+import sqlite3, sys, time
+db = sqlite3.connect(sys.argv[1], timeout=5)
+now = time.strftime("%Y-%m-%d %H:%M:%S", time.gmtime())
+db.execute("INSERT INTO sites (title, base_url, created_at, updated_at) VALUES (?, ?, ?, ?)", ("Parity", "https://example.invalid", now, now))
+db.commit()
+PY
     $CLIENT eval 'location.reload(); return true' >/dev/null
     sleep 2
     $CLIENT wait 'return !!document.querySelector("#sidebar") && State.sites && State.sites.length > 0' 30 >/dev/null
@@ -225,7 +255,7 @@ PY
         sleep 0.5
         wal+=("$(stat -c %s "$WORK/home/data/grafida/"*-wal 2>/dev/null | head -1 || echo 0)")
     done
-    orphans=$(pgrep -f "bin/worker.php" -u "$(id -u)" | while read -r p; do grep -qz "HOME=$WORK/home" "/proc/$p/environ" 2>/dev/null && echo "$p"; done)
+    orphans=$(pgrep -f "bin/worker.php|grafida-worker" -u "$(id -u)" | while read -r p; do grep -qz "HOME=$WORK/home" "/proc/$p/environ" 2>/dev/null && echo "$p"; done)
     record "$( [ "$alive" = no ] && [ -z "$orphans" ] && python3 -I -c "import sys; sys.exit(0 if $took <= 3.5 else 1)" && echo PASS || echo FAIL)" \
         "Close the window → worker exits within 3 s; no orphan worker; no -wal growth" \
         "worker gone after ${took} s; orphans: ${orphans:-none}; -wal bytes after each of 3 restarts: ${wal[*]:-none}"
@@ -255,5 +285,11 @@ for row in "${RESULTS[@]}"; do
     echo "| $status | $item | ${detail//|/\\|} |"
 done
 echo
-echo "shell $(cd "$SHELL_DIR" && git rev-parse --short HEAD)$( (cd "$SHELL_DIR" && git diff --quiet) || echo '+dirty'), grafida $(cd "$GRAFIDA_DIR" 2>/dev/null && git rev-parse --short HEAD)$( (cd "$GRAFIDA_DIR" 2>/dev/null && git diff --quiet) || echo '+dirty'), $(pkg-config --modversion webkit2gtk-4.1 2>/dev/null | sed 's/^/WebKitGTK /'), $(date -u +%Y-%m-%dT%H:%MZ)"
+if [ -n "$PACKAGED" ]; then
+    grafida_rev="packaged $(basename "$(dirname "$PACKAGED")")"
+else
+    grafida_rev="$(cd "$GRAFIDA_DIR" 2>/dev/null && git rev-parse --short HEAD)$( (cd "$GRAFIDA_DIR" 2>/dev/null && git diff --quiet) || echo '+dirty')"
+fi
+webkit=$(grep -ho 'on WebKitGTK [0-9.]*' "$WORK"/home/state/grafida/logs/shell.log 2>/dev/null | tail -1)
+echo "shell $(cd "$SHELL_DIR" && git rev-parse --short HEAD 2>/dev/null)$( (cd "$SHELL_DIR" && git diff --quiet 2>/dev/null) || echo '+dirty'), grafida $grafida_rev, ${webkit#on }, $(. /etc/os-release && echo "$PRETTY_NAME"), $(date -u +%Y-%m-%dT%H:%MZ)"
 grep -q '^FAIL' <(printf '%s\n' "${RESULTS[@]}") && exit 1 || exit 0

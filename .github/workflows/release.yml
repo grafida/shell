@@ -80,6 +80,19 @@ jobs:
           name: linux-${{ matrix.arch }}
           path: out/*
 
+      # The verification build for packaged apps on clean machines (scripts/dev/parity-linux.sh with
+      # SHELL_BIN + GRAFIDA_PACKAGED): a DEBUG build with the automation channel, built here because
+      # one built on a newer distribution would not load on 22.04. A workflow artifact only, never a
+      # release asset (the publish job downloads linux-* alone).
+      - name: Build the debug automation shell (for verification only)
+        run: cargo build --locked -p grafida-shell --features automation
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: debug-automation-linux-${{ matrix.arch }}
+          path: target/debug/grafida-shell
+          retention-days: 30
+
   publish:
     needs: [linux]
     if: startsWith(github.ref, 'refs/tags/')
@@ -91,6 +104,7 @@ jobs:
 
       - uses: actions/download-artifact@v4
         with:
+          pattern: linux-*
           path: assets
           merge-multiple: true
 

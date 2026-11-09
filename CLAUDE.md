@@ -102,7 +102,12 @@ the desktop session through an interactive scheduled task, never directly over S
 - **`scripts/dev/parity-linux.sh` is the automatable half of #82's Linux parity column**: it runs
   the debug shell on the current desktop against `tests/apps/{echo,silent}` and against Grafida
   (`GRAFIDA_DIR`, default `../grafida`) with every per-user directory in a temp dir, and prints a
-  PASS/FAIL Markdown table with the commits it ran on (`QUICK=1` shortens the idle-CPU sample). The
+  PASS/FAIL Markdown table with the commits it ran on (`QUICK=1` shortens the idle-CPU sample).
+  `GRAFIDA_PACKAGED=<extracted tarball>/grafida` runs the Grafida checks against the **packaged**
+  app instead (a copy of it, with only `grafida-shell` swapped for the debug build), and
+  `SHELL_BIN` takes a prebuilt debug build, e.g. the `debug-automation-linux-<arch>` artifact the
+  release workflow uploads (built on 22.04, so it runs on every supported distribution; a release
+  asset never). On a clean VM it needs python3 only. The
   automation channel's runtime file is removed in the shell's stop path, not only in `Drop`: tao
   ends the process without dropping anything, and a stale file hands a client a dead pid.
 - **`launcher/` is a separate crate and must stay free of GTK, WebKit and C dependencies** (std +
