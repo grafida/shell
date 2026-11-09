@@ -139,18 +139,23 @@ case $command in
             "$USER_NAME@$ip" "
                 set -e
                 mkdir -p ~/.ssh && chmod 700 ~/.ssh
-                echo '$(cat "$KEY.pub")' >> ~/.ssh/authorized_keys && chmod 600 ~/.ssh/authorized_keys
+                touch ~/.ssh/authorized_keys && chmod 600 ~/.ssh/authorized_keys
+                grep -qxF '$(cat "$KEY.pub")' ~/.ssh/authorized_keys || echo '$(cat "$KEY.pub")' >> ~/.ssh/authorized_keys
                 echo '$PASSWORD' | sudo -S -p '' sh -c 'echo \"$USER_NAME ALL=(ALL) NOPASSWD: ALL\" > /etc/sudoers.d/$USER_NAME && chmod 440 /etc/sudoers.d/$USER_NAME'
             " </dev/null
         rm -f "$askpass"
-        # shellcheck disable=SC2046
-        ssh $(ssh_opts) "$USER_NAME@$ip" '
+        # shellcheck disable=SC2046,SC2029
+        ssh $(ssh_opts) "$USER_NAME@$ip" "PASSWORD='$PASSWORD' sh -s" <<'GUEST'
             set -e
             sudo pmset -a sleep 0 displaysleep 0 disksleep 0
             defaults -currentHost write com.apple.screensaver idleTime -int 0
+            # A locked screen hides every window, and WebKit then clamps a page's timers to 1 s: a
+            # timing check would measure the lock (macOS 27 locked after its update's restart).
+            sysadminctl -screenLock off -password "$PASSWORD"
             sudo defaults write /Library/Preferences/com.apple.SoftwareUpdate AutomaticDownload -bool false
             sudo defaults write /Library/Preferences/com.apple.SoftwareUpdate AutomaticallyInstallMacOSUpdates -bool false
-            sw_vers'
+            sw_vers
+GUEST
         ;;
     update)
         # Bring the guest to the newest release of ITS major version (12 → 12.7.x), never the next
@@ -164,6 +169,18 @@ case $command in
         ssh $(ssh_opts) "$USER_NAME@$ip" "PASSWORD='$PASSWORD' sh -s" <<'GUEST'
             set -e
             current=$(sw_vers -productVersion); major=${current%%.*}
+            labels=$(softwareupdate --list 2>&1 | sed -n 's/^\* Label: //p')
+            # 1. An ordinary update of this major version, when Software Update offers one.
+            os_label=$(printf '%s\n' "$labels" | grep -E "^macOS( [A-Za-z ]+)? $major\." | head -1 || true)
+            if [ -n "$os_label" ]; then
+                echo "running $current; installing '$os_label' (the guest restarts)"
+                # On Apple Silicon an OS update needs the volume owner's credentials.
+                echo "$PASSWORD" | sudo softwareupdate --install "$os_label" --agree-to-license \
+                    --restart --user "$USER" --stdinpass
+                exit 0
+            fi
+            # 2. Otherwise the newest full installer of this major version (a 12.6 VM is offered no
+            #    12.7.x update at all, only the full installer).
             newest=$(softwareupdate --list-full-installers 2>/dev/null \
                 | sed -n "s/.*Version: \($major\.[0-9.]*\),.*/\1/p" | sort -t. -k1,1n -k2,2n -k3,3n | tail -1)
             echo "running $current; newest full installer of macOS $major: ${newest:-none}"
@@ -171,13 +188,25 @@ case $command in
                 sudo softwareupdate --fetch-full-installer --full-installer-version "$newest"
                 app=$(ls -d /Applications/Install\ macOS*.app | head -1)
                 echo "installing $newest from $app; the guest restarts"
+                # --cleanup is not offered on every release: the installer is removed by hand after.
                 echo "$PASSWORD" | sudo "$app/Contents/Resources/startosinstall" --agreetolicense \
                     --nointeraction --forcequitapps --user "$USER" --stdinpass
-            else
-                softwareupdate --list 2>&1 | sed -n 's/^\* Label: //p'
-                sudo softwareupdate --install --recommended --agree-to-license --restart
-                echo "up to date: $(sw_vers -productVersion)"
+                exit 0
             fi
+            # 3. Up to date: the other updates, by label (Safari, which replaces the system WebKit;
+            #    background security updates). NEVER --recommended: on a 12.7.6 guest it includes the
+            #    upgrade to the current major release, and downloads and prepares it.
+            sudo rm -rf /Applications/Install\ macOS*.app
+            others=$(printf '%s\n' "$labels" | grep -v -E '^macOS' || true)
+            if [ -n "$others" ]; then
+                printf 'installing: %s\n' "$others"
+                printf '%s\n' "$others" | while IFS= read -r label; do
+                    sudo softwareupdate --install "$label" --agree-to-license
+                done
+            fi
+            skipped=$(printf '%s\n' "$labels" | grep -E '^macOS' || true)
+            [ -z "$skipped" ] || printf 'not installed (another major version): %s\n' "$skipped"
+            echo "up to date: $(sw_vers -productVersion)"
 GUEST
         ;;
     stop) tart stop "$name" ;;

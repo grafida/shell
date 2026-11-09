@@ -9,17 +9,20 @@ Setup Assistant.
 
 | VM | Restored from | Updated to | Why |
 |---|---|---|---|
-| `macos-12` | 12.6 (21G115), the newest macOS 12 VM restore image | the newest 12.x full installer (12.7.6), then Safari | the floor (ADR 0001) |
-| `macos-27` | 27.2 (26B123) | its pending updates | the current release |
+| `macos-12` | 12.6 (21G115), the newest macOS 12 VM restore image | 12.7.6 (21H1320) + Safari 17.6 | the floor (ADR 0001) |
+| `macos-27` | 27.2 (26B123) | 27.2.1 (26B131), Safari 27.2 | the current release |
 
 Guests can only be arm64 macOS (Virtualization.framework runs no Intel guest and no macOS older than
 12), and Apple's licence allows **two macOS guests at a time**.
 
 Every VM has the user `tester`, password `grafida-vm`, passwordless sudo, Remote Login (SSH) on,
-automatic login, and no sleep, screen saver or automatic updates, so there is always a desktop
-session to run the app in. The SSH key is `~/.ssh/grafida-macvm_ed25519`, created by the first
-`prepare`; `~/.ssh/config` is not touched. SSH being on is the one way these guests differ from a
-user's Mac; it is needed to drive them.
+automatic login, and no sleep, screen saver, screen lock or automatic updates, so there is always an
+unlocked desktop session to run the app in. The SSH key is `~/.ssh/grafida-macvm_ed25519`, created by the first
+`prepare`; `~/.ssh/config` is not touched. What sets these guests apart from a user's Mac, all of it
+needed to drive them: SSH, passwordless sudo, no screen lock. Two leftovers of the 2026-11-09 build are
+recorded in grafida/grafida#88: `macos-12-clean` carries one Screen Recording grant (made for
+`screencapture` over SSH, not for any app under test), and a 1.9 GB downloaded, unprepared macOS 27
+update asset that SIP keeps from being deleted (see the `--recommended` gotcha).
 
 ## 0. Setup
 
@@ -54,10 +57,11 @@ Setup Assistant, **by hand**, in the VM window:
 Then:
 
 ```sh
-scripts/dev/macvm.sh prepare macos-12    # SSH key, passwordless sudo, no sleep/screen saver/auto-updates
+scripts/dev/macvm.sh prepare macos-12    # SSH key, passwordless sudo; no sleep, screen saver, lock, auto-updates
 scripts/dev/macvm.sh update macos-12     # 12.6 → 12.7.6 through the full installer; the guest restarts
 scripts/dev/macvm.sh wait macos-12
-scripts/dev/macvm.sh update macos-12     # again: the recommended updates (Safari 17.6)
+scripts/dev/macvm.sh update macos-12     # again: the non-macOS updates by label (Safari 17.6)
+scripts/dev/macvm.sh prepare macos-12    # again, harmlessly: an OS update can bring the lock back
 scripts/dev/macvm.sh stop macos-12
 scripts/dev/macvm.sh seal macos-12       # → macos-12-clean
 ```
@@ -73,6 +77,25 @@ Gotchas:
   12.7.x releases are there as full installers (`softwareupdate --list-full-installers`), which is
   what `update` uses: `--fetch-full-installer`, then `startosinstall --stdinpass` (on Apple Silicon
   an OS install needs the volume owner's password).
+- **Never `softwareupdate --recommended` on an old major version.** On 12.7.6 it includes the
+  upgrade to the current major release, and downloads *and prepares* it: the sealed system volume
+  is mounted at `/System/Volumes/Update/mnt1` with the new OS applied, waiting for a boot blessing.
+  It was not installed only because an OS install on Apple Silicon needs the owner's credentials.
+  A restart without them discards the prepared system and its snapshots; the downloaded asset stays
+  (SIP-restricted, purged by macOS in its own time). `update` therefore installs the non-macOS
+  updates by label, and an OS update only for the guest's own major version.
+- **An OS update on Apple Silicon needs the volume owner's credentials** whether it comes through
+  `startosinstall` or `softwareupdate --install` (`--user … --stdinpass`). Without them
+  `softwareupdate` downloads it, says nothing more, and the guest stays where it was.
+- **Prefer an ordinary OS update to a full installer.** 27.2.1 was offered both ways; the ~17 GB full
+  installer left the guest 8 GB short of the space it needs.
+- **A locked screen hides every window, and WebKit then clamps the page's timers to 1 s.** macOS 27
+  locked its screen after an update's restart; a timing check then measured the lock (9 ticks in 3 s).
+  `prepare` runs `sysadminctl -screenLock off` (macOS 12 has it too).
+- **`screencapture` over SSH captures only the wallpaper and the menu bar** until the guest grants
+  Screen Recording, which raises a prompt in the guest. Take screenshots of the app with the
+  automation channel (`takeSnapshot`), or of the VM window from the host. An `osascript` that talks
+  to System Events over SSH likewise raises an Automation prompt; click Don't Allow.
 - **A Safari update replaces the system WebKit** that every WKWebView uses, so the Safari version
   is part of what a run is measured on. Record it (`/Applications/Safari.app`'s
   `CFBundleShortVersionString`).
