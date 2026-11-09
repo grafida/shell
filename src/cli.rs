@@ -1,0 +1,278 @@
+//! Command line and launch resolution: which manifest, which worker, which working directory.
+//!
+//! ```text
+//! grafida-shell                      packaged: shell.json beside the binary (or ../Resources)
+//! grafida-shell --dev [APP_DIR]      dev: APP_DIR/shell.json, worker = its dev.worker, cwd = APP_DIR
+//!               --manifest PATH      use this manifest instead
+//!               --automation         debug builds with the `automation` feature only
+//! ```
+
+use std::{
+    ffi::OsString,
+    path::{Path, PathBuf},
+};
+
+use crate::{
+    manifest::{self, Manifest, ManifestError},
+    supervisor::WorkerCommand,
+};
+
+pub const USAGE: &str = "\
+Usage: grafida-shell [--dev [APP_DIR]] [--manifest PATH] [--automation]
+
+  --dev [APP_DIR]   Run an app from its source tree: read APP_DIR/shell.json (default: the
+                    current directory) and start the manifest's dev.worker command there.
+  --manifest PATH   Read this manifest instead.
+  --automation      Open the loopback automation channel (debug builds only).
+  --version         Print the shell and protocol versions.
+  --help            Print this text.";
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum Command {
+    Run(Options),
+    Version,
+    Help,
+}
+
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub struct Options {
+    /// `Some(dir)` in dev mode.
+    pub dev: Option<PathBuf>,
+    pub manifest: Option<PathBuf>,
+    pub automation: bool,
+}
+
+pub fn parse(args: impl IntoIterator<Item = OsString>) -> Result<Command, String> {
+    let mut args = args.into_iter().skip(1).peekable();
+    let mut options = Options::default();
+
+    while let Some(arg) = args.next() {
+        match arg.to_str() {
+            Some("--help" | "-h") => return Ok(Command::Help),
+            Some("--version" | "-V") => return Ok(Command::Version),
+            Some("--dev") => {
+                let dir = match args.peek() {
+                    Some(next) if !next.to_string_lossy().starts_with("--") => {
+                        PathBuf::from(args.next().unwrap())
+                    }
+                    _ => PathBuf::from("."),
+                };
+                options.dev = Some(dir);
+            }
+            Some("--manifest") => {
+                let path = args.next().ok_or("--manifest needs a path")?;
+                options.manifest = Some(PathBuf::from(path));
+            }
+            Some("--automation") => options.automation = true,
+            _ => return Err(format!("unknown argument: {}", arg.to_string_lossy())),
+        }
+    }
+    Ok(Command::Run(options))
+}
+
+/// Everything the shell needs to start, resolved from the options.
+#[derive(Debug, Clone)]
+pub struct Launch {
+    pub manifest_path: PathBuf,
+    pub manifest: Manifest,
+    pub worker: WorkerCommand,
+    pub dev: bool,
+    pub automation: bool,
+}
+
+#[derive(Debug)]
+pub enum LaunchError {
+    /// The manifest could not be found, read or validated; carries its path.
+    Manifest(PathBuf, ManifestError),
+    NoManifest(Vec<PathBuf>),
+    Other(String),
+}
+
+impl std::fmt::Display for LaunchError {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            LaunchError::Manifest(path, e) => write!(f, "The manifest {} {e}", path.display()),
+            LaunchError::NoManifest(tried) => {
+                write!(f, "No {} found. Looked in:", manifest::FILE_NAME)?;
+                for p in tried {
+                    write!(f, "\n  • {}", p.display())?;
+                }
+                Ok(())
+            }
+            LaunchError::Other(e) => f.write_str(e),
+        }
+    }
+}
+
+impl Options {
+    /// Finds and loads the manifest and works out the worker command. `exe` is the shell's own path.
+    pub fn resolve(&self, exe: &Path) -> Result<Launch, LaunchError> {
+        let manifest_path = match (&self.manifest, &self.dev) {
+            (Some(path), _) => absolute(path),
+            (None, Some(dir)) => absolute(&dir.join(manifest::FILE_NAME)),
+            (None, None) => {
+                let candidates = packaged_candidates(exe);
+                candidates
+                    .iter()
+                    .find(|p| p.is_file())
+                    .cloned()
+                    .ok_or(LaunchError::NoManifest(candidates))?
+            }
+        };
+
+        let manifest = Manifest::load(&manifest_path)
+            .map_err(|e| LaunchError::Manifest(manifest_path.clone(), e))?;
+
+        let worker = match &self.dev {
+            Some(dir) => {
+                let dir = absolute(dir);
+                let Some([program, args @ ..]) = manifest.dev.worker.as_deref() else {
+                    return Err(LaunchError::Other(format!(
+                        "--dev needs `dev.worker` in {}",
+                        manifest_path.display()
+                    )));
+                };
+                WorkerCommand {
+                    program: program.into(),
+                    args: args.iter().map(OsString::from).collect(),
+                    cwd: dir,
+                    env: Vec::new(),
+                }
+            }
+            None => {
+                let resources = manifest_path
+                    .parent()
+                    .unwrap_or(Path::new("/"))
+                    .to_path_buf();
+                WorkerCommand {
+                    program: resources.join(&manifest.worker.binary).into(),
+                    args: manifest.worker.args.iter().map(OsString::from).collect(),
+                    cwd: resources,
+                    env: Vec::new(),
+                }
+            }
+        };
+
+        Ok(Launch {
+            manifest_path,
+            manifest,
+            worker,
+            dev: self.dev.is_some(),
+            automation: self.automation,
+        })
+    }
+}
+
+/// Packaged layouts: beside the binary (Linux, Windows), or `../Resources` (a macOS bundle).
+fn packaged_candidates(exe: &Path) -> Vec<PathBuf> {
+    let dir = exe.parent().unwrap_or(Path::new("."));
+    vec![
+        dir.join(manifest::FILE_NAME),
+        dir.join("../Resources").join(manifest::FILE_NAME),
+    ]
+}
+
+fn absolute(path: &Path) -> PathBuf {
+    std::path::absolute(path).unwrap_or_else(|_| path.to_path_buf())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn args(list: &[&str]) -> Result<Command, String> {
+        parse(
+            std::iter::once("shell")
+                .chain(list.iter().copied())
+                .map(OsString::from),
+        )
+    }
+
+    #[test]
+    fn parsing() {
+        assert_eq!(args(&[]), Ok(Command::Run(Options::default())));
+        assert_eq!(args(&["--version"]), Ok(Command::Version));
+        let Ok(Command::Run(o)) = args(&["--dev"]) else {
+            panic!()
+        };
+        assert_eq!(o.dev, Some(PathBuf::from(".")));
+        let Ok(Command::Run(o)) = args(&["--dev", "../app", "--automation"]) else {
+            panic!()
+        };
+        assert_eq!(o.dev, Some(PathBuf::from("../app")));
+        assert!(o.automation);
+        let Ok(Command::Run(o)) = args(&["--dev", "--manifest", "/x/shell.json"]) else {
+            panic!()
+        };
+        assert_eq!(o.dev, Some(PathBuf::from(".")));
+        assert_eq!(o.manifest, Some(PathBuf::from("/x/shell.json")));
+        assert!(args(&["--frobnicate"]).is_err());
+        assert!(args(&["--manifest"]).is_err());
+    }
+
+    fn app_dir(manifest: &str) -> PathBuf {
+        let dir = std::env::temp_dir().join(format!(
+            "shell-cli-test-{}-{}",
+            std::process::id(),
+            crate::tokens::random_hex(4)
+        ));
+        std::fs::create_dir_all(&dir).unwrap();
+        std::fs::write(dir.join("shell.json"), manifest).unwrap();
+        dir
+    }
+
+    const MANIFEST: &str = r#"{"id":"app.t","title":"T","scheme":"boson",
+        "window":{"width":10,"height":10},"worker":{"binary":"t-worker","args":["-q"]},
+        "dev":{"worker":["php","bin/worker.php"]}}"#;
+
+    #[test]
+    fn dev_mode_runs_the_dev_worker_in_the_app_dir() {
+        let dir = app_dir(MANIFEST);
+        let o = Options {
+            dev: Some(dir.clone()),
+            ..Options::default()
+        };
+        let launch = o.resolve(Path::new("/opt/shell/grafida-shell")).unwrap();
+        assert_eq!(launch.worker.program, OsString::from("php"));
+        assert_eq!(launch.worker.args, vec![OsString::from("bin/worker.php")]);
+        assert_eq!(launch.worker.cwd, dir);
+        assert!(launch.dev);
+        std::fs::remove_dir_all(dir).unwrap();
+    }
+
+    #[test]
+    fn packaged_mode_finds_the_manifest_beside_the_binary() {
+        let dir = app_dir(MANIFEST);
+        let launch = Options::default()
+            .resolve(&dir.join("grafida-shell"))
+            .unwrap();
+        assert_eq!(launch.worker.program, dir.join("t-worker").into_os_string());
+        assert_eq!(launch.worker.args, vec![OsString::from("-q")]);
+        assert_eq!(launch.worker.cwd, dir);
+        std::fs::remove_dir_all(dir).unwrap();
+    }
+
+    #[test]
+    fn dev_mode_without_a_dev_worker_is_an_error() {
+        let dir = app_dir(
+            r#"{"id":"app.t","title":"T","scheme":"boson","window":{"width":10,"height":10},"worker":{"binary":"w"}}"#,
+        );
+        let o = Options {
+            dev: Some(dir.clone()),
+            ..Options::default()
+        };
+        let err = o.resolve(Path::new("/x")).unwrap_err().to_string();
+        assert!(err.contains("dev.worker"), "{err}");
+        std::fs::remove_dir_all(dir).unwrap();
+    }
+
+    #[test]
+    fn a_missing_manifest_lists_where_it_looked() {
+        let err = Options::default()
+            .resolve(Path::new("/nonexistent/bin/shell"))
+            .unwrap_err()
+            .to_string();
+        assert!(err.contains("/nonexistent/bin/shell.json"), "{err}");
+        assert!(err.contains("Resources"), "{err}");
+    }
+}

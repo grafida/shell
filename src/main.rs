@@ -1,11 +1,110 @@
-//! Grafida Shell — skeleton. See docs/adr/0001-shell-stack.md and grafida/grafida#82.
+//! Grafida Shell: a window, a webview serving `<scheme>://app`, and a supervised worker process.
+//! See docs/adr/0001-shell-stack.md, grafida/grafida#82 (design) and #85 (Linux, dev mode).
 
-use grafida_shell::protocol::PROTOCOL_VERSION;
+use std::{path::PathBuf, process::ExitCode, sync::Arc};
 
-fn main() {
-    println!(
-        "grafida-shell {} (protocol {})",
-        env!("CARGO_PKG_VERSION"),
-        PROTOCOL_VERSION
+use grafida_shell::{
+    cli::{self, Command},
+    log::{self, Log},
+    protocol::PROTOCOL_VERSION,
+};
+
+/// `EX_CONFIG`: the manifest or the command line is wrong.
+const EXIT_CONFIG: u8 = 78;
+
+fn main() -> ExitCode {
+    let options = match cli::parse(std::env::args_os()) {
+        Ok(Command::Run(options)) => options,
+        Ok(Command::Version) => {
+            println!(
+                "{} {} (protocol {PROTOCOL_VERSION})",
+                env!("CARGO_PKG_NAME"),
+                env!("CARGO_PKG_VERSION")
+            );
+            return ExitCode::SUCCESS;
+        }
+        Ok(Command::Help) => {
+            println!("{}", cli::USAGE);
+            return ExitCode::SUCCESS;
+        }
+        Err(e) => {
+            eprintln!("{e}\n\n{}", cli::USAGE);
+            return ExitCode::from(EXIT_CONFIG);
+        }
+    };
+
+    let exe = std::env::current_exe().unwrap_or_else(|_| PathBuf::from("grafida-shell"));
+    let launch = match options.resolve(&exe) {
+        Ok(launch) => launch,
+        Err(e) => {
+            platform::alert(
+                &shell_name(&exe),
+                "The application cannot start.",
+                &e.to_string(),
+            );
+            return ExitCode::from(EXIT_CONFIG);
+        }
+    };
+
+    if launch.automation && !cfg!(all(feature = "automation", debug_assertions)) {
+        platform::alert(
+            &launch.manifest.title,
+            "--automation is not available.",
+            "This build of the shell has no automation channel.",
+        );
+        return ExitCode::from(EXIT_CONFIG);
+    }
+
+    let log_dir = match launch.manifest.log_dir.as_str() {
+        "auto" => log::auto_dir(launch.manifest.data_dir()),
+        dir => {
+            let dir = PathBuf::from(dir);
+            Some(if dir.is_absolute() {
+                dir
+            } else {
+                launch.worker.cwd.join(dir)
+            })
+        }
+    };
+    let log = Arc::new(Log::open(log_dir.as_deref(), launch.dev));
+    log.line(
+        "shell",
+        &format!(
+            "starting {} from {}{}",
+            launch.manifest.id,
+            launch.manifest_path.display(),
+            if launch.dev { " (dev mode)" } else { "" }
+        ),
     );
+
+    let code = platform::run(launch, log);
+    ExitCode::from(u8::try_from(code).unwrap_or(1))
+}
+
+fn shell_name(exe: &std::path::Path) -> String {
+    exe.file_stem()
+        .map(|s| s.to_string_lossy().into_owned())
+        .unwrap_or_else(|| "Shell".into())
+}
+
+#[cfg(target_os = "linux")]
+use grafida_shell::linux as platform;
+
+#[cfg(not(target_os = "linux"))]
+mod platform {
+    use grafida_shell::{cli::Launch, log::Log};
+    use std::sync::Arc;
+
+    pub fn alert(title: &str, message: &str, detail: &str) {
+        eprintln!("{title}: {message}\n{detail}");
+    }
+
+    pub fn run(_launch: Launch, _log: Arc<Log>) -> i32 {
+        alert(
+            "Shell",
+            "This platform is not supported yet.",
+            "grafida/grafida#82: Linux first.",
+        );
+        1
+    }
 }

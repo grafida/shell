@@ -55,6 +55,39 @@ the desktop session through an interactive scheduled task, never directly over S
   runs shell-php's echo worker and Grafida's `bin/worker.php` (sibling clones, or `SHELL_PHP_DIR` /
   `GRAFIDA_DIR`) and skips with a note when they are absent, as on CI. Grafida's worker runs with every
   per-user directory pointed at a temp dir, never the real data.
+- **On Linux the shell builds the WebKitGTK webview itself; wry is not used there.** wry's WebKit
+  context is crate-private, so the scheme, the data directories and the sandbox could only be set
+  after wry had created the webview, and `set_sandbox_enabled()` is a *fatal* error once a web process
+  exists. `src/linux/` does it in WebKit's order: context (data manager, sandbox, spelling, scheme,
+  security manager: secure **and** CORS-enabled) → webview → load the start URL after `ready`.
+  wry stays the plan for macOS/Windows (ADR 0001). The sandbox is verifiably on (`WebKitWebProcess`
+  under `bwrap`); dialogs run in the UI process, outside it.
+- **Every `boson://` request is parked in a UI-thread map and completed from it on the UI thread**
+  (`linux/scheme.rs`). The body is read asynchronously on the main loop in 1 MiB chunks **to EOF**,
+  and reading stops past `maxBodyBytes` → `413`. The responder only posts `(id, response)` through
+  the tao event loop. `content-length`/`transfer-encoding` from the worker are dropped (B is the
+  length).
+- **`src/bridge.rs` is the platform-neutral half and is where request policy lives**: a foreign
+  `Origin` → `403 cross_origin` (an article's `<iframe>` must not drive the app's API); `/_native/*`
+  never reaches the worker; `x-shell-file-path` from the page is always dropped and an `x-shell-file`
+  token is resolved into it (the token itself is not forwarded); `no-store` is added under the
+  manifest's `noStorePaths` when the worker sent no `cache-control`/`expires`.
+- **The navigation policy is layered, because WebKitGTK cannot tell a main-frame navigation from a
+  subframe one** (`src/navigation.rs`). A navigation *action* off-origin is cancelled only when it
+  carries a **user gesture** (then http(s) opens in the OS browser); a gesture-less one may be an
+  embed loading in its `<iframe>` and is let through, and the main-frame **response** check
+  (`is_main_frame_main_resource`) refuses anything off-origin before it renders. "User" is the
+  gesture alone: `el.click()` from a script is a `LinkClicked` navigation too. `create` (window.open)
+  never makes a window. Downloads and the context-menu items that navigate, reload, open windows or
+  download are removed.
+- **The automation channel (`src/automation.rs`) exists only with the `automation` feature in a
+  debug build** (a release build with the feature is a `compile_error!`, and CI checks it), and only
+  opens with `--automation`. Two traps when writing checks with it: a script it injects **counts as
+  a user gesture** in WebKit, and a gesture survives about a second through timers, so a no-gesture
+  case must run from a `setTimeout` well past that; and while it is open the shell **records**
+  external URLs instead of launching the browser (`opened`). `tests/apps/echo/` (the fake worker in
+  echo mode, behind a 60 MiB limit) holds the in-webview checks: `bridge.js`, `navigation.js`,
+  `dialogs.js`.
 - **Menu accelerators fire before the webview sees the key.** Never bind a chord the manifest
   reserves (Grafida: `CmdOrCtrl+Shift+V`).
 - Windows builds use a static CRT (`-C target-feature=+crt-static`).

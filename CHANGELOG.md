@@ -10,3 +10,9 @@ shell 0.1 (unreleased)
 + Rust protocol codec (`src/protocol.rs`), tested against every fixture
 + `shell.json` manifest with a JSON Schema; an invalid manifest is refused with every offending member named
 + Worker supervisor: `ready` handshake, 502 `worker_restarted` and respawn on a crash, gives up after too many
++ Linux window and WebKitGTK webview serving the app at `<scheme>://app`, sandboxed, bodies up to the manifest limit
++ Navigation policy: off-origin links open in the OS browser; nothing else can navigate the app away
++ Native endpoints (`_native/*`): file dialogs that hand out per-session tokens, open-url, reveal, window title/theme
++ Failure alerts with the worker's last stderr lines; rotated log of the shell and the worker
++ `--dev [APP_DIR]` runs an app from its source tree with the manifest's `dev.worker` command
++ Debug-only automation channel (`--automation`) for driving the real window from scripts

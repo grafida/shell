@@ -30,6 +30,8 @@ pub struct Manifest {
     data_dir: Option<String>,
     #[serde(default = "default_start_path")]
     pub start_path: String,
+    #[serde(default)]
+    pub no_store_paths: Vec<String>,
     pub window: Window,
     pub worker: Worker,
     #[serde(default)]

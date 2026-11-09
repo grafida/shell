@@ -105,7 +105,7 @@ enum Event {
 /// A handle on the supervisor thread. Dropping it shuts the worker down.
 pub struct Supervisor {
     events: Sender<Event>,
-    thread: Option<JoinHandle<()>>,
+    thread: Mutex<Option<JoinHandle<()>>>,
     stderr: Arc<Mutex<VecDeque<String>>>,
 }
 
@@ -135,7 +135,7 @@ impl Supervisor {
 
         Ok(Supervisor {
             events,
-            thread: Some(thread),
+            thread: Mutex::new(Some(thread)),
             stderr,
         })
     }
@@ -155,13 +155,11 @@ impl Supervisor {
         self.stderr.lock().unwrap().iter().cloned().collect()
     }
 
-    /// Stops the worker gracefully (EOF, then up to the grace period, then kill) and waits.
-    pub fn shutdown(mut self) {
-        self.stop();
-    }
-
-    fn stop(&mut self) {
-        if let Some(thread) = self.thread.take() {
+    /// Stops the worker gracefully (EOF, then up to the grace period, then kill) and waits for
+    /// it. Idempotent; requests submitted afterwards are answered 503.
+    pub fn shutdown(&self) {
+        let thread = self.thread.lock().unwrap().take();
+        if let Some(thread) = thread {
             let _ = self.events.send(Event::Shutdown);
             let _ = thread.join();
         }
@@ -170,7 +168,7 @@ impl Supervisor {
 
 impl Drop for Supervisor {
     fn drop(&mut self) {
-        self.stop();
+        self.shutdown();
     }
 }
 

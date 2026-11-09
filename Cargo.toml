@@ -8,10 +8,15 @@ repository = "https://github.com/grafida/shell"
 publish = false
 
 [dependencies]
+getrandom = "0.4.3"
 jsonschema = { version = "0.61.0", default-features = false }
 libc = "0.2.191"
+pollster = "0.4"
+raw-window-handle = "0.6"
+rfd = "0.18.0"
 serde = { version = "1.0.229", features = ["derive"] }
 serde_json = "1"
+tao = "0.37.2"
 
 [workspace]
 exclude = ["spikes"]
@@ -19,3 +24,14 @@ exclude = ["spikes"]
 [dev-dependencies]
 base64 = "0.22"
 sha2 = "0.10"
+
+[features]
+# The debug-only automation channel (src/automation.rs). Never in a release build.
+automation = ["dep:cairo-rs", "dep:javascriptcore-rs"]
+
+[target.'cfg(target_os = "linux")'.dependencies]
+cairo-rs = { version = "0.18", features = ["png"], optional = true }
+javascriptcore-rs = { version = "1.1.2", optional = true }
+gtk = "0.18"
+soup3 = "0.5"
+webkit2gtk = { version = "2.0.2", features = ["v2_40"] }

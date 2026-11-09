@@ -4,3 +4,4 @@
 /spikes/results/
 /.idea/
 __pycache__/
+/tests/apps/*/logs/

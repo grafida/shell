@@ -1,0 +1,11 @@
+{
+    "id": "test.shell.echo",
+    "title": "Shell echo test",
+    "scheme": "boson",
+    "noStorePaths": ["/api/"],
+    "window": {"width": 900, "height": 600},
+    "worker": {"binary": "unused", "maxBodyBytes": 62914560},
+    "dev": {"worker": ["python3", "-I", "../../workers/fake_worker.py", "echo"]},
+    "webview": {"devtools": "env:SHELL_TEST_DEBUG"},
+    "logDir": "logs"
+}

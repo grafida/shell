@@ -43,6 +43,12 @@
             "pattern": "^/",
             "default": "/"
         },
+        "noStorePaths": {
+            "description": "Path prefixes (e.g. \"/api/\") whose responses get Cache-Control: no-store when the worker sent no cache header of its own.",
+            "type": "array",
+            "items": {"type": "string", "pattern": "^/"},
+            "default": []
+        },
         "window": {
             "type": "object",
             "additionalProperties": false,
