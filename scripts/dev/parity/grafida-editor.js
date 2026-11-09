@@ -15,7 +15,11 @@ ed.selection.select(ed.getBody(), true);
 ed.selection.collapse(false);
 await insertClipboardAsPlainText(ed);
 out.pasted = ed.getContent();
-check(out.pasted === '<p>startPlain text<br>second line</p>', 'Ctrl+Shift+V path: ' + out.pasted);
+// A Wayland compositor hands the clipboard only to the focused window; a desktop nobody has touched
+// (GNOME logs in to its Overview) leaves it unfocused, and a real Ctrl+Shift+V always comes with focus.
+out.focused = document.hasFocus();
+check(out.pasted === '<p>startPlain text<br>second line</p>',
+    'Ctrl+Shift+V path: ' + out.pasted + (out.focused ? '' : ' (the window has no keyboard focus: the compositor gives the clipboard only to the focused window)'));
 
 const r = ed.iframeElement.getBoundingClientRect();
 out.dropAt = [Math.round(r.left + r.width / 2), Math.round(r.top + 40)];

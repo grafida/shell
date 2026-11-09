@@ -1,0 +1,32 @@
+#cloud-config
+# Ubuntu 22.04 for grafida/grafida#86: the live-server ISO's unattended installer (subiquity
+# autoinstall) plus ubuntu-desktop-minimal, i.e. GNOME on Wayland with GDM, as on a desktop install.
+# @PASSWORD_HASH@ and @SSH_KEY@ are filled in by linuxvm.sh.
+autoinstall:
+  version: 1
+  locale: en_US.UTF-8
+  keyboard: {layout: us}
+  identity:
+    hostname: ubuntu2204
+    username: tester
+    password: "@PASSWORD_HASH@"
+  ssh:
+    install-server: true
+    allow-pw: false
+    authorized-keys: ["@SSH_KEY@"]
+  storage:
+    layout: {name: direct}
+  packages: [ubuntu-desktop-minimal]
+  late-commands:
+    - curtin in-target -- systemctl set-default graphical.target
+    # As on a desktop install, NetworkManager owns the network (the server installer writes a
+    # networkd netplan tied to the install-time interface name, which nothing brings up once the
+    # name changes), and cloud-init does not write one back on first boot.
+    - curtin in-target -- sh -c 'rm -f /etc/netplan/*.yaml && printf "network:\n  version: 2\n  renderer: NetworkManager\n" > /etc/netplan/01-network-manager-all.yaml && chmod 600 /etc/netplan/01-network-manager-all.yaml'
+    - curtin in-target -- sh -c 'echo "network: {config: disabled}" > /etc/cloud/cloud.cfg.d/99-disable-network-config.cfg'
+    - curtin in-target -- sh -c 'echo "tester ALL=(ALL) NOPASSWD:ALL" > /etc/sudoers.d/tester'
+    - curtin in-target -- sh -c 'printf "[daemon]\nAutomaticLoginEnable=true\nAutomaticLogin=tester\n" > /etc/gdm3/custom.conf'
+    # The account is created by cloud-init on first boot, not here, so the home directory gets
+    # GNOME's "tour done" marker from /etc/skel.
+    - curtin in-target -- sh -c 'mkdir -p /etc/skel/.config && echo yes > /etc/skel/.config/gnome-initial-setup-done'
+  shutdown: poweroff

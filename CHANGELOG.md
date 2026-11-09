@@ -2,6 +2,8 @@ shell 0.1.1 (unreleased)
 ================================================================================
 + `scripts/dev/parity-linux.sh` runs against a packaged app (`GRAFIDA_PACKAGED`) with a prebuilt debug shell (`SHELL_BIN`)
 + CI uploads a debug automation build per arch for verifying packaged apps; never a release asset
++ `scripts/dev/linuxvm.sh`: clean Ubuntu 22.04, Fedora 43 and Arch VMs, installed unattended by their own installers
+~ The parity script waits for the app's own page, not the window's placeholder, and names a missing keyboard focus
 
 shell 0.1.0
 ================================================================================

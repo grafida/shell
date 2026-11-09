@@ -6,7 +6,8 @@ over length-prefixed frames on stdin/stdout, native endpoints under `/_native/*`
 alerts. Grafida is consumer #1 (umbrella issue grafida/grafida#82); nothing Grafida-specific may be
 hard-coded — everything comes from the manifest (`shell.json`).
 
-Read `docs/adr/0001-shell-stack.md` before changing the webview glue. To run anything on Windows,
+Read `docs/adr/0001-shell-stack.md` before changing the webview glue. To test a packaged app on clean
+Linux machines, use `scripts/dev/linuxvm.sh` (`docs/dev/linux-test-vms.md`). To run anything on Windows,
 use the test VM in `docs/dev/windows-test-vm.md` (`ssh winvm`). A GUI program must be started in
 the desktop session through an interactive scheduled task, never directly over SSH.
 

@@ -65,7 +65,9 @@ start_shell() { # app_dir app_id [extra env...]
         sleep 0.1
     done
     SHELL_PID=$(python3 -I -c 'import json,sys; print(json.load(open(sys.argv[1]))["pid"])' "$channel")
-    $CLIENT wait 'return document.readyState === "complete"' 30 >/dev/null
+    # The app's own document, not the blank one the window shows until the worker is ready: on a
+    # slow machine an eval would otherwise land in that placeholder.
+    $CLIENT wait 'return location.origin === "boson://app" && document.readyState === "complete"' 60 >/dev/null
 }
 
 stop_shell() {
