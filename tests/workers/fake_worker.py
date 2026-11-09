@@ -9,6 +9,9 @@
 #   echo     a correct worker. Paths: /crash (exit 1 without answering), /sleep?ms=N,
 #            /stderr?lines=N (write N numbered lines to stderr, then answer), /pid (answer its pid);
 #            anything else echoes the request as JSON, with a repeated `x-multi` response header.
+#   page     echo, plus a page at / that POSTs through the scheme, reports what it saw to stderr
+#            (`smoke: origin=… post=…`, so it lands in the shell's log) and asks the shell to quit:
+#            the release smoke test, which has no automation channel (scripts/release/smoke-linux.sh)
 #   silent   never sends `ready`
 #   version  announces protocol 2
 #   garbage  writes junk instead of `ready`
@@ -65,7 +68,22 @@ def respond(rid, status, payload, extra=None):
                 json.dumps(payload).encode())
 
 
-def serve(linger=False, deaf=False):
+SMOKE_PAGE = b"""<!doctype html><meta charset="utf-8"><title>smoke</title><body>smoke
+<script>
+addEventListener('load', async () => {
+  let post = 'failed';
+  try {
+    const r = await fetch('/api/echo', {method: 'POST', body: 'hello'});
+    const j = await r.json();
+    post = r.status + ':' + j.bodyLength;
+  } catch (e) { post = 'error:' + e; }
+  await fetch('/smoke-report?origin=' + encodeURIComponent(location.origin) + '&post=' + encodeURIComponent(post));
+  fetch('/_native/quit', {method: 'POST', body: '{}'});
+});
+</script>"""
+
+
+def serve(linger=False, deaf=False, page=False):
     write_frame({"type": "ready", "protocol": 1, "pid": os.getpid(), "app": "fake", "version": "0"})
     while True:
         frame = read_frame()
@@ -87,6 +105,13 @@ def serve(linger=False, deaf=False):
             for i in range(int(query["lines"][0])):
                 sys.stderr.write(f"line {i + 1}\n")
             sys.stderr.flush()
+        if page and url.path == "/":
+            write_frame({"type": "response", "id": rid, "status": 200,
+                         "headers": {"content-type": ["text/html; charset=utf-8"]}}, SMOKE_PAGE)
+            continue
+        if page and url.path == "/smoke-report":
+            sys.stderr.write("smoke: origin=%s post=%s\n" % (query["origin"][0], query["post"][0]))
+            sys.stderr.flush()
         if url.path == "/pid":
             respond(rid, 200, {"pid": os.getpid()})
             continue
@@ -104,6 +129,8 @@ def main():
     mode = sys.argv[1]
     if mode == "echo":
         serve()
+    elif mode == "page":
+        serve(page=True)
     elif mode == "linger":
         serve(linger=True)
     elif mode == "deaf":

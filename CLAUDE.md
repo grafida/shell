@@ -105,6 +105,26 @@ the desktop session through an interactive scheduled task, never directly over S
   PASS/FAIL Markdown table with the commits it ran on (`QUICK=1` shortens the idle-CPU sample). The
   automation channel's runtime file is removed in the shell's stop path, not only in `Drop`: tao
   ends the process without dropping anything, and a stale file hands a client a dead pid.
+- **`launcher/` is a separate crate and must stay free of GTK, WebKit and C dependencies** (std +
+  serde_json): it is built static (musl) precisely so it runs where the shell cannot load. It asks
+  the system loader whether the shell beside it would load (`LD_TRACE_LOADED_OBJECTS` +
+  `LD_BIND_NOW` + `LD_WARN`, i.e. `ldd -r`, ~30 ms) and either `exec`s it with the same arguments
+  or alerts (zenity → kdialog → notify-send → xmessage → stderr) with the packages to install per
+  distro family. Only undefined symbols *the shell itself* needs count (it is `-z now`; a library's
+  own unresolved references bind lazily), and output it does not recognise **fails open**.
+  `launcher/tests/loader.rs` breaks real C programs' libraries to pin the loader's formats.
+- **Process-wide settings go in `linux::environment::prepare()`, called from `main()` before any
+  thread exists** (it sets environment variables): the program name = the manifest `id` (GTK's
+  Wayland `app_id` and X11 `WM_CLASS`, so a packaged app's desktop entry must be named
+  `<id>.desktop`), and `WEBKIT_DISABLE_DMABUF_RENDERER` per `webview.dmabufRenderer`. The user's
+  own value of that variable always wins.
+- **Releases** (`.github/workflows/release.yml`): every push builds, checks
+  (`scripts/release/check-linux-binaries.sh`: glibc ≤ 2.35, every NEEDED library from
+  `libwebkit2gtk-4.1-0` + `libgtk-3-0`'s dependency closure, no automation marker, a static
+  launcher) and smoke-tests (`scripts/release/smoke-linux.sh`: the launcher → the shell → the fake
+  worker's `page` mode, which POSTs, reports to the log and quits; no automation channel) on
+  `ubuntu-22.04` and `ubuntu-22.04-arm`. A tag `X.Y.Z` equal to **both** crates' versions publishes
+  `grafida-{shell,launcher}-linux-{x86_64,aarch64}` + `.sha256`, once; consumers pin tag + hashes.
 - **Menu accelerators fire before the webview sees the key.** Never bind a chord the manifest
   reserves (Grafida: `CmdOrCtrl+Shift+V`).
 - Windows builds use a static CRT (`-C target-feature=+crt-static`).

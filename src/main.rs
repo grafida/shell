@@ -38,7 +38,7 @@ fn main() -> ExitCode {
         Ok(launch) => launch,
         Err(e) => {
             platform::alert(
-                &shell_name(&exe),
+                &e.title().map_or_else(|| shell_name(&exe), str::to_owned),
                 "The application cannot start.",
                 &e.to_string(),
             );
@@ -54,6 +54,9 @@ fn main() -> ExitCode {
         );
         return ExitCode::from(EXIT_CONFIG);
     }
+
+    // SAFETY: no thread has been started yet (the log, the supervisor and GTK all come later).
+    let notes = unsafe { platform::prepare(&launch.manifest) };
 
     let log_dir = match launch.manifest.log_dir.as_str() {
         "auto" => log::auto_dir(launch.manifest.data_dir()),
@@ -76,6 +79,9 @@ fn main() -> ExitCode {
             if launch.dev { " (dev mode)" } else { "" }
         ),
     );
+    for note in notes {
+        log.line("shell", &note);
+    }
 
     let code = platform::run(launch, log);
     ExitCode::from(u8::try_from(code).unwrap_or(1))
@@ -88,12 +94,20 @@ fn shell_name(exe: &std::path::Path) -> String {
 }
 
 #[cfg(target_os = "linux")]
-use grafida_shell::linux as platform;
+mod platform {
+    pub use grafida_shell::linux::{alert, environment::prepare, run};
+}
 
 #[cfg(not(target_os = "linux"))]
 mod platform {
-    use grafida_shell::{cli::Launch, log::Log};
+    use grafida_shell::{cli::Launch, log::Log, manifest::Manifest};
     use std::sync::Arc;
+
+    /// # Safety
+    /// Nothing to set up yet; kept `unsafe` to match the Linux signature.
+    pub unsafe fn prepare(_manifest: &Manifest) -> Vec<String> {
+        Vec::new()
+    }
 
     pub fn alert(title: &str, message: &str, detail: &str) {
         eprintln!("{title}: {message}\n{detail}");

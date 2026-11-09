@@ -19,6 +19,9 @@ serde_json = "1"
 tao = "0.37.2"
 
 [workspace]
+# The launcher is its own crate so that it links nothing but std: it is built static (musl) and
+# must run where GTK, WebKitGTK or a new enough glibc are missing (grafida/grafida#86).
+members = ["launcher"]
 exclude = ["spikes"]
 
 [dev-dependencies]

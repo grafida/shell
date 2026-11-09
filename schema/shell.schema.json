@@ -149,6 +149,11 @@
                     "description": "Turn on the webview's spell checker. Pages still decide per element with the spellcheck attribute.",
                     "type": "boolean",
                     "default": true
+                },
+                "dmabufRenderer": {
+                    "description": "Linux: WebKitGTK's DMA-BUF renderer. \"auto\" turns it off when NVIDIA's driver is loaded, where it can leave the window blank; \"on\" and \"off\" force it. The user's own WEBKIT_DISABLE_DMABUF_RENDERER always wins.",
+                    "enum": ["auto", "on", "off"],
+                    "default": "auto"
                 }
             }
         },

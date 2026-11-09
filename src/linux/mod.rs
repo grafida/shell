@@ -7,6 +7,7 @@
 //! context (data dirs, sandbox, spelling, scheme, security manager) → webview → load.
 
 mod alert;
+pub mod environment;
 mod scheme;
 
 use std::{
@@ -148,9 +149,29 @@ pub fn run(launch: Launch, log: Arc<Log>) -> i32 {
         let refs: Vec<&str> = languages.iter().map(String::as_str).collect();
         context.set_spell_checking_languages(&refs);
         context.set_spell_checking_enabled(true);
+        // WebKit keeps only the languages enchant has a dictionary for. A clean install often has
+        // none for the user's language: checking then silently underlines nothing, so say which.
+        let loaded: Vec<String> = context
+            .spell_checking_languages()
+            .iter()
+            .map(|l| l.to_string())
+            .collect();
+        let missing: Vec<&str> = languages
+            .iter()
+            .filter(|l| !spell_covered(l, &loaded))
+            .map(String::as_str)
+            .collect();
         log.line(
             "shell",
-            &format!("spell checking: {}", languages.join(", ")),
+            &if missing.is_empty() {
+                format!("spell checking: {}", languages.join(", "))
+            } else {
+                format!(
+                    "spell checking: {} (no dictionary installed for: {}; install hunspell or aspell dictionaries for them)",
+                    if loaded.is_empty() { "off".to_string() } else { loaded.join(", ") },
+                    missing.join(", ")
+                )
+            },
         );
     }
     if let Some(security) = context.security_manager() {
@@ -398,6 +419,13 @@ fn spell_languages() -> Vec<String> {
         out.push("en_US".into());
     }
     out
+}
+
+/// A requested language has a dictionary: exactly, or for a bare `en` any regional `en_*` one.
+fn spell_covered(language: &str, loaded: &[String]) -> bool {
+    loaded.iter().any(|l| {
+        l == language || (!language.contains('_') && l.starts_with(&format!("{language}_")))
+    })
 }
 
 fn webkit_version() -> String {
@@ -915,5 +943,20 @@ fn automation(
         other => {
             let _ = reply.send(fail(format!("unknown command {other:?}")));
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::spell_covered;
+
+    #[test]
+    fn a_bare_language_is_covered_by_a_regional_dictionary() {
+        let loaded = vec!["en_US".to_string(), "de_DE".to_string()];
+        assert!(spell_covered("en_US", &loaded));
+        assert!(spell_covered("en", &loaded));
+        assert!(!spell_covered("en_GB", &loaded));
+        assert!(!spell_covered("el", &loaded));
+        assert!(!spell_covered("e", &loaded));
     }
 }

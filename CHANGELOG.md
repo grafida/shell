@@ -18,3 +18,9 @@ shell 0.1 (unreleased)
 + Files dropped on the window reach the app as tokens, despite the sandboxed webview
 + `--dev [APP_DIR]` runs an app from its source tree with the manifest's `dev.worker` command
 + Debug-only automation channel (`--automation`) for driving the real window from scripts
++ Linux release workflow: shell + static launcher for x86_64 and aarch64, checked and smoke-tested headless
++ Static Linux launcher: names missing WebKitGTK/GTK libraries or a too-old glibc in an alert
++ `webview.dmabufRenderer` manifest member; "auto" turns the DMA-BUF renderer off with NVIDIA's driver
+~ The window's Wayland app_id and X11 class are the manifest's `id`, so docks find `<id>.desktop`
+~ A packaged app with a missing worker says where the worker was expected
+~ The log names spell-check languages that have no dictionary installed

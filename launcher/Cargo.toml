@@ -1,0 +1,11 @@
+[package]
+name = "grafida-launcher"
+version = "0.1.0"
+edition = "2024"
+license = "MIT"
+description = "Starts the Grafida Shell on Linux, or explains which system libraries it is missing."
+repository = "https://github.com/grafida/shell"
+publish = false
+
+[dependencies]
+serde_json = "1"

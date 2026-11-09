@@ -125,6 +125,8 @@ pub struct Webview {
     pub devtools: Devtools,
     #[serde(default = "yes")]
     pub spell_check: bool,
+    #[serde(default)]
+    pub dmabuf_renderer: DmabufRenderer,
 }
 
 impl Default for Webview {
@@ -133,8 +135,21 @@ impl Default for Webview {
             context_menu: true,
             devtools: Devtools::default(),
             spell_check: true,
+            dmabuf_renderer: DmabufRenderer::default(),
         }
     }
+}
+
+/// WebKitGTK's DMA-BUF renderer (Linux only). `Auto` turns it off where it is known to leave the
+/// window blank: with NVIDIA's driver loaded. A user's own `WEBKIT_DISABLE_DMABUF_RENDERER` always
+/// wins over the manifest.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "lowercase")]
+pub enum DmabufRenderer {
+    #[default]
+    Auto,
+    On,
+    Off,
 }
 
 /// `true`, `false`, or `"env:NAME"`.

@@ -85,7 +85,20 @@ pub enum LaunchError {
     /// The manifest could not be found, read or validated; carries its path.
     Manifest(PathBuf, ManifestError),
     NoManifest(Vec<PathBuf>),
+    /// The manifest loaded, but its worker is not where it says: (the app's title, the worker's
+    /// name, the path it was looked for at).
+    MissingWorker(String, String, PathBuf),
     Other(String),
+}
+
+impl LaunchError {
+    /// The app's title, when the manifest got as far as loading.
+    pub fn title(&self) -> Option<&str> {
+        match self {
+            LaunchError::MissingWorker(title, ..) => Some(title),
+            _ => None,
+        }
+    }
 }
 
 impl std::fmt::Display for LaunchError {
@@ -99,6 +112,11 @@ impl std::fmt::Display for LaunchError {
                 }
                 Ok(())
             }
+            LaunchError::MissingWorker(_, binary, path) => write!(
+                f,
+                "The worker `{binary}` is missing. It should be beside the manifest, at {}.",
+                path.display()
+            ),
             LaunchError::Other(e) => f.write_str(e),
         }
     }
@@ -112,11 +130,13 @@ impl Options {
             (None, Some(dir)) => absolute(&dir.join(manifest::FILE_NAME)),
             (None, None) => {
                 let candidates = packaged_candidates(exe);
-                candidates
+                let found = candidates
                     .iter()
                     .find(|p| p.is_file())
-                    .cloned()
-                    .ok_or(LaunchError::NoManifest(candidates))?
+                    .ok_or_else(|| LaunchError::NoManifest(candidates.clone()))?;
+                // No `..` left in it (the macOS candidate has one): every path derived from the
+                // manifest's directory, the worker's included, should be the real one.
+                std::fs::canonicalize(found).unwrap_or_else(|_| found.clone())
             }
         };
 
@@ -144,8 +164,16 @@ impl Options {
                     .parent()
                     .unwrap_or(Path::new("/"))
                     .to_path_buf();
+                let program = resources.join(&manifest.worker.binary);
+                if !program.is_file() {
+                    return Err(LaunchError::MissingWorker(
+                        manifest.title.clone(),
+                        manifest.worker.binary.clone(),
+                        program,
+                    ));
+                }
                 WorkerCommand {
-                    program: resources.join(&manifest.worker.binary).into(),
+                    program: program.into(),
                     args: manifest.worker.args.iter().map(OsString::from).collect(),
                     cwd: resources,
                     env: Vec::new(),
@@ -243,12 +271,49 @@ mod tests {
     #[test]
     fn packaged_mode_finds_the_manifest_beside_the_binary() {
         let dir = app_dir(MANIFEST);
+        std::fs::write(dir.join("t-worker"), "").unwrap();
         let launch = Options::default()
             .resolve(&dir.join("grafida-shell"))
             .unwrap();
         assert_eq!(launch.worker.program, dir.join("t-worker").into_os_string());
         assert_eq!(launch.worker.args, vec![OsString::from("-q")]);
         assert_eq!(launch.worker.cwd, dir);
+        std::fs::remove_dir_all(dir).unwrap();
+    }
+
+    #[test]
+    fn packaged_mode_finds_a_macos_bundles_resources_without_dot_dot() {
+        let bundle = app_dir("{}");
+        let contents = bundle.join("Contents");
+        std::fs::create_dir_all(contents.join("MacOS")).unwrap();
+        std::fs::create_dir_all(contents.join("Resources")).unwrap();
+        std::fs::write(contents.join("Resources/shell.json"), MANIFEST).unwrap();
+        std::fs::write(contents.join("Resources/t-worker"), "").unwrap();
+        let launch = Options::default()
+            .resolve(&contents.join("MacOS/grafida-shell"))
+            .unwrap();
+        let resources = std::fs::canonicalize(contents.join("Resources")).unwrap();
+        assert_eq!(launch.manifest_path, resources.join("shell.json"));
+        assert_eq!(launch.worker.cwd, resources);
+        assert_eq!(
+            launch.worker.program,
+            resources.join("t-worker").into_os_string()
+        );
+        std::fs::remove_dir_all(bundle).unwrap();
+    }
+
+    #[test]
+    fn packaged_mode_names_a_missing_worker() {
+        let dir = app_dir(MANIFEST);
+        let err = Options::default()
+            .resolve(&dir.join("grafida-shell"))
+            .unwrap_err()
+            .to_string();
+        assert!(err.contains("`t-worker` is missing"), "{err}");
+        assert!(
+            err.contains(&dir.join("t-worker").display().to_string()),
+            "{err}"
+        );
         std::fs::remove_dir_all(dir).unwrap();
     }
 
