@@ -25,6 +25,8 @@
 #                            adds variables); prints its pid. Output: C:\winvm\run\std{out,err}.txt
 #                            WINVM_KEEP=1 keeps the previous run's data (a restart of the same app)
 #   ps VM SCRIPT             run one PowerShell script in the guest (as -EncodedCommand)
+#   idle VM PID [SETTLE] [SAMPLE]   idle CPU of PID's process tree, per process (winvm/idle-cpu.ps1;
+#                            default 60 s after 60 s)
 #   stop-run VM              kill what `run` started, and everything it started
 #   watch-start VM / watch-stop VM   record every console window shown on the guest desktop
 #                            (winvm/watch.ps1); watch-stop prints them, one per line (none = none)
@@ -242,6 +244,10 @@ if (-not (Test-Path C:\winvm\run\pid)) { throw "the program did not start" }
 (Get-Content C:\winvm\run\pid).Trim()'
         ;;
     ps) rps "$vm" "${1:?script}" ;;
+    idle)
+        scp -q "$HERE/winvm/idle-cpu.ps1" "$(host "$vm"):C:/winvm/idle-cpu.ps1"
+        rssh "$vm" "powershell -NoProfile -ExecutionPolicy Bypass -File C:\\winvm\\idle-cpu.ps1 -ProcessId ${1:?pid} -Settle ${2:-60} -Sample ${3:-60}"
+        ;;
     stop-run)
         # Waits until it is gone: the next `run` refuses while it is still exiting.
         rps "$vm" 'if (Test-Path C:\winvm\run\pid) { $p = (Get-Content C:\winvm\run\pid).Trim(); taskkill /T /F /PID $p 2>&1 | Out-Null; for ($i = 0; $i -lt 100 -and (Get-Process -Id $p -ErrorAction SilentlyContinue); $i++) { Start-Sleep -Milliseconds 100 } }; "stopped"'
