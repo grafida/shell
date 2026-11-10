@@ -10,6 +10,7 @@ shell 0.1.1 (unreleased)
 + macOS: a Blob, File or FormData-with-a-file body to the app fails with a TypeError instead of arriving empty
 + `scripts/dev/parity-macos.sh`: the automatable half of the macOS parity column, in dev mode or packaged
 + `SHELL_ALERTS=stderr` keeps failure alerts to stderr, for tests and headless runs
++ Releases include `grafida-shell-macos-arm64`, checked for the macOS 12 floor and smoke-tested in a bundle layout
 ~ The parity script waits for the app's own page, not the window's placeholder, and names a missing keyboard focus
 ~ A packaged worker is expected beside the shell (in a macOS bundle, `Contents/MacOS`), not beside the manifest
 

@@ -180,8 +180,15 @@ the desktop session through an interactive scheduled task, never directly over S
   `libwebkit2gtk-4.1-0` + `libgtk-3-0`'s dependency closure, no automation marker, a static
   launcher) and smoke-tests (`scripts/release/smoke-linux.sh`: the launcher → the shell → the fake
   worker's `page` mode, which POSTs, reports to the log and quits; no automation channel) on
-  `ubuntu-22.04` and `ubuntu-22.04-arm`. A tag `X.Y.Z` equal to **both** crates' versions publishes
-  `grafida-{shell,launcher}-linux-{x86_64,aarch64}` + `.sha256`, once; consumers pin tag + hashes.
+  `ubuntu-22.04` and `ubuntu-22.04-arm`; and on `macos-15` (grafida/grafida#88) checks
+  (`check-macos-binaries.sh`: thin arm64, `LC_BUILD_VERSION` minos ≤ 12.0, only `/usr/lib` and
+  `/System/Library` linked, no automation marker) and smoke-tests (`smoke-macos.sh`: the shell in a
+  bundle layout, manifest in `Contents/Resources`, worker beside the shell, the fake worker's `page`
+  mode) the macOS shell. A tag `X.Y.Z` equal to **both** crates' versions publishes
+  `grafida-{shell,launcher}-linux-{x86_64,aarch64}` and `grafida-shell-macos-arm64`, each with a
+  `.sha256`, once; consumers pin tag + hashes. The macOS asset is only linker-signed (ad hoc): the
+  app's packager signs it inside the bundle. Both platforms also upload a debug automation build as
+  a workflow artifact (`debug-automation-{linux-*,macos-arm64}`), never a release asset.
 - **Menu accelerators fire before the webview sees the key.** Never bind a chord the manifest
   reserves (Grafida: `CmdOrCtrl+Shift+V`).
 - **In packaged mode the worker is resolved beside the shell's real path** (`cli.rs`), not beside the
