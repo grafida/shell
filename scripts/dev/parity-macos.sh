@@ -339,7 +339,10 @@ PY
     record "$(grep -q 'boson://app/api/media/' <<<"$dropped" && echo PASS || echo FAIL)" \
         "Grafida: an image file dropped on the editor is inserted as offline media (delivered as in a real drop)" \
         "$(tr -d '\n ' <<<"$dropped" | cut -c1-120)"
-    $CLIENT eval 'State.tinyMCEEditor.setDirty(false); showScreen("sites"); return true' >/dev/null
+    # Leaving by script keeps the keyboard focus in the hidden editor's iframe, whose caret then
+    # blinks unseen while the app is frontmost (the key rows make it so): ~1.7 % of a core between
+    # the shell and WebContent, measured. A real click on the sidebar moves the focus out, so do that.
+    $CLIENT eval 'State.tinyMCEEditor.setDirty(false); showScreen("sites"); document.activeElement.blur(); window.focus(); return true' >/dev/null
 
     # Idle CPU of the shell, its worker and WebKit's helpers on a quiet screen.
     settle=60 sample=60
@@ -348,14 +351,22 @@ PY
     sleep "$settle"
     visibility=$($CLIENT eval 'return document.visibilityState' | python3 -I -c 'import json,sys; print(json.load(sys.stdin)["result"])')
     pids="$(tree "$SHELL_PID" | tr '\n' ' ')$(webkit_helpers | tr '\n' ' ')"
-    # shellcheck disable=SC2086
-    t0=$(cpu_seconds $pids); s0=$(date +%s); sleep "$sample"
-    # shellcheck disable=SC2086
-    t1=$(cpu_seconds $pids); s1=$(date +%s)
-    cpu=$(printf "%.2f" "$(echo "scale=4; ($t1 - $t0) * 100 / ($s1 - $s0)" | bc)")
+    # bash 3.2 (a clean macOS): no associative arrays, so the first sample is kept in a list.
+    before=""
+    for p in $pids; do before+="$p=$(cpu_seconds "$p") "; done
+    s0=$(date +%s); sleep "$sample"; s1=$(date +%s)
+    cpu=0 shares=""
+    for p in $pids; do
+        t0=$(tr ' ' '\n' <<<"$before" | sed -n "s/^$p=//p")
+        d=$(echo "$(cpu_seconds "$p") - ${t0:-0}" | bc)
+        cpu=$(echo "$cpu + $d" | bc)
+        name=$(ps -o comm= -p "$p" 2>/dev/null | sed 's|.*/||; s/^com\.apple\.WebKit\.//')
+        shares+="${name:-gone} $(printf "%.2f" "$(echo "scale=4; $d * 100 / ($s1 - $s0)" | bc)"); "
+    done
+    cpu=$(printf "%.2f" "$(echo "scale=4; $cpu * 100 / ($s1 - $s0)" | bc)")
     record "$(python3 -I -c "print('PASS' if $cpu < 1 and '$visibility' == 'visible' else 'FAIL')")" \
         "Idle CPU < 1% (shell, worker and WebKit helpers, ${sample} s after ${settle} s; page visible)" \
-        "$cpu % of one core over $(wc -w <<<"$pids" | tr -d ' ') processes; visibilityState $visibility"
+        "$cpu % of one core: ${shares%; }; visibilityState $visibility"
 
     # SIGKILL the shell while the worker is idle: it reads EOF and exits at once.
     worker=$(grep -o "worker started, pid [0-9]*" "$LOG" | tail -1 | grep -o "[0-9]*$")
