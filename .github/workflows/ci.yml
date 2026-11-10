@@ -37,6 +37,30 @@ jobs:
           git status --porcelain protocol/fixtures
           test -z "$(git status --porcelain protocol/fixtures)"
 
+  shell-macos:
+    name: Shell (macOS)
+    runs-on: macos-15
+    env:
+      # The floor (ADR 0001); .cargo/config.toml sets the same, this makes it explicit.
+      MACOSX_DEPLOYMENT_TARGET: "12.0"
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          components: rustfmt, clippy
+      - run: cargo fmt --check
+      - run: cargo clippy --workspace --all-targets -- -D warnings
+      - run: cargo clippy --workspace --all-targets --features automation -- -D warnings
+      - name: Automation never compiles into a release build
+        run: "! cargo check --release --features automation 2>/dev/null"
+      - run: cargo test --workspace
+      - name: Linked for macOS 12 (LC_BUILD_VERSION minos)
+        run: |
+          cargo build --locked
+          minos=$(otool -l target/debug/grafida-shell | awk '/LC_BUILD_VERSION/ { seen = 1 } seen && $1 == "minos" { print $2; exit }')
+          echo "minos: $minos"
+          test "$minos" = "12.0"
+
   # Phase 0 evidence for the deployment floors (ADR 0001): the wry spike must build on the
   # oldest Linux we promise (Ubuntu 22.04 / glibc 2.35, webkit2gtk-4.1 >= 2.40), on macOS
   # and on Windows.

@@ -1,6 +1,7 @@
 //! Native failure alerts (GTK). Used before the window exists (an invalid manifest) and when the
 //! app cannot go on (the worker keeps crashing). stderr is not a user-facing channel for a desktop
-//! app, so these always show a dialog; the same text also goes to the log.
+//! app, so these always show a dialog; the same text also goes to the log. `SHELL_ALERTS=stderr`
+//! keeps them to stderr (tests, headless smoke runs).
 
 use gtk::prelude::*;
 use tao::{platform::unix::WindowExtUnix, window::Window};
@@ -9,7 +10,7 @@ use tao::{platform::unix::WindowExtUnix, window::Window};
 /// there is no display at all.
 pub fn alert(title: &str, message: &str, detail: &str) {
     eprintln!("{title}: {message}\n{detail}");
-    if gtk::init().is_err() {
+    if std::env::var("SHELL_ALERTS").is_ok_and(|v| v == "stderr") || gtk::init().is_err() {
         return;
     }
     let dialog = build(None, title, message, detail);

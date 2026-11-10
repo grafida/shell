@@ -32,6 +32,13 @@ sha2 = "0.10"
 # The debug-only automation channel (src/automation.rs). Never in a release build.
 automation = ["dep:cairo-rs", "dep:javascriptcore-rs"]
 
+[target.'cfg(target_os = "macos")'.dependencies]
+block2 = "0.6.2"
+objc2 = { version = "0.6.5", features = ["exception"] }
+objc2-app-kit = "0.3.2"
+objc2-foundation = "0.3.2"
+objc2-web-kit = "0.3.2"
+
 [target.'cfg(target_os = "linux")'.dependencies]
 cairo-rs = { version = "0.18", features = ["png"], optional = true }
 javascriptcore-rs = { version = "1.1.2", optional = true }

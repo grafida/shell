@@ -99,6 +99,11 @@ Gotchas:
 - **A Safari update replaces the system WebKit** that every WKWebView uses, so the Safari version
   is part of what a run is measured on. Record it (`/Applications/Safari.app`'s
   `CFBundleShortVersionString`).
+- **A clean guest has no Python.** `/usr/bin/python3` is a stub that asks to install the Command Line
+  Tools (and raises that dialog in the guest). `perl`, `plutil` and `nc` are there. The parity script
+  needs Python (its client and the fake worker), so a packaged run installs the Command Line Tools in
+  the clone **after** the DMG install and first launch have been checked on the untouched guest
+  (decided in grafida/grafida#88); everything from then on ran on a guest with build tools.
 - A GUI program started over SSH is outside the desktop session and cannot reach the WindowServer.
   Start it inside the logged-in user's session: `sudo launchctl asuser $(id -u) sudo -u tester CMD`.
 - macOS 12 runs WebKit without a separate GPU process (WebContent + Networking only); newer

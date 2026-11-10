@@ -98,7 +98,12 @@ mod platform {
     pub use grafida_shell::linux::{alert, environment::prepare, run};
 }
 
-#[cfg(not(target_os = "linux"))]
+#[cfg(target_os = "macos")]
+mod platform {
+    pub use grafida_shell::macos::{alert, prepare, run};
+}
+
+#[cfg(not(any(target_os = "linux", target_os = "macos")))]
 mod platform {
     use grafida_shell::{cli::Launch, log::Log, manifest::Manifest};
     use std::sync::Arc;
@@ -117,7 +122,7 @@ mod platform {
         alert(
             "Shell",
             "This platform is not supported yet.",
-            "grafida/grafida#82: Linux first.",
+            "grafida/grafida#82: Linux and macOS first.",
         );
         1
     }

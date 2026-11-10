@@ -1,7 +1,7 @@
 //! The packaged layout, with the real binary (grafida/grafida#86): the shell finds its manifest and
 //! worker beside its *real* path when it is started through a symlink, and a missing worker is
-//! named in the alert rather than surfacing as a spawn error. No display is involved: without one
-//! the alert goes to stderr only.
+//! named in the alert rather than surfacing as a spawn error. No alert is shown: with
+//! `SHELL_ALERTS=stderr` (and on Linux without a display) it goes to stderr only.
 
 use std::{path::Path, process::Command};
 
@@ -30,6 +30,7 @@ fn run_headless(program: &Path, cwd: &Path) -> (Option<i32>, String) {
         .current_dir(cwd)
         .env_remove("DISPLAY")
         .env_remove("WAYLAND_DISPLAY")
+        .env("SHELL_ALERTS", "stderr")
         .output()
         .unwrap();
     (

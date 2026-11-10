@@ -1,7 +1,8 @@
 //! Command line and launch resolution: which manifest, which worker, which working directory.
 //!
 //! ```text
-//! grafida-shell                      packaged: shell.json beside the binary (or ../Resources)
+//! grafida-shell                      packaged: shell.json beside the binary (or ../Resources),
+//!                                    the worker beside the binary
 //! grafida-shell --dev [APP_DIR]      dev: APP_DIR/shell.json, worker = its dev.worker, cwd = APP_DIR
 //!               --manifest PATH      use this manifest instead
 //!               --automation         debug builds with the `automation` feature only
@@ -85,8 +86,8 @@ pub enum LaunchError {
     /// The manifest could not be found, read or validated; carries its path.
     Manifest(PathBuf, ManifestError),
     NoManifest(Vec<PathBuf>),
-    /// The manifest loaded, but its worker is not where it says: (the app's title, the worker's
-    /// name, the path it was looked for at).
+    /// The manifest loaded, but its worker is not beside the shell: (the app's title, the
+    /// worker's name, the path it was looked for at).
     MissingWorker(String, String, PathBuf),
     Other(String),
 }
@@ -114,7 +115,7 @@ impl std::fmt::Display for LaunchError {
             }
             LaunchError::MissingWorker(_, binary, path) => write!(
                 f,
-                "The worker `{binary}` is missing. It should be beside the manifest, at {}.",
+                "The worker `{binary}` is missing. It should be beside the shell, at {}.",
                 path.display()
             ),
             LaunchError::Other(e) => f.write_str(e),
@@ -123,8 +124,11 @@ impl std::fmt::Display for LaunchError {
 }
 
 impl Options {
-    /// Finds and loads the manifest and works out the worker command. `exe` is the shell's own path.
+    /// Finds and loads the manifest and works out the worker command. `exe` is the shell's own path;
+    /// everything is resolved from its real location, so a symlink to the shell works.
     pub fn resolve(&self, exe: &Path) -> Result<Launch, LaunchError> {
+        let exe = std::fs::canonicalize(exe).unwrap_or_else(|_| exe.to_path_buf());
+        let exe = exe.as_path();
         let manifest_path = match (&self.manifest, &self.dev) {
             (Some(path), _) => absolute(path),
             (None, Some(dir)) => absolute(&dir.join(manifest::FILE_NAME)),
@@ -160,11 +164,18 @@ impl Options {
                 }
             }
             None => {
+                // The worker is a program, so it sits beside the shell: the same directory as the
+                // manifest on Linux and Windows, `Contents/MacOS` in a macOS bundle, where
+                // codesign wants code and nothing else (grafida/grafida#88). It still runs in the
+                // manifest's directory, where the app's data files are.
                 let resources = manifest_path
                     .parent()
                     .unwrap_or(Path::new("/"))
                     .to_path_buf();
-                let program = resources.join(&manifest.worker.binary);
+                let program = exe
+                    .parent()
+                    .unwrap_or(Path::new("/"))
+                    .join(&manifest.worker.binary);
                 if !program.is_file() {
                     return Err(LaunchError::MissingWorker(
                         manifest.title.clone(),
@@ -246,7 +257,8 @@ mod tests {
         ));
         std::fs::create_dir_all(&dir).unwrap();
         std::fs::write(dir.join("shell.json"), manifest).unwrap();
-        dir
+        // The real path: macOS's temp dir is behind a symlink (/var → /private/var).
+        std::fs::canonicalize(dir).unwrap()
     }
 
     const MANIFEST: &str = r#"{"id":"app.t","title":"T","scheme":"boson",
@@ -288,16 +300,23 @@ mod tests {
         std::fs::create_dir_all(contents.join("MacOS")).unwrap();
         std::fs::create_dir_all(contents.join("Resources")).unwrap();
         std::fs::write(contents.join("Resources/shell.json"), MANIFEST).unwrap();
+        // A worker among the data files is not the worker: it belongs beside the shell.
         std::fs::write(contents.join("Resources/t-worker"), "").unwrap();
-        let launch = Options::default()
-            .resolve(&contents.join("MacOS/grafida-shell"))
-            .unwrap();
-        let resources = std::fs::canonicalize(contents.join("Resources")).unwrap();
+        let shell = contents.join("MacOS/grafida-shell");
+        let err = Options::default().resolve(&shell).unwrap_err().to_string();
+        assert!(
+            err.contains(&contents.join("MacOS/t-worker").display().to_string()),
+            "{err}"
+        );
+
+        std::fs::write(contents.join("MacOS/t-worker"), "").unwrap();
+        let launch = Options::default().resolve(&shell).unwrap();
+        let resources = contents.join("Resources");
         assert_eq!(launch.manifest_path, resources.join("shell.json"));
         assert_eq!(launch.worker.cwd, resources);
         assert_eq!(
             launch.worker.program,
-            resources.join("t-worker").into_os_string()
+            contents.join("MacOS/t-worker").into_os_string()
         );
         std::fs::remove_dir_all(bundle).unwrap();
     }

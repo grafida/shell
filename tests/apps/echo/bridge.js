@@ -46,7 +46,7 @@ check(r.status === 400 && (await r.json()).error === 'unknown_file_token', 'forg
 
 r = await fetch('/_native/info', { cache: 'no-store' });
 out.info = await r.json();
-check(out.info.protocol === 1 && /^WebKitGTK /.test(out.info.webview), 'native info');
+check(out.info.protocol === 1 && /^WebKit(GTK)? /.test(out.info.webview), 'native info');
 
 out.ok = out.failures.length === 0;
 return out;

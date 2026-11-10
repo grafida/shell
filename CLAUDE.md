@@ -1,13 +1,15 @@
 # grafida/shell — AI assistant orientation
 
-A small, app-agnostic native desktop shell in **Rust (wry/tao/rfd/muda)**: window + system webview,
+A small, app-agnostic native desktop shell in **Rust (tao/rfd, with the system webview built by the
+shell itself: WebKitGTK on Linux, WKWebView through objc2 on macOS)**: window + system webview,
 a custom scheme serving the app at `<scheme>://app`, a supervised PHP **worker** process spoken to
 over length-prefixed frames on stdin/stdout, native endpoints under `/_native/*`, menus and failure
 alerts. Grafida is consumer #1 (umbrella issue grafida/grafida#82); nothing Grafida-specific may be
 hard-coded — everything comes from the manifest (`shell.json`).
 
 Read `docs/adr/0001-shell-stack.md` before changing the webview glue. To test a packaged app on clean
-Linux machines, use `scripts/dev/linuxvm.sh` (`docs/dev/linux-test-vms.md`). To run anything on Windows,
+Linux machines, use `scripts/dev/linuxvm.sh` (`docs/dev/linux-test-vms.md`); on clean macOS 12 and 27
+guests, `scripts/dev/macvm.sh` (`docs/dev/macos-test-vms.md`). To run anything on Windows,
 use the test VM in `docs/dev/windows-test-vm.md` (`ssh winvm`). A GUI program must be started in
 the desktop session through an interactive scheduled task, never directly over SSH.
 
@@ -61,8 +63,40 @@ the desktop session through an interactive scheduled task, never directly over S
   after wry had created the webview, and `set_sandbox_enabled()` is a *fatal* error once a web process
   exists. `src/linux/` does it in WebKit's order: context (data manager, sandbox, spelling, scheme,
   security manager: secure **and** CORS-enabled) → webview → load the start URL after `ready`.
-  wry stays the plan for macOS/Windows (ADR 0001). The sandbox is verifiably on (`WebKitWebProcess`
+  wry stays the plan for Windows only (ADR 0001). The sandbox is verifiably on (`WebKitWebProcess`
   under `bwrap`); dialogs run in the UI process, outside it.
+- **On macOS the shell owns WKWebView through objc2; neither wry nor muda is used** (ADR 0001,
+  grafida/grafida#88). `src/macos/` builds its own `WKWebViewConfiguration` (the `WKURLSchemeHandler`,
+  devtools, the Blob guard), a `WKWebView` subclass (`ShellWebView`: file drops, the context menu),
+  one delegate object for `WKNavigationDelegate` + `WKUIDelegate`, and the AppKit menu bar. The scheme
+  handler parks each task in a main-thread map; `stopURLSchemeTask:` removes it, so a late answer is
+  dropped (touching a stopped task raises). An `HTTPBody` is checked against `maxBodyBytes` *before*
+  it is copied; an `HTTPBodyStream` is read to EOF in 1 MiB chunks on a reader thread, which posts the
+  request back to the main thread for `Bridge::handle`. Navigation: macOS knows the target frame, so a
+  nil target is a new window, the main frame gets `navigation::for_main_frame_navigation` (nothing
+  off-origin, ever) and a subframe the layered Linux rule. The gesture comes from WebKit's private
+  `_isUserInitiated` behind `respondsToSelector:` (absent = no gesture, the side that never opens a
+  browser), because `navigationType` is `LinkActivated` for a script's `el.click()` too.
+- **WKWebView hands a scheme handler no body for a `Blob`/`File` or a `FormData` with a file part**
+  (ADR 0001). A document-start script (`webview::blob_guard`, macOS only, all frames, page world)
+  makes `fetch()` reject and `XMLHttpRequest.send()`/`sendBeacon()` throw a `TypeError` for such a
+  body to the app's own origin; `tests/apps/echo/blob.js` pins it on both platforms.
+- **macOS has no parent-death signal: the worker's lifetime is stdin EOF only.** An idle worker exits
+  the moment the shell dies; a busy one when its request ends. `tests/supervisor.rs` checks both
+  (Linux keeps the PDEATHSIG test), and so does `parity-macos.sh` against the real worker.
+- **macOS menus come from `src/menu.rs`, a platform-neutral table** tested on every platform: the
+  app menu (About posts a `shell:about` DOM event, no native panel; Quit goes through the shell's own
+  stop path, not `terminate:`), Edit with the Spelling and Grammar selectors (no `pasteAsPlainText:`)
+  and Window. A reserved chord loses its key equivalent, and the live menu bar is walked once more
+  after it is installed, since AppKit adds items. **An uppercase AppKit key equivalent implies Shift.**
+  Dock ▸ Quit and logout arrive as tao's `LoopDestroyed`, which runs the same stop path.
+- **`WebContinuousSpellCheckingEnabled` is set in the shell's own defaults domain on every macOS
+  launch** (`macos::prepare`), as Grafida's `MacSpellCheck` does under Boson: WebKit reads it once,
+  and the page's `spellcheck` attribute is then the switch. Defaults go through cfprefsd, which
+  ignores `HOME` and `CFFIXED_USER_HOME`: a dev run writes `~/Library/Preferences/grafida-shell.plist`.
+- **Selectors and symbols newer than macOS 12 are looked up at run time** (`isInspectable` behind
+  `respondsToSelector:`); UTIs and WebKit menu identifiers are string literals. Builds link for 12.0
+  (`.cargo/config.toml`, checked from `LC_BUILD_VERSION` in CI).
 - **Every `boson://` request is parked in a UI-thread map and completed from it on the UI thread**
   (`linux/scheme.rs`). The body is read asynchronously on the main loop in 1 MiB chunks **to EOF**,
   and reading stops past `maxBodyBytes` → `413`. The responder only posts `(id, response)` through
@@ -100,6 +134,12 @@ the desktop session through an interactive scheduled task, never directly over S
   external URLs instead of launching the browser (`opened`). `tests/apps/echo/` (the fake worker in
   echo mode, behind a 60 MiB limit) holds the in-webview checks: `bridge.js`, `navigation.js`,
   `dialogs.js`.
+- **`scripts/dev/parity-macos.sh` is its macOS counterpart** (grafida/grafida#88), with the same
+  checks plus the Blob guard and the shell-SIGKILL lifetime checks. It isolates with `HOME` +
+  `CFFIXED_USER_HOME` (Grafida's data, its log and WebKit's website data follow both) and sets
+  `TMPDIR` explicitly for shell and client, because `launchctl asuser`/`sudo` strip it and the
+  automation file lives there. `GRAFIDA_PACKAGED=<…>.app` copies the bundle, swaps in `SHELL_BIN` and
+  re-signs the copy ad hoc.
 - **`scripts/dev/parity-linux.sh` is the automatable half of #82's Linux parity column**: it runs
   the debug shell on the current desktop against `tests/apps/{echo,silent}` and against Grafida
   (`GRAFIDA_DIR`, default `../grafida`) with every per-user directory in a temp dir, and prints a
@@ -133,6 +173,11 @@ the desktop session through an interactive scheduled task, never directly over S
   `grafida-{shell,launcher}-linux-{x86_64,aarch64}` + `.sha256`, once; consumers pin tag + hashes.
 - **Menu accelerators fire before the webview sees the key.** Never bind a chord the manifest
   reserves (Grafida: `CmdOrCtrl+Shift+V`).
+- **In packaged mode the worker is resolved beside the shell's real path** (`cli.rs`), not beside the
+  manifest: the same directory on Linux, `Contents/MacOS` in a bundle (codesign wants only code
+  there); the manifest is beside the binary or in `../Resources`, and the worker runs in its directory.
+- **`SHELL_ALERTS=stderr` keeps the failure alerts to stderr** on both platforms (tests, headless
+  smoke runs); on macOS so does a process with no window-server session.
 - Windows builds use a static CRT (`-C target-feature=+crt-static`).
 
 ## Conventions

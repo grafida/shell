@@ -1,0 +1,5 @@
+# The macOS floor (ADR 0001, grafida/grafida#88): every build, local or CI, links for macOS 12.0, so
+# the LC_BUILD_VERSION minos the release check reads is the same one a developer's build has. An
+# explicit MACOSX_DEPLOYMENT_TARGET in the environment still wins. Ignored on other platforms.
+[env]
+MACOSX_DEPLOYMENT_TARGET = "12.0"

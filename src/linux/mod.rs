@@ -11,7 +11,6 @@ pub mod environment;
 mod scheme;
 
 use std::{
-    collections::VecDeque,
     path::{Path, PathBuf},
     rc::Rc,
     sync::{Arc, Mutex},
@@ -19,10 +18,6 @@ use std::{
 };
 
 use gtk::{gio, glib, prelude::*};
-use raw_window_handle::{
-    DisplayHandle, HandleError, HasDisplayHandle, HasWindowHandle, RawDisplayHandle,
-    RawWindowHandle, WindowHandle,
-};
 use tao::{
     dpi::LogicalSize,
     event::{Event, WindowEvent},
@@ -40,6 +35,7 @@ use webkit2gtk::{
 use crate::{
     bridge::{Bridge, ClipboardDone, DialogDone, FileFilter, Host},
     cli::Launch,
+    dialog::{self, DialogKind, DialogRequest, Picks},
     http::Response,
     log::Log,
     manifest::Theme,
@@ -68,35 +64,6 @@ impl std::fmt::Debug for crate::automation::Command {
             .field("request", &self.request)
             .finish()
     }
-}
-
-/// Dialog answers queued by the automation channel (`pick`); always empty without it.
-type Picks = Arc<Mutex<VecDeque<Option<Vec<PathBuf>>>>>;
-
-pub struct DialogRequest {
-    kind: DialogKind,
-    done: DialogDone,
-}
-
-impl std::fmt::Debug for DialogRequest {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        f.debug_struct("DialogRequest")
-            .field("kind", &self.kind)
-            .finish()
-    }
-}
-
-#[derive(Debug)]
-enum DialogKind {
-    Open {
-        filters: Vec<FileFilter>,
-        multiple: bool,
-    },
-    Folder,
-    Save {
-        name: String,
-        filters: Vec<FileFilter>,
-    },
 }
 
 /// Runs the app until the window closes. Returns the process exit status.
@@ -367,11 +334,7 @@ pub fn run(launch: Launch, log: Arc<Log>) -> i32 {
                 window.set_theme(tao_theme(theme));
             }
             Event::UserEvent(UserEvent::Dialog(request)) => {
-                let queued = picks.lock().unwrap().pop_front();
-                match queued {
-                    Some(answer) => (request.done)(answer),
-                    None => open_dialog(&window, request),
-                }
+                dialog::answer(&window, &picks, request)
             }
             #[cfg(all(feature = "automation", debug_assertions))]
             Event::UserEvent(UserEvent::Automation(command)) => {
@@ -767,67 +730,6 @@ fn reveal(path: &Path) -> Result<(), String> {
             .unwrap_or_else(|| PathBuf::from("/"))
     };
     open_uri(&gio::File::for_path(folder).uri())
-}
-
-/// The window's raw handles, for parenting a portal dialog to it.
-struct Parent(RawWindowHandle, RawDisplayHandle);
-
-// SAFETY: the handles are plain identifiers copied from the live window on the UI thread; the
-// dialog only uses them to name its parent to the portal while the window still exists.
-unsafe impl Send for Parent {}
-unsafe impl Sync for Parent {}
-
-impl HasWindowHandle for Parent {
-    fn window_handle(&self) -> Result<WindowHandle<'_>, HandleError> {
-        // SAFETY: see above.
-        Ok(unsafe { WindowHandle::borrow_raw(self.0) })
-    }
-}
-
-impl HasDisplayHandle for Parent {
-    fn display_handle(&self) -> Result<DisplayHandle<'_>, HandleError> {
-        // SAFETY: see above.
-        Ok(unsafe { DisplayHandle::borrow_raw(self.1) })
-    }
-}
-
-/// Builds the dialog on the UI thread (parented to the window) and waits for it on a helper
-/// thread, so the UI never blocks on a dialog.
-fn open_dialog(window: &Window, request: DialogRequest) {
-    let mut dialog = rfd::AsyncFileDialog::new();
-    if let (Ok(w), Ok(d)) = (window.window_handle(), window.display_handle()) {
-        dialog = dialog.set_parent(&Parent(w.as_raw(), d.as_raw()));
-    }
-    let add_filters = |mut dialog: rfd::AsyncFileDialog, filters: &[FileFilter]| {
-        for f in filters {
-            let ext: Vec<&str> = f.extensions.iter().map(String::as_str).collect();
-            dialog = dialog.add_filter(&f.name, &ext);
-        }
-        dialog
-    };
-    let DialogRequest { kind, done } = request;
-    let dialog = match &kind {
-        DialogKind::Open { filters, .. } => add_filters(dialog, filters),
-        DialogKind::Folder => dialog,
-        DialogKind::Save { name, filters } => add_filters(dialog, filters).set_file_name(name),
-    };
-
-    std::thread::spawn(move || {
-        let picked = match kind {
-            DialogKind::Open {
-                multiple: false, ..
-            } => pollster::block_on(dialog.pick_file()).map(|f| vec![f.path().to_path_buf()]),
-            DialogKind::Open { multiple: true, .. } => pollster::block_on(dialog.pick_files())
-                .map(|fs| fs.iter().map(|f| f.path().to_path_buf()).collect()),
-            DialogKind::Folder => {
-                pollster::block_on(dialog.pick_folder()).map(|f| vec![f.path().to_path_buf()])
-            }
-            DialogKind::Save { .. } => {
-                pollster::block_on(dialog.save_file()).map(|f| vec![f.path().to_path_buf()])
-            }
-        };
-        done(picked);
-    });
 }
 
 /// Runs one automation command on the UI thread.

@@ -153,29 +153,52 @@ impl Harness {
 }
 
 pub fn alive(pid: u32) -> bool {
-    // A zombie still answers kill(0), so look at the state instead.
-    match std::fs::read_to_string(format!("/proc/{pid}/stat")) {
-        Ok(stat) => !stat
-            .rsplit(')')
-            .next()
-            .is_some_and(|rest| rest.trim_start().starts_with('Z')),
-        Err(_) => false,
+    // A zombie still answers kill(0), so look at the process state instead: /proc on Linux, ps
+    // elsewhere (macOS has no /proc).
+    #[cfg(target_os = "linux")]
+    {
+        match std::fs::read_to_string(format!("/proc/{pid}/stat")) {
+            Ok(stat) => !stat
+                .rsplit(')')
+                .next()
+                .is_some_and(|rest| rest.trim_start().starts_with('Z')),
+            Err(_) => false,
+        }
+    }
+    #[cfg(not(target_os = "linux"))]
+    {
+        let Ok(out) = Command::new("ps")
+            .args(["-o", "stat=", "-p", &pid.to_string()])
+            .output()
+        else {
+            return false;
+        };
+        let state = String::from_utf8_lossy(&out.stdout);
+        let state = state.trim();
+        !state.is_empty() && !state.starts_with('Z')
     }
 }
 
 const STUB_ENV: &str = "SHELL_TEST_ORPHAN_STUB";
+const STUB_MODE_ENV: &str = "SHELL_TEST_ORPHAN_MODE";
+const STUB_BUSY_ENV: &str = "SHELL_TEST_ORPHAN_BUSY_MS";
 
-/// Runs this test binary's `orphan_stub` as a stand-in shell, kills it with SIGKILL once its
-/// worker is ready, and returns the worker's pid.
-pub fn orphan_check() -> u32 {
+/// Runs this test binary's `orphan_stub` as a stand-in shell with a fake worker in `mode`, kills
+/// it with SIGKILL once its worker is ready (and, with `busy_ms`, once a `/sleep?ms=busy_ms`
+/// request is in flight), and returns the worker's pid.
+pub fn orphan_check(mode: &str, busy_ms: Option<u64>) -> u32 {
     let dir = tempfile_dir();
     let pid_file = dir.join("worker.pid");
-    let mut stub = Command::new(std::env::current_exe().unwrap())
+    let mut command = Command::new(std::env::current_exe().unwrap());
+    command
         .args(["--exact", "orphan_stub", "--nocapture", "--test-threads=1"])
         .env(STUB_ENV, &pid_file)
-        .stdout(std::process::Stdio::null())
-        .spawn()
-        .unwrap();
+        .env(STUB_MODE_ENV, mode)
+        .stdout(std::process::Stdio::null());
+    if let Some(ms) = busy_ms {
+        command.env(STUB_BUSY_ENV, ms.to_string());
+    }
+    let mut stub = command.spawn().unwrap();
 
     let mut waited = Duration::ZERO;
     let pid = loop {
@@ -184,17 +207,21 @@ pub fn orphan_check() -> u32 {
         {
             break pid;
         }
-        assert!(
-            waited < Duration::from_secs(20),
-            "the stub never reported a worker"
-        );
+        if waited >= Duration::from_secs(20) {
+            let _ = stub.kill();
+            panic!("the stub never reported a worker");
+        }
         std::thread::sleep(Duration::from_millis(20));
         waited += Duration::from_millis(20);
     };
-    assert!(alive(pid));
+    let worker_alive = alive(pid);
     stub.kill().unwrap();
     stub.wait().unwrap();
     let _ = std::fs::remove_dir_all(dir);
+    assert!(
+        worker_alive,
+        "worker {pid} was not running before its shell was killed"
+    );
     pid
 }
 
@@ -203,13 +230,29 @@ pub fn orphan_stub() {
     let Some(pid_file) = std::env::var_os(STUB_ENV) else {
         return;
     };
-    // A worker that ignores EOF, so only PR_SET_PDEATHSIG can end it.
-    let h = Harness::start(fake("deaf"));
+    let mode = std::env::var(STUB_MODE_ENV).unwrap_or_else(|_| "echo".into());
+    let h = Harness::start(fake(&mode));
     h.notice();
-    std::fs::write(pid_file, h.pid().to_string()).unwrap();
+    let pid = h.pid();
+    let _in_flight = std::env::var(STUB_BUSY_ENV).ok().map(|ms| {
+        let pending = h.submit("GET", &format!("boson://app/sleep?ms={ms}"));
+        // Long enough for the worker to have read the request and started on it.
+        std::thread::sleep(Duration::from_millis(300));
+        pending
+    });
+    std::fs::write(pid_file, pid.to_string()).unwrap();
     loop {
         std::thread::sleep(Duration::from_secs(60));
     }
+}
+
+/// Waits up to `limit` for `pid` to exit; true when it did.
+pub fn exits_within(pid: u32, limit: Duration) -> bool {
+    let deadline = std::time::Instant::now() + limit;
+    while alive(pid) && std::time::Instant::now() < deadline {
+        std::thread::sleep(Duration::from_millis(20));
+    }
+    !alive(pid)
 }
 
 pub fn tempfile_dir() -> PathBuf {

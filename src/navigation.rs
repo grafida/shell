@@ -72,6 +72,17 @@ pub fn for_new_window(url: &str, origin: &str, user: bool) -> Decision {
     }
 }
 
+/// A navigation action known to target the main frame (macOS: `targetFrame.isMainFrame`). Nothing
+/// off-origin may load there: a user's http(s) navigation goes to the OS browser, anything else is
+/// refused. Unlike [`for_navigation`] nothing is let through on the strength of a later check.
+pub fn for_main_frame_navigation(url: &str, origin: &str, user: bool) -> Decision {
+    match (classify(url, origin), user) {
+        (Target::App | Target::Blank, _) => Decision::Allow,
+        (Target::Web, true) => Decision::OpenExternally(url.to_string()),
+        _ => Decision::Refuse,
+    }
+}
+
 /// The response to the main frame's main resource: only the app's own pages may render there.
 pub fn for_main_frame_response(url: &str, origin: &str) -> Decision {
     match classify(url, origin) {
@@ -138,5 +149,34 @@ mod tests {
         assert_eq!(for_new_window("https://x/", O, false), Decision::Refuse);
         assert_eq!(for_new_window("boson://app/", O, true), Decision::Refuse);
         assert_eq!(for_new_window("about:blank", O, true), Decision::Refuse);
+    }
+
+    #[test]
+    fn the_main_frame_never_loads_anything_off_origin() {
+        assert_eq!(
+            for_main_frame_navigation("boson://app/x", O, false),
+            Decision::Allow
+        );
+        assert_eq!(
+            for_main_frame_navigation("about:blank", O, false),
+            Decision::Allow
+        );
+        assert_eq!(
+            for_main_frame_navigation("https://example.com/", O, true),
+            Decision::OpenExternally("https://example.com/".into())
+        );
+        // A script redirecting the app, with no gesture: refused, not opened, not loaded.
+        assert_eq!(
+            for_main_frame_navigation("https://example.com/", O, false),
+            Decision::Refuse
+        );
+        assert_eq!(
+            for_main_frame_navigation("file:///etc/passwd", O, true),
+            Decision::Refuse
+        );
+        assert_eq!(
+            for_main_frame_navigation("boson://apple/", O, true),
+            Decision::Refuse
+        );
     }
 }

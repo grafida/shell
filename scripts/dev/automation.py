@@ -22,11 +22,14 @@ import json
 import os
 import socket
 import sys
+import tempfile
 import time
 
 
 def channel_file(app_id):
-    base = os.environ.get("XDG_RUNTIME_DIR") or "/tmp"
+    # Where the shell writes it: $XDG_RUNTIME_DIR, else the temp dir ($TMPDIR on macOS, which is
+    # per user and not /tmp).
+    base = os.environ.get("XDG_RUNTIME_DIR") or tempfile.gettempdir()
     return os.path.join(base, f"{app_id}.automation.json")
 
 

@@ -5,7 +5,13 @@ shell 0.1.1 (unreleased)
 + `scripts/dev/linuxvm.sh`: clean Ubuntu 22.04, Fedora 43 and Arch VMs, installed unattended by their own installers
 + `scripts/dev/macvm.sh`: clean macOS 12 and 27 VMs, restored by tart from Apple's IPSWs pinned by SHA-256
 + ADR 0001: the macOS webview path (the shell owns WKWebView through objc2), measured on macOS 12 and 27
++ macOS (arm64, 12 or later): apps run in a WKWebView the shell builds itself, in dev mode for now
++ macOS: app, Edit (with Spelling and Grammar) and Window menus; About sends `shell:about` to the page
++ macOS: a Blob, File or FormData-with-a-file body to the app fails with a TypeError instead of arriving empty
++ `scripts/dev/parity-macos.sh`: the automatable half of the macOS parity column, in dev mode or packaged
++ `SHELL_ALERTS=stderr` keeps failure alerts to stderr, for tests and headless runs
 ~ The parity script waits for the app's own page, not the window's placeholder, and names a missing keyboard focus
+~ A packaged worker is expected beside the shell (in a macOS bundle, `Contents/MacOS`), not beside the manifest
 
 shell 0.1.0
 ================================================================================

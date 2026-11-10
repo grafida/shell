@@ -238,16 +238,46 @@ fn a_slow_request_does_not_block_submission() {
     assert!(started.elapsed() >= Duration::from_millis(800));
 }
 
+#[cfg(target_os = "linux")]
 #[test]
 fn the_worker_dies_with_the_shell() {
-    // A child shell process (this test binary, re-run as a stub) starts a worker and is then
-    // SIGKILLed; PR_SET_PDEATHSIG must take the worker down with it.
-    let pid = common::orphan_check();
-    let deadline = Instant::now() + Duration::from_secs(5);
-    while common::alive(pid) && Instant::now() < deadline {
-        std::thread::sleep(Duration::from_millis(20));
+    // A child shell process (this test binary, re-run as a stub) starts a worker that ignores EOF
+    // and is then SIGKILLed; PR_SET_PDEATHSIG must take the worker down with it.
+    let pid = common::orphan_check("deaf", None);
+    assert!(
+        common::exits_within(pid, Duration::from_secs(5)),
+        "worker {pid} outlived its shell"
+    );
+}
+
+#[test]
+fn an_idle_worker_exits_at_once_when_its_shell_is_killed() {
+    // Everywhere, and the only mechanism on macOS (grafida/grafida#88): the shell's death closes
+    // the worker's stdin, and a worker waiting for its next request reads EOF and exits.
+    let pid = common::orphan_check("echo", None);
+    assert!(
+        common::exits_within(pid, Duration::from_secs(3)),
+        "worker {pid} outlived its shell"
+    );
+}
+
+#[test]
+fn a_busy_worker_exits_when_its_request_ends_after_its_shell_is_killed() {
+    // A worker in the middle of a request cannot read EOF until the request is over; then its
+    // reply hits a closed pipe (or its next read EOF) and it exits. That bound is the design on
+    // macOS, where nothing else ends it (grafida/grafida#88). On Linux PDEATHSIG is quicker.
+    let pid = common::orphan_check("echo", Some(3000));
+    if cfg!(not(target_os = "linux")) {
+        std::thread::sleep(Duration::from_millis(1000));
+        assert!(
+            common::alive(pid),
+            "worker {pid} was expected to finish its request first"
+        );
     }
-    assert!(!common::alive(pid), "worker {pid} outlived its shell");
+    assert!(
+        common::exits_within(pid, Duration::from_secs(6)),
+        "worker {pid} outlived its shell and its request"
+    );
 }
 
 /// Not a test of its own: the stand-in shell `the_worker_dies_with_the_shell` runs.
