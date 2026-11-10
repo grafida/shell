@@ -15,6 +15,10 @@
 #   automation.py opened                         # URLs recorded instead of opened in the browser
 #   automation.py drop X Y /abs/a.png […]         # as if those files were dropped at X,Y
 #   automation.py wait 'return document.readyState === "complete"' [timeout_s]
+#   automation.py menu                           # macOS: the live menu bar, key equivalents included
+#   automation.py menu "About Grafida"           # macOS: click that menu item
+#   automation.py key cmd+shift+v                # macOS: a key press, queued as a real one would be
+#                                                # (activates the app: it takes the keyboard focus)
 #
 # Prints the JSON answer; exits 1 when the answer is not ok.
 
@@ -68,6 +72,11 @@ def main(argv):
     elif cmd == "drop":
         answer = send({"cmd": "drop", "x": int(args[0]), "y": int(args[1]),
                        "paths": [os.path.abspath(a) for a in args[2:]]})
+    elif cmd == "menu":
+        answer = send({"cmd": "menu", "perform": args[0]} if args else {"cmd": "menu"})
+    elif cmd == "key":
+        *mods, key = args[0].split("+")
+        answer = send({"cmd": "key", "key": key, "modifiers": mods})
     elif cmd == "opened":
         answer = send({"cmd": "opened"})
     elif cmd == "wait":

@@ -18,7 +18,7 @@ use objc2_web_kit::{
     WKNavigationResponsePolicy, WKUIDelegate, WKWebView, WKWebViewConfiguration, WKWindowFeatures,
 };
 
-use super::{deliver_drop, open_uri, scheme::Scheme};
+use super::{deliver_drop, keys::KeyState, open_uri, scheme::Scheme};
 use crate::{
     log::Log,
     navigation::{self, Decision},
@@ -52,6 +52,7 @@ pub struct ViewIvars {
     context_menu: bool,
     /// The current drag is a file drag the shell has taken from WebKit.
     file_drag: Cell<bool>,
+    keys: Rc<KeyState>,
 }
 
 define_class!(
@@ -127,6 +128,16 @@ define_class!(
 
         // ── The context menu ────────────────────────────────────────────────────────────────
 
+        // ── Key equivalents: see `keys` for who gets a menu shortcut first ─────────────────
+
+        #[unsafe(method(performKeyEquivalent:))]
+        fn perform_key_equivalent(&self, event: &NSEvent) -> Bool {
+            if self.ivars().keys.route(self.mtm(), event) == Some(true) {
+                return Bool::YES;
+            }
+            unsafe { msg_send![super(self), performKeyEquivalent: event] }
+        }
+
         #[unsafe(method(willOpenMenu:withEvent:))]
         fn will_open_menu(&self, menu: &NSMenu, event: &NSEvent) {
             unsafe {
@@ -156,12 +167,14 @@ impl ShellWebView {
         scheme: Rc<Scheme>,
         log: Arc<Log>,
         context_menu: bool,
+        keys: Rc<KeyState>,
     ) -> Retained<Self> {
         let this = Self::alloc(mtm).set_ivars(ViewIvars {
             scheme,
             log,
             context_menu,
             file_drag: Cell::new(false),
+            keys,
         });
         // SAFETY: WKWebView's designated initialiser.
         unsafe { msg_send![super(this), initWithFrame: frame, configuration: config] }

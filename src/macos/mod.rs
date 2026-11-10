@@ -7,6 +7,7 @@
 //! answers come back through tao's event loop.
 
 mod alert;
+mod keys;
 mod menu;
 mod scheme;
 mod webview;
@@ -62,6 +63,8 @@ pub enum UserEvent {
     Dialog(DialogRequest),
     ReadClipboard(ClipboardDone),
     About,
+    /// A parked menu shortcut got no verdict from the page in time (see `keys`).
+    KeyTimeout(u64),
     Quit,
     #[cfg(all(feature = "automation", debug_assertions))]
     Automation(crate::automation::Command),
@@ -217,7 +220,17 @@ pub fn run(launch: Launch, log: Arc<Log>) -> i32 {
             false,
         );
         config.userContentController().addUserScript(&guard);
+        let reporter = WKUserScript::initWithSource_injectionTime_forMainFrameOnly(
+            WKUserScript::alloc(mtm),
+            &NSString::from_str(keys::REPORTER),
+            WKUserScriptInjectionTime::AtDocumentStart,
+            false,
+        );
+        config.userContentController().addUserScript(&reporter);
     }
+    let key_state = keys::KeyState::new(proxy.clone());
+    let key_reporter = keys::KeyReporter::new(mtm, key_state.clone());
+    key_reporter.install(&*unsafe { config.userContentController() });
 
     // ── The webview ─────────────────────────────────────────────────────────────────────────
     // SAFETY: tao's content view, alive as long as `window`.
@@ -229,6 +242,7 @@ pub fn run(launch: Launch, log: Arc<Log>) -> i32 {
         scheme.clone(),
         log.clone(),
         manifest.webview.context_menu,
+        key_state.clone(),
     );
     webview.setAutoresizingMask(
         NSAutoresizingMaskOptions::ViewWidthSizable | NSAutoresizingMaskOptions::ViewHeightSizable,
@@ -383,10 +397,11 @@ pub fn run(launch: Launch, log: Arc<Log>) -> i32 {
             Event::UserEvent(UserEvent::Automation(command)) => {
                 automation(&webview, &picks, &scheme, &log, command);
             }
+            Event::UserEvent(UserEvent::KeyTimeout(seq)) => key_state.timeout(mtm, seq),
             Event::UserEvent(UserEvent::Quit) => stop(control_flow, exit.get()),
             _ => {}
         }
-        let _keep = (&handler, &delegate, &config, &menu_target);
+        let _keep = (&handler, &delegate, &config, &menu_target, &key_reporter);
     });
 }
 
@@ -673,6 +688,155 @@ fn automation(
             let at = |k: &str| request.get(k).and_then(Value::as_i64).unwrap_or(0) as i32;
             deliver_drop(webview, scheme, paths, at("x"), at("y"), log);
             let _ = reply.send(json!({"ok": true}));
+        }
+        Some("menu") => {
+            // The live menu bar, AppKit's own additions included: what a key equivalent hits.
+            use objc2_app_kit::{NSApplication, NSEventModifierFlags, NSMenu};
+            fn walk(menu: &NSMenu, path: &str, out: &mut Vec<Value>) {
+                for item in menu.itemArray().iter() {
+                    let title = format!("{path}{}", item.title());
+                    let mask = item.keyEquivalentModifierMask();
+                    let mut mods = Vec::new();
+                    for (flag, name) in [
+                        (NSEventModifierFlags::Command, "cmd"),
+                        (NSEventModifierFlags::Control, "ctrl"),
+                        (NSEventModifierFlags::Option, "alt"),
+                        (NSEventModifierFlags::Shift, "shift"),
+                    ] {
+                        if mask.contains(flag) {
+                            mods.push(name);
+                        }
+                    }
+                    out.push(json!({
+                        "title": title,
+                        "key": item.keyEquivalent().to_string(),
+                        "modifiers": mods,
+                        "action": item.action().map(|s| s.name().to_string_lossy().into_owned()),
+                        "enabled": item.isEnabled(),
+                    }));
+                    if let Some(sub) = item.submenu() {
+                        walk(&sub, &format!("{title} ▸ "), out);
+                    }
+                }
+            }
+            let bar = NSApplication::sharedApplication(MainThreadMarker::new().unwrap()).mainMenu();
+            // `perform: "About Grafida"` clicks that item (searched by title, depth first).
+            if let Some(title) = request.get("perform").and_then(Value::as_str) {
+                fn find(
+                    menu: &NSMenu,
+                    title: &str,
+                ) -> Option<(objc2::rc::Retained<NSMenu>, isize)> {
+                    use objc2::Message;
+                    for (i, item) in menu.itemArray().iter().enumerate() {
+                        if item.title().to_string() == title {
+                            return Some((menu.retain(), i as isize));
+                        }
+                        if let Some(sub) = item.submenu()
+                            && let Some(found) = find(&sub, title)
+                        {
+                            return Some(found);
+                        }
+                    }
+                    None
+                }
+                let answer = match bar.as_deref().and_then(|b| find(b, title)) {
+                    Some((menu, index)) => {
+                        menu.performActionForItemAtIndex(index);
+                        json!({"ok": true})
+                    }
+                    None => fail(format!("no menu item {title:?}")),
+                };
+                let _ = reply.send(answer);
+                return;
+            }
+            let mut items = Vec::new();
+            if let Some(bar) = bar {
+                walk(&bar, "", &mut items);
+            }
+            let _ = reply.send(json!({"ok": true, "result": items}));
+        }
+        Some("key") => {
+            // A synthesized key-down queued for NSApp's sendEvent:, i.e. the path a real key press
+            // takes: key equivalents (the menu bar) first, then the first responder (the page).
+            use objc2_app_kit::{NSApplication, NSEvent, NSEventModifierFlags, NSEventType};
+            use objc2_foundation::NSPoint;
+            let key = request.get("key").and_then(Value::as_str).unwrap_or("");
+            // US-layout virtual key codes for the letters a test needs.
+            let code: u16 = match key {
+                "a" => 0,
+                "s" => 1,
+                "x" => 7,
+                "c" => 8,
+                "v" => 9,
+                "q" => 12,
+                "w" => 13,
+                "z" => 6,
+                "m" => 46,
+                "h" => 4,
+                _ => {
+                    let _ = reply.send(fail(format!("key: no key code for {key:?}")));
+                    return;
+                }
+            };
+            let mut flags = NSEventModifierFlags::empty();
+            for m in request
+                .get("modifiers")
+                .and_then(Value::as_array)
+                .into_iter()
+                .flatten()
+                .filter_map(Value::as_str)
+            {
+                flags |= match m {
+                    "cmd" => NSEventModifierFlags::Command,
+                    "ctrl" => NSEventModifierFlags::Control,
+                    "alt" => NSEventModifierFlags::Option,
+                    "shift" => NSEventModifierFlags::Shift,
+                    _ => NSEventModifierFlags::empty(),
+                };
+            }
+            let app = NSApplication::sharedApplication(MainThreadMarker::new().unwrap());
+            let window = webview.window();
+            // As after a click on the window: the app active, the window key, the page focused.
+            #[allow(deprecated)]
+            app.activateIgnoringOtherApps(true);
+            if let Some(w) = &window {
+                w.makeKeyAndOrderFront(None);
+                w.makeFirstResponder(Some(webview));
+            }
+            let number = window.as_ref().map_or(0, |w| w.windowNumber());
+            let chars = if flags.contains(NSEventModifierFlags::Shift) {
+                key.to_uppercase()
+            } else {
+                key.to_string()
+            };
+            let event = NSEvent::keyEventWithType_location_modifierFlags_timestamp_windowNumber_context_characters_charactersIgnoringModifiers_isARepeat_keyCode(
+                NSEventType::KeyDown,
+                NSPoint::new(0.0, 0.0),
+                flags,
+                0.0,
+                number,
+                None,
+                &NSString::from_str(&chars),
+                // As a real event: Shift still applies to charactersIgnoringModifiers.
+                &NSString::from_str(&chars),
+                false,
+                code,
+            );
+            let Some(event) = event else {
+                let _ = reply.send(fail("could not build the event".into()));
+                return;
+            };
+            let _ = reply.send(json!({
+                "ok": true,
+                "result": {
+                    "keyWindow": app.keyWindow().is_some(),
+                    "firstResponder": window
+                        .and_then(|w| w.firstResponder())
+                        .map(|r| r.class().name().to_string_lossy().into_owned()),
+                }
+            }));
+            // Queued, so it is dispatched as a real key press is: NSApp's currentEvent and all.
+            app.postEvent_atStart(&event, false);
         }
         Some("opened") => {
             let urls = RECORDED_OPENS

@@ -16,7 +16,13 @@
 //! {"token":"…","cmd":"pick","paths":null}                    → {"ok":true}   (next dialog is cancelled)
 //! {"token":"…","cmd":"opened"}                               → {"ok":true,"result":["https://…"]}
 //! {"token":"…","cmd":"drop","paths":["/tmp/a.png"],"x":400,"y":300} → {"ok":true}  (as if dropped)
+//! {"token":"…","cmd":"menu"}                                  → {"ok":true,"result":[{title,key,…}]}  (macOS)
+//! {"token":"…","cmd":"key","key":"v","modifiers":["cmd"]}     → {"ok":true}  (macOS: a queued key press)
 //! ```
+//!
+//! `key` activates the app and makes its window key first (it takes the keyboard focus), then
+//! queues the event, so it travels the path a real key press does: the menu bar's key equivalents,
+//! then the page.
 //!
 //! While the channel is open the shell **records** the URLs it would hand to the OS browser instead
 //! of opening them (`opened` returns and clears the list), so an automated run never launches a

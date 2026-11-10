@@ -90,6 +90,17 @@ the desktop session through an interactive scheduled task, never directly over S
   and Window. A reserved chord loses its key equivalent, and the live menu bar is walked once more
   after it is installed, since AppKit adds items. **An uppercase AppKit key equivalent implies Shift.**
   Dock ▸ Quit and logout arrive as tao's `LoopDestroyed`, which runs the same stop path.
+- **On macOS the shell routes menu shortcuts itself** (`src/macos/keys.rs`). WKWebView claims every
+  Cmd/Ctrl key for the page and, as a subview of tao's view, never hands an unhandled one back, so
+  without this no menu shortcut fires at all. **Edit shortcuts go to the page first** (undo, redo,
+  cut, copy, paste, select all, Spelling): the key is parked, a document-start script in every frame
+  reports `defaultPrevented` once the page's handlers have run, and only an uncancelled key goes to
+  the menu bar (after 1 s without a report it goes anyway). That is what lets TinyMCE's own undo
+  history undo a paste, while a plain field still gets native undo; the webview's native Undo knows
+  nothing of an edit made by script. **App and Window shortcuts go to the menu first** (a page must
+  not block Cmd+Q). Anything the menu does not bind (Cmd+Shift+V, Cmd+B/I/K) goes to the page.
+  The automation channel's `menu` (the live menu bar; `perform` clicks an item) and `key` (a queued
+  key press; it activates the app) commands check all of this in `parity-macos.sh`.
 - **`WebContinuousSpellCheckingEnabled` is set in the shell's own defaults domain on every macOS
   launch** (`macos::prepare`), as Grafida's `MacSpellCheck` does under Boson: WebKit reads it once,
   and the page's `spellcheck` attribute is then the switch. Defaults go through cfprefsd, which

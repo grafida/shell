@@ -23,8 +23,10 @@
 # Over SSH, run it inside the desktop session (`sudo launchctl asuser $(id -u) sudo -u $USER …`):
 # that strips TMPDIR, so the script sets it for the shell and the client alike.
 #
-# The checks that need a human (menus, Spelling, the context menu, real dialogs, a real drag, the
-# title bar, Cmd+Shift+V from the keyboard, AI streaming, …) are listed in the Phase 4 issue.
+# Menu shortcuts are sent as queued key presses (`automation.py key`), which activates the app: the
+# run takes the keyboard focus. The checks that need a human (the menus by mouse, Spelling, the
+# context menu, real dialogs, a real drag, the title bar, AI streaming, …) are listed in the Phase 4
+# issue.
 
 set -uo pipefail
 
@@ -168,6 +170,43 @@ record "$( [ "$(ok_field <<<"$answer")" = yes ] && [ "$visibility" = visible ] &
     "UI stays responsive while a 5 s request is in flight (page visible)" \
     "$(python3 -I -c 'import json,sys; r=json.load(sys.stdin)["result"]; print("request %s ms, longest frame gap %s ms" % (r["tookMs"], r["maxFrameGapMs"]))' <<<"$answer"); visibilityState $visibility"
 
+# Menu shortcuts, as real key presses: the page sees an Edit chord first and the menu acts on it
+# when the page leaves it alone; a reserved chord reaches the page and nothing else.
+reserved=$($CLIENT menu | python3 -I -c 'import json,sys; items=json.load(sys.stdin)["result"]; print([i["title"] for i in items if i["key"].lower()=="v" and "cmd" in i["modifiers"] and ("shift" in i["modifiers"] or i["key"]=="V")])')
+printf 'stale' | pbcopy
+$CLIENT eval 'document.body.insertAdjacentHTML("beforeend", "<textarea id=ka>copied by Cmd+C</textarea><textarea id=kb></textarea>"); window.__cmdKeys = []; document.addEventListener("keydown", (e) => { if (e.metaKey) window.__cmdKeys.push((e.shiftKey ? "shift+" : "") + e.key.toLowerCase()); }, true); const a = document.getElementById("ka"); a.focus(); a.select(); return true' >/dev/null
+$CLIENT key cmd+c >/dev/null; sleep 0.7
+copied=$(pbpaste)
+$CLIENT eval 'document.getElementById("kb").focus(); return true' >/dev/null
+$CLIENT key cmd+v >/dev/null; sleep 0.5
+$CLIENT key cmd+shift+v >/dev/null; sleep 0.5
+keys=$($CLIENT eval 'const r = {pasted: document.getElementById("kb").value, page: window.__cmdKeys}; document.getElementById("ka").remove(); document.getElementById("kb").remove(); return r' | python3 -I -c 'import json,sys; r=json.load(sys.stdin)["result"]; print(json.dumps(r))')
+record "$( [ "$reserved" = "[]" ] && [ "$copied" = "copied by Cmd+C" ] && python3 -I -c 'import json,sys; r=json.loads(sys.argv[1]); sys.exit(0 if r == {"pasted": "copied by Cmd+C", "page": ["c", "v", "shift+v"]} else 1)' "$keys" && echo PASS || echo FAIL)" \
+    "Menu shortcuts as key presses: the page sees Cmd+C/V first, then they copy and paste; Cmd+Shift+V reaches only the page" \
+    "menu items on Cmd+Shift+V: $reserved; pasteboard after Cmd+C: '$copied'; $keys"
+
+# About posts `shell:about` to the page; there is no native About panel.
+$CLIENT eval 'window.__about = 0; addEventListener("shell:about", () => window.__about++); return true' >/dev/null
+$CLIENT menu "About Shell echo test" >/dev/null; sleep 0.5
+about=$($CLIENT eval 'return window.__about' | python3 -I -c 'import json,sys; print(json.load(sys.stdin)["result"])')
+record "$( [ "$about" = 1 ] && echo PASS || echo FAIL)" \
+    "App menu ▸ About posts a shell:about DOM event to the page" "events received: $about"
+
+# Edit shortcuts go to the page first: a plain field gets the native command, a page that cancels
+# the key keeps it to itself (an editor with its own undo history).
+$CLIENT eval 'document.body.insertAdjacentHTML("beforeend", "<textarea id=ua></textarea>"); document.getElementById("ua").focus(); return true' >/dev/null
+for k in a s a; do $CLIENT key "$k" >/dev/null; sleep 0.2; done
+$CLIENT key cmd+z >/dev/null; sleep 0.6
+undone=$($CLIENT eval 'return document.getElementById("ua").value' | python3 -I -c 'import json,sys; print(json.load(sys.stdin)["result"])')
+$CLIENT key cmd+shift+z >/dev/null; sleep 0.6
+redone=$($CLIENT eval 'return document.getElementById("ua").value' | python3 -I -c 'import json,sys; print(json.load(sys.stdin)["result"])')
+$CLIENT eval 'window.__ownUndo = (e) => { if (e.metaKey && e.key === "z") e.preventDefault(); }; document.addEventListener("keydown", window.__ownUndo, true); return true' >/dev/null
+$CLIENT key cmd+z >/dev/null; sleep 1.5
+kept=$($CLIENT eval 'const v = document.getElementById("ua").value; document.removeEventListener("keydown", window.__ownUndo, true); document.getElementById("ua").remove(); return v' | python3 -I -c 'import json,sys; print(json.load(sys.stdin)["result"])')
+record "$( [ -z "$undone" ] && [ "$redone" = asa ] && [ "$kept" = asa ] && echo PASS || echo FAIL)" \
+    "Edit shortcuts reach the page first: native undo/redo in a plain field; a page that cancels Cmd+Z keeps it" \
+    "typed 'asa'; Cmd+Z → '$undone'; Cmd+Shift+Z → '$redone'; Cmd+Z cancelled by the page (waited past the 1 s fallback) → '$kept'"
+
 # Kill the worker under an in-flight request.
 $CLIENT eval 'window.__slow = fetch("/sleep?ms=4000", {cache: "no-store"}).then(async r => ({status: r.status, body: await r.json()})); return true' >/dev/null
 sleep 0.5
@@ -210,6 +249,18 @@ gave_up=$(grep -c "giving up on the worker" "$ECHO/logs/shell.log" | tail -1)
 record "$( [ "$gave_up" -ge 1 ] && kill -0 "$SHELL_PID" 2>/dev/null && echo PASS || echo FAIL)" \
     "4 kills in 60 s → native alert with the stderr tail" \
     "log: $(grep "giving up on the worker" "$ECHO/logs/shell.log" | tail -1 | cut -c26-150)"
+kill "$SHELL_PID" 2>/dev/null
+SHELL_PID=
+
+# Cmd+Q, as a key press: the shell's own stop path, the worker shut down gracefully.
+start_shell "$ECHO" test.shell.echo
+worker=$(pgrep -P "$SHELL_PID" -f fake_worker.py | head -1)
+$CLIENT key cmd+q >/dev/null
+for _ in $(seq 1 50); do kill -0 "$SHELL_PID" 2>/dev/null || break; sleep 0.1; done
+quit=$(kill -0 "$SHELL_PID" 2>/dev/null && echo "still running" || echo "quit")
+record "$( [ "$quit" = quit ] && ! kill -0 "$worker" 2>/dev/null && echo PASS || echo FAIL)" \
+    "Cmd+Q quits through the shell's stop path; the worker exits" \
+    "shell: $quit; worker: $(kill -0 "$worker" 2>/dev/null && echo running || echo gone); log: $(grep "worker stopped" "$ECHO/logs/shell.log" | tail -1 | cut -c26-80)"
 kill "$SHELL_PID" 2>/dev/null
 SHELL_PID=
 
@@ -256,6 +307,26 @@ PY
     answer=$($CLIENT eval-file "$SHELL_DIR/scripts/dev/parity/grafida-editor.js")
     record "$( [ "$(ok_field <<<"$answer")" = yes ] && echo PASS || echo FAIL)" \
         "Grafida: Cmd+Shift+V path pastes the clipboard as plain text (the shell reads NSPasteboard)" "$(ok_field <<<"$answer")"
+    # The same chord as a real key press into the editor: no menu item takes it, the page does.
+    printf 'typed chord' | pbcopy
+    $CLIENT eval 'const ed = State.tinyMCEEditor; ed.setContent("<p>start</p>"); ed.focus(); ed.selection.select(ed.getBody(), true); ed.selection.collapse(false); return true' >/dev/null
+    $CLIENT key cmd+shift+v >/dev/null
+    sleep 1.5
+    chord=$($CLIENT eval 'return State.tinyMCEEditor.getContent()' | python3 -I -c 'import json,sys; print(json.load(sys.stdin)["result"])')
+    record "$( [ "$chord" = "<p>starttyped chord</p>" ] && echo PASS || echo FAIL)" \
+        "Grafida: Cmd+Shift+V pressed in the editor reaches the page (no menu item takes it) and pastes plain text" "$chord"
+    # The editor keeps its own undo history: Cmd+Z undoes a paste and a plain-text paste.
+    printf 'PASTED' | pbcopy
+    $CLIENT eval 'const ed = State.tinyMCEEditor; ed.setContent("<p>start</p>"); ed.undoManager.clear(); ed.undoManager.add(); ed.focus(); ed.selection.select(ed.getBody(), true); ed.selection.collapse(false); return true' >/dev/null
+    content() { $CLIENT eval 'return State.tinyMCEEditor.getContent()' | python3 -I -c 'import json,sys; print(json.load(sys.stdin)["result"])'; }
+    $CLIENT key cmd+v >/dev/null; sleep 1; pasted=$(content)
+    $CLIENT key cmd+z >/dev/null; sleep 0.8; undo1=$(content)
+    printf 'PLAIN' | pbcopy
+    $CLIENT key cmd+shift+v >/dev/null; sleep 1.5; plain=$(content)
+    $CLIENT key cmd+z >/dev/null; sleep 0.8; undo2=$(content)
+    record "$( [ "$pasted" = "<p>startPASTED</p>" ] && [ "$undo1" = "<p>start</p>" ] && [ "$plain" = "<p>startPLAIN</p>" ] && [ "$undo2" = "<p>start</p>" ] && echo PASS || echo FAIL)" \
+        "Grafida: Cmd+Z in the editor undoes a Cmd+V paste and a Cmd+Shift+V plain-text paste" \
+        "Cmd+V → $pasted; Cmd+Z → $undo1; Cmd+Shift+V → $plain; Cmd+Z → $undo2"
     # Text another app put there: no prompt, no helper tool.
     printf 'from another app' | pbcopy
     pasted=$($CLIENT eval 'const r = await fetch("/api/clipboard/text", {headers: {"X-Shell-Clipboard": "read"}, cache: "no-store"}); return (await r.json()).data.text')
