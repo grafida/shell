@@ -50,7 +50,7 @@ fn entry(out: &mut Vec<u8>, kind: u16, name: u16, language: u16, data: &[u8]) {
     u32le(out, 0); // Version
     u32le(out, 0); // Characteristics
     out.extend_from_slice(data);
-    while out.len() % 4 != 0 {
+    while !out.len().is_multiple_of(4) {
         out.push(0);
     }
 }
