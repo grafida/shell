@@ -61,6 +61,27 @@ jobs:
           echo "minos: $minos"
           test "$minos" = "12.0"
 
+  shell-windows:
+    name: Shell (Windows)
+    runs-on: windows-2022
+    defaults:
+      run:
+        shell: bash   # Git Bash
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          components: rustfmt, clippy
+      - run: cargo fmt --check
+      - run: cargo clippy --workspace --all-targets -- -D warnings
+      - run: cargo clippy --workspace --all-targets --features automation -- -D warnings
+      - name: Automation never compiles into a release build
+        run: "! cargo check --release --features automation 2>/dev/null"
+      # The fake worker is Python; the runner's interpreter is `python` (grafida/grafida#91).
+      - run: cargo test --workspace
+        env:
+          SHELL_TEST_PYTHON: python
+
   # Phase 0 evidence for the deployment floors (ADR 0001): the wry spike must build on the
   # oldest Linux we promise (Ubuntu 22.04 / glibc 2.35, webkit2gtk-4.1 >= 2.40), on macOS
   # and on Windows.
