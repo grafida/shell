@@ -6,13 +6,17 @@
 # every per-user directory a Windows app writes to pointed at a fresh C:\winvm\run, so neither the
 # app's data, nor WebView2's profile, nor the automation channel's file touch the real profile.
 #
-# winvm.sh writes C:\winvm\run.json beside this: {"program": "…", "args": ["…"], "env": {"K": "V"}}.
+# winvm.sh writes C:\winvm\run.json beside this: {"program": "…", "args": ["…"], "env": {"K": "V"},
+# "keep": false}. With "keep", the previous run's data stays (a restart of the same app).
 # Output: C:\winvm\run\{stdout,stderr}.txt and C:\winvm\run\pid.
 
 $ErrorActionPreference = 'Stop'
 $spec = Get-Content C:\winvm\run.json -Raw | ConvertFrom-Json
 $root = 'C:\winvm\run'
-Remove-Item -Recurse -Force $root -ErrorAction SilentlyContinue
+if (-not $spec.keep) { Remove-Item -Recurse -Force $root -ErrorAction SilentlyContinue }
+Remove-Item "$root\stdout.txt", "$root\stderr.txt", "$root\pid" -ErrorAction SilentlyContinue
+# A killed shell leaves its automation file behind; the tunnel must never find a dead shell's.
+Remove-Item "$root\Temp\*.automation.json" -ErrorAction SilentlyContinue
 foreach ($d in 'Roaming', 'Local', 'Temp') { New-Item -ItemType Directory -Force (Join-Path $root $d) | Out-Null }
 $env:APPDATA = "$root\Roaming"
 $env:LOCALAPPDATA = "$root\Local"

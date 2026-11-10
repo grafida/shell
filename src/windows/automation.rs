@@ -28,7 +28,10 @@ use webview2_com::{
 use windows::{
     Win32::{
         Foundation::HWND,
-        System::Com::{STGM_CREATE, STGM_READWRITE},
+        System::{
+            Com::{STGM_CREATE, STGM_READWRITE},
+            Threading::{AttachThreadInput, GetCurrentThreadId},
+        },
         UI::{
             Input::KeyboardAndMouse::{
                 INPUT, INPUT_0, INPUT_KEYBOARD, KEYBDINPUT, KEYEVENTF_KEYUP, SendInput,
@@ -37,7 +40,10 @@ use windows::{
                 VkKeyScanW,
             },
             Shell::SHCreateStreamOnFileEx,
-            WindowsAndMessaging::{GetForegroundWindow, SetForegroundWindow},
+            WindowsAndMessaging::{
+                BringWindowToTop, GetForegroundWindow, GetWindowThreadProcessId,
+                SetForegroundWindow,
+            },
         },
     },
     core::HSTRING,
@@ -321,8 +327,9 @@ fn mime(name: &str) -> &'static str {
     }
 }
 
-/// Presses a key with modifiers (`ctrl`, `shift`, `alt`). Returns whether the window was in the
-/// foreground, which is where `SendInput` delivers.
+/// Presses a key with modifiers (`ctrl`, `shift`, `alt`). `SendInput` delivers to the foreground
+/// window, so the shell's window is brought there first; if Windows' foreground lock still refuses,
+/// nothing is sent (it would type into another program) and the command fails.
 fn press(hwnd: HWND, key: &str, mods: &[String]) -> Result<bool, String> {
     let vk = virtual_key(key).ok_or_else(|| format!("unknown key {key:?}"))?;
     let mut held = Vec::new();
@@ -348,13 +355,27 @@ fn press(hwnd: HWND, key: &str, mods: &[String]) -> Result<bool, String> {
             },
         },
     };
-    // SAFETY: plain Win32 calls with inputs built above.
+    // SAFETY: plain Win32 calls with inputs built above; the input queues are detached again.
     unsafe {
         if GetForegroundWindow() != hwnd {
+            // The foreground lock lets a process take the foreground only from the one that has
+            // it: share that window's input queue for the switch.
+            let fg = GetForegroundWindow();
+            let theirs = GetWindowThreadProcessId(fg, None);
+            let ours = GetCurrentThreadId();
+            let attached =
+                theirs != 0 && theirs != ours && AttachThreadInput(ours, theirs, true).as_bool();
+            let _ = BringWindowToTop(hwnd);
             let _ = SetForegroundWindow(hwnd);
-            std::thread::sleep(std::time::Duration::from_millis(100));
+            if attached {
+                let _ = AttachThreadInput(ours, theirs, false);
+            }
+            std::thread::sleep(std::time::Duration::from_millis(150));
         }
         let foreground = GetForegroundWindow() == hwnd;
+        if !foreground {
+            return Err("the window is not in the foreground; no key was sent".into());
+        }
         let mut inputs: Vec<INPUT> = held.iter().map(|&m| input(m, false)).collect();
         inputs.push(input(vk, false));
         inputs.push(input(vk, true));

@@ -23,7 +23,11 @@
 #   run VM PROGRAM [ARG…]    start a guest program in the desktop session with APPDATA,
 #                            LOCALAPPDATA and TEMP in a fresh C:\winvm\run (WINVM_ENV='K=V K2=V2'
 #                            adds variables); prints its pid. Output: C:\winvm\run\std{out,err}.txt
+#                            WINVM_KEEP=1 keeps the previous run's data (a restart of the same app)
+#   ps VM SCRIPT             run one PowerShell script in the guest (as -EncodedCommand)
 #   stop-run VM              kill what `run` started, and everything it started
+#   watch-start VM / watch-stop VM   record every console window shown on the guest desktop
+#                            (winvm/watch.ps1); watch-stop prints them, one per line (none = none)
 #   tunnel VM [APP_ID]       wait for the shell's automation channel in the guest, forward its port
 #                            and write the runtime file here; prints the XDG_RUNTIME_DIR to export
 #                            (with SHELL_AUTOMATION_REMOTE=1) for scripts/dev/automation.py
@@ -222,7 +226,7 @@ case $cmd in
         program=${1:?guest program}; shift
         spec=$(python3 -I -c 'import json, os, sys
 env = dict(kv.split("=", 1) for kv in os.environ.get("WINVM_ENV", "").split() if "=" in kv)
-print(json.dumps({"program": sys.argv[1], "args": sys.argv[2:], "env": env}))' "$program" "$@")
+print(json.dumps({"program": sys.argv[1], "args": sys.argv[2:], "env": env, "keep": os.environ.get("WINVM_KEEP") == "1"}))' "$program" "$@")
         rssh "$vm" 'New-Item -ItemType Directory -Force C:\winvm | Out-Null'
         printf '%s' "$spec" | rssh "$vm" '$input | Set-Content -Encoding utf8 C:\winvm\run.json'
         scp -q "$HERE/winvm/run.ps1" "$(host "$vm"):C:/winvm/run.ps1"
@@ -230,15 +234,31 @@ print(json.dumps({"program": sys.argv[1], "args": sys.argv[2:], "env": env}))' "
         # WebView2 apps on one profile share a browser process (killing one kills both webviews).
         rps "$vm" 'if ((Test-Path C:\winvm\run\pid) -and (Get-Process -Id (Get-Content C:\winvm\run\pid).Trim() -ErrorAction SilentlyContinue)) { throw "the previous program is still running: winvm.sh stop-run first" }
 Remove-Item C:\winvm\run\pid -ErrorAction SilentlyContinue
-schtasks /Create /TN winvm-run /TR "powershell.exe -NoProfile -ExecutionPolicy Bypass -WindowStyle Hidden -File C:\winvm\run.ps1" /SC ONCE /ST 23:59 /IT /RU $env:USERNAME /F | Out-Null
+schtasks /Create /TN winvm-run /TR "conhost.exe --headless powershell.exe -NoProfile -ExecutionPolicy Bypass -File C:\winvm\run.ps1" /SC ONCE /ST 23:59 /IT /RU $env:USERNAME /F | Out-Null
 schtasks /Run /TN winvm-run | Out-Null
 for ($i = 0; $i -lt 600 -and -not (Test-Path C:\winvm\run\pid); $i++) { Start-Sleep -Milliseconds 100 }
 schtasks /Delete /TN winvm-run /F | Out-Null
 if (-not (Test-Path C:\winvm\run\pid)) { throw "the program did not start" }
 (Get-Content C:\winvm\run\pid).Trim()'
         ;;
+    ps) rps "$vm" "${1:?script}" ;;
     stop-run)
         rps "$vm" 'if (Test-Path C:\winvm\run\pid) { taskkill /T /F /PID (Get-Content C:\winvm\run\pid).Trim() 2>&1 | Out-Null }; "stopped"'
+        ;;
+    watch-start)
+        scp -q "$HERE/winvm/watch.ps1" "$(host "$vm"):C:/winvm/watch.ps1"
+        rps "$vm" 'Remove-Item C:\winvm\watch.log -ErrorAction SilentlyContinue
+schtasks /Create /TN winvm-watch /TR "conhost.exe --headless powershell.exe -NoProfile -ExecutionPolicy Bypass -File C:\winvm\watch.ps1" /SC ONCE /ST 23:59 /IT /RU $env:USERNAME /F | Out-Null
+schtasks /Run /TN winvm-watch | Out-Null
+for ($i = 0; $i -lt 600 -and -not (Test-Path C:\winvm\watch.log); $i++) { Start-Sleep -Milliseconds 100 }
+schtasks /Delete /TN winvm-watch /F | Out-Null
+if (-not (Test-Path C:\winvm\watch.log)) { throw "the watcher did not start" }
+"watching"'
+        ;;
+    watch-stop)
+        rps "$vm" 'New-Item -ItemType File -Force C:\winvm\watch.stop | Out-Null
+for ($i = 0; $i -lt 100 -and -not (Select-String -Quiet -Path C:\winvm\watch.log -Pattern "^# stopped"); $i++) { Start-Sleep -Milliseconds 100 }
+Get-Content C:\winvm\watch.log | Where-Object { $_ -and $_ -notmatch "^# stopped" }'
         ;;
     tunnel)
         app=${1:-app.grafida}

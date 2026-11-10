@@ -233,6 +233,15 @@ scheduled task), never directly over SSH; the automation channel reaches the hos
   copying a link or image; Inspect only with devtools), so an item a future runtime adds never
   appears. A **browser-process** exit is fatal (a native alert, then quit: nothing else would ever
   repaint the window); a **renderer** exit or hang reloads the page.
+- **`scripts/dev/parity-windows.sh` runs on the host and drives a guest** (`winvm.sh`): the shell in the
+  guest's desktop session with `APPDATA`/`LOCALAPPDATA`/`TEMP` in `C:\winvm\run`, the channel tunnelled
+  here (`SHELL_AUTOMATION_REMOTE=1`, so paths are the guest's). Its last row is the **console-window
+  watcher** (`winvm.sh watch-start`/`watch-stop`, a WinEvent hook in the desktop session): any
+  conhost or Windows Terminal window shown during the run fails it. ⚠️ Every helper the guest runs is
+  launched through `conhost.exe --headless` for that reason: a hidden PowerShell started by a
+  scheduled task still flashes a window under Windows Terminal. Worker timings come from the shell's
+  log ("stopping", then "worker stopped"), never from SSH round trips, and nothing that needs a
+  window handle runs in the SSH session (its window station sees none of the desktop's).
 - **The worker's Job Object** (`supervisor.rs`, Windows): the worker is spawned with
   `CREATE_SUSPENDED | CREATE_NO_WINDOW`, assigned to one `KILL_ON_JOB_CLOSE` job the shell never
   closes, and resumed (its one thread found by a Toolhelp snapshot: std cannot hand it back on

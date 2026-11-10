@@ -7,7 +7,10 @@ shell 0.3.0 (unreleased)
 + Windows: a release shell drops the `WEBVIEW2_*` variables that change the browser, so no debugging port can be injected
 + `scripts/dev/winvm.sh`: Windows 11 and 10 VMs: updates, snapshots, pinned dev tooling, programs in the desktop session, the automation channel over SSH
 + CI: a Windows job (fmt, clippy with and without automation, the release guard, the tests)
++ `scripts/dev/parity-windows.sh`: the automatable half of the Windows parity column, driven from the host over SSH
++ `winvm.sh watch-start`/`watch-stop`: every console window shown on a guest's desktop, recorded by a WinEvent hook
 + The automation client takes guest paths as they are (`SHELL_AUTOMATION_REMOTE=1`) and gains `click`
+~ The automation channel's `key` (Windows) brings the window forward first, and sends nothing if it cannot
 ~ Packaged mode on Windows: a worker named without an extension is `<name>.exe`, and no path is verbatim (`\\?\`)
 + `scripts/dev/macguest/`: a test server, the ATS matrix and the release app's idle CPU, for packaged runs in the guests
 

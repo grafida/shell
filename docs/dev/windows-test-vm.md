@@ -207,6 +207,8 @@ COMMAND VM`, with VM `windows-11` (port 22220, ssh host `winvm`) or `windows-10`
 | `push SRC DEST` | copies a host directory into the guest (a tarball unpacked by the guest's own `tar`) |
 | `run PROGRAM [ARG…]` | starts a program **in the desktop session** with `APPDATA`, `LOCALAPPDATA` and `TEMP` in a fresh `C:\winvm\run` (`WINVM_ENV='K=V …'` adds variables); output in `C:\winvm\run\std{out,err}.txt` |
 | `stop-run` | kills that program and everything it started |
+| `watch-start` / `watch-stop` | records every console window (conhost's, Windows Terminal's) shown on the desktop until stopped (`winvm/watch.ps1`, a WinEvent hook); `watch-stop` prints them, nothing if none |
+| `ps SCRIPT` | runs one PowerShell script in the guest, as `-EncodedCommand` |
 | `tunnel [APP_ID]` | forwards the shell's automation channel to this host and prints a directory: `XDG_RUNTIME_DIR=<it> SHELL_AUTOMATION_REMOTE=1 scripts/dev/automation.py …` then drives the guest's window |
 
 The snapshots: **`clean`** is updated Windows and nothing else (every installer test starts from
@@ -245,6 +247,14 @@ Gotchas, each one hit:
   program is alive.
 - A program started through the interactive task can take 10 s and more to appear the first time
   (a cold PowerShell, and Defender scanning a new executable); `run` waits up to 60 s.
+- **A process can only take the foreground from the one that has it** (the foreground lock): the
+  automation channel's `key` shares the foreground window's input queue for the switch
+  (`AttachThreadInput`) and, if Windows still refuses, sends nothing, rather than typing into whatever
+  program is in front.
+- **Nothing in the SSH session can see the desktop's windows** (`MainWindowHandle` is 0 there, and
+  `PostMessage` reaches nothing); anything that must touch a window runs in the desktop session.
+- **`Set-Content -NoNewline <path> <value>` with positional arguments writes nothing** (and says so
+  on stderr only); name them: `-Path … -Value …`.
 - `pgrep -f`/`pkill -f` with a pattern that also appears in the calling command line match the
   caller; `stop-run` kills by the pid the guest recorded.
 

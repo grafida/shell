@@ -309,6 +309,8 @@ pub fn run(launch: Launch, log: Arc<Log>) -> i32 {
             if let Some(channel) = &_automation {
                 channel.close();
             }
+            // The start of the stop path, for the log: the worker's "stopped" line follows it.
+            log.line("shell", &format!("stopping (exit status {code})"));
             window.set_visible(false);
             if let Some(c) = controller {
                 // SAFETY: COM call on the UI thread.
