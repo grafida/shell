@@ -1,6 +1,6 @@
 //! Grafida Shell — library half of the crate. See docs/adr/0001-shell-stack.md and
 //! grafida/grafida#82; Phase 2 (Linux, dev mode) is grafida/grafida#85, Phase 4 (macOS)
-//! grafida/grafida#88.
+//! grafida/grafida#88, Phase 5 (Windows) grafida/grafida#91.
 
 // Here, not in the module: the module itself is only compiled in debug builds.
 #[cfg(all(feature = "automation", not(debug_assertions)))]
@@ -10,7 +10,7 @@ compile_error!("the automation channel must never be compiled into a release bui
 pub mod automation;
 pub mod bridge;
 pub mod cli;
-#[cfg(any(target_os = "linux", target_os = "macos"))]
+#[cfg(any(target_os = "linux", target_os = "macos", windows))]
 pub mod dialog;
 pub mod http;
 #[cfg(target_os = "linux")]
@@ -25,3 +25,5 @@ pub mod navigation;
 pub mod protocol;
 pub mod supervisor;
 pub mod tokens;
+#[cfg(windows)]
+pub mod windows;

@@ -1,6 +1,9 @@
 //! Grafida Shell: a window, a webview serving `<scheme>://app`, and a supervised worker process.
 //! See docs/adr/0001-shell-stack.md, grafida/grafida#82 (design) and #85 (Linux, dev mode).
 
+// A GUI-subsystem program on Windows: no console window of its own (grafida/grafida#91).
+#![cfg_attr(windows, windows_subsystem = "windows")]
+
 use std::{path::PathBuf, process::ExitCode, sync::Arc};
 
 use grafida_shell::{
@@ -103,7 +106,12 @@ mod platform {
     pub use grafida_shell::macos::{alert, prepare, run};
 }
 
-#[cfg(not(any(target_os = "linux", target_os = "macos")))]
+#[cfg(windows)]
+mod platform {
+    pub use grafida_shell::windows::{alert, prepare, run};
+}
+
+#[cfg(not(any(target_os = "linux", target_os = "macos", windows)))]
 mod platform {
     use grafida_shell::{cli::Launch, log::Log, manifest::Manifest};
     use std::sync::Arc;
@@ -122,7 +130,7 @@ mod platform {
         alert(
             "Shell",
             "This platform is not supported yet.",
-            "grafida/grafida#82: Linux and macOS first.",
+            "grafida/grafida#82: Linux, macOS and Windows only.",
         );
         1
     }

@@ -1,7 +1,7 @@
-#![cfg(target_os = "linux")]
-
 //! The check against the real system loader: tiny C programs whose libraries are then broken.
 //! Needs a C compiler (`cc`); skipped with a note when there is none.
+
+#![cfg(target_os = "linux")]
 
 use std::{path::Path, process::Command};
 

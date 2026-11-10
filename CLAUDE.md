@@ -1,7 +1,8 @@
 # grafida/shell — AI assistant orientation
 
 A small, app-agnostic native desktop shell in **Rust (tao/rfd, with the system webview built by the
-shell itself: WebKitGTK on Linux, WKWebView through objc2 on macOS)**: window + system webview,
+shell itself: WebKitGTK on Linux, WKWebView through objc2 on macOS, WebView2 through webview2-com on
+Windows)**: window + system webview,
 a custom scheme serving the app at `<scheme>://app`, a supervised PHP **worker** process spoken to
 over length-prefixed frames on stdin/stdout, native endpoints under `/_native/*`, menus and failure
 alerts. Grafida is consumer #1 (umbrella issue grafida/grafida#82); nothing Grafida-specific may be
@@ -10,8 +11,10 @@ hard-coded — everything comes from the manifest (`shell.json`).
 Read `docs/adr/0001-shell-stack.md` before changing the webview glue. To test a packaged app on clean
 Linux machines, use `scripts/dev/linuxvm.sh` (`docs/dev/linux-test-vms.md`); on clean macOS 12 and 27
 guests, `scripts/dev/macvm.sh` (`docs/dev/macos-test-vms.md`). To run anything on Windows,
-use the test VM in `docs/dev/windows-test-vm.md` (`ssh winvm`). A GUI program must be started in
-the desktop session through an interactive scheduled task, never directly over SSH.
+use the test VMs in `docs/dev/windows-test-vm.md` through `scripts/dev/winvm.sh` (`ssh winvm`,
+`winvm10`). A GUI program must be started in the desktop session (`winvm.sh run`, an interactive
+scheduled task), never directly over SSH; the automation channel reaches the host through
+`winvm.sh tunnel`.
 
 ## Rules that are not guessable from the code
 
@@ -63,7 +66,7 @@ the desktop session through an interactive scheduled task, never directly over S
   after wry had created the webview, and `set_sandbox_enabled()` is a *fatal* error once a web process
   exists. `src/linux/` does it in WebKit's order: context (data manager, sandbox, spelling, scheme,
   security manager: secure **and** CORS-enabled) → webview → load the start URL after `ready`.
-  wry stays the plan for Windows only (ADR 0001). The sandbox is verifiably on (`WebKitWebProcess`
+  The sandbox is verifiably on (`WebKitWebProcess`
   under `bwrap`); dialogs run in the UI process, outside it.
 - **On macOS the shell owns WKWebView through objc2; neither wry nor muda is used** (ADR 0001,
   grafida/grafida#88). `src/macos/` builds its own `WKWebViewConfiguration` (the `WKURLSchemeHandler`,
@@ -200,7 +203,54 @@ the desktop session through an interactive scheduled task, never directly over S
   there); the manifest is beside the binary or in `../Resources`, and the worker runs in its directory.
 - **`SHELL_ALERTS=stderr` keeps the failure alerts to stderr** on both platforms (tests, headless
   smoke runs); on macOS so does a process with no window-server session.
-- Windows builds use a static CRT (`-C target-feature=+crt-static`).
+- **On Windows the shell owns WebView2 through webview2-com; wry is not used anywhere**
+  (ADR 0001, grafida/grafida#91). `src/windows/` creates the **environment** itself — the app's
+  scheme as a `CoreWebView2CustomSchemeRegistration` (secure, with an authority, the origin allowed),
+  the user data folder `%LOCALAPPDATA%\<dataDir>\WebView2` (the default beside the executable is
+  not writable under Program Files) — and the **controller** directly on tao's window. Both are
+  created asynchronously; their completion handlers run on the UI thread from the message loop and
+  stash the result in a thread-local (COM objects are not `Send`) before posting
+  `UserEvent::Created`. Never `wait_with_pump`: it is a nested, unfiltered pump that swallows
+  `WM_QUIT`. Bounds, focus (`MoveFocus` on activation), `NotifyParentWindowPositionChanged` and
+  hiding while minimised come from tao's window events; there is no subclassing.
+- **The Windows scheme bridge reads bodies on a reader thread** through an `AgileReference` to the
+  request's `IStream`, 1 MiB at a time to EOF, past `maxBodyBytes` → `413`; the deferral is taken in
+  the handler and completed from a UI-thread map. Response headers go one line per value. The
+  filter uses `ICoreWebView2_22`'s source kinds (shared workers, iframes) when present.
+- **WebView2 says which frame navigates**: `NavigationStarting` is the main frame
+  (`for_main_frame_navigation`), `FrameNavigationStarting` a subframe (`for_navigation`).
+  `NewWindowRequested` is handled with no window. ⚠️ **A script's `el.click()` on a `target=_blank`
+  link is not user-initiated for WebView2** (a same-window one is), so it is refused; a real click is
+  (the automation channel's `click`, DevTools' `Input.dispatchMouseEvent`, proves it).
+- **WebView2 needs no key routing of ours** (probed in grafida/grafida#91): every key reaches the
+  page's `keydown`; editing keys are not even offered as accelerators, and with
+  `AreBrowserAcceleratorKeysEnabled = false` the browser acts on none of the others (with it on,
+  Ctrl+R and F5 reload the app and Ctrl+F opens a find bar). No menu bar on Windows, so nothing can
+  take Ctrl+Shift+V. Zoom, pinch zoom, swipe navigation, the status bar, autofill and password saving
+  are off. Debug builds: `SHELL_WINDOWS_BROWSER_KEYS=on`, `SHELL_WINDOWS_KEY_LOG=1` (every
+  accelerator offered to the host) and `SHELL_WINDOWS_MENU_LOG=1` (the context menu's item names).
+- **The Windows context menu is an allowlist** of WebView2 item names (editing, spelling, emoji,
+  copying a link or image; Inspect only with devtools), so an item a future runtime adds never
+  appears. A **browser-process** exit is fatal (a native alert, then quit: nothing else would ever
+  repaint the window); a **renderer** exit or hang reloads the page.
+- **The worker's Job Object** (`supervisor.rs`, Windows): the worker is spawned with
+  `CREATE_SUSPENDED | CREATE_NO_WINDOW`, assigned to one `KILL_ON_JOB_CLOSE` job the shell never
+  closes, and resumed (its one thread found by a Toolhelp snapshot: std cannot hand it back on
+  stable). The shell is deliberately not in the job: a browser `ShellExecute` starts would die with
+  the app. `CREATE_NO_WINDOW` matters for the dev worker (`php.exe`, a console program, whose
+  children inherit its hidden console); the GUI-subsystem SFX's PHP adds the flag to its own children.
+- **A release Windows shell removes `WEBVIEW2_ADDITIONAL_BROWSER_ARGUMENTS` and the other
+  browser-changing `WEBVIEW2_*` variables** before it creates the environment
+  (`windows::environment::BROWSER_VARIABLES`), so no debugging port can be injected into a release
+  build; a debug build keeps them. The automation channel's `eval` uses `CallDevToolsProtocolMethod`
+  in process: no port is opened in any build.
+- **Packaged Windows paths**: `canonicalize()` answers verbatim `\\?\` paths; `cli::real_path`
+  writes them plainly (the worker is started by that path, and phpmicro derives its sibling `.phar`
+  from it). A `worker.binary` without an extension is `<name>.exe` on Windows.
+- Windows builds use a static CRT (`-C target-feature=+crt-static`, `.cargo/config.toml`) and link
+  the WebView2 loader statically: the shell imports system DLLs only. `#![windows_subsystem =
+  "windows"]`: no console; started from a terminal it attaches to that console for `--dev` logging.
+  Cross-check with `cargo xwin clippy --target x86_64-pc-windows-msvc --workspace --all-targets`.
 
 ## Conventions
 

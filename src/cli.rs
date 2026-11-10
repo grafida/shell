@@ -127,7 +127,7 @@ impl Options {
     /// Finds and loads the manifest and works out the worker command. `exe` is the shell's own path;
     /// everything is resolved from its real location, so a symlink to the shell works.
     pub fn resolve(&self, exe: &Path) -> Result<Launch, LaunchError> {
-        let exe = std::fs::canonicalize(exe).unwrap_or_else(|_| exe.to_path_buf());
+        let exe = real_path(exe);
         let exe = exe.as_path();
         let manifest_path = match (&self.manifest, &self.dev) {
             (Some(path), _) => absolute(path),
@@ -140,7 +140,7 @@ impl Options {
                     .ok_or_else(|| LaunchError::NoManifest(candidates.clone()))?;
                 // No `..` left in it (the macOS candidate has one): every path derived from the
                 // manifest's directory, the worker's included, should be the real one.
-                std::fs::canonicalize(found).unwrap_or_else(|_| found.clone())
+                real_path(found)
             }
         };
 
@@ -172,10 +172,11 @@ impl Options {
                     .parent()
                     .unwrap_or(Path::new("/"))
                     .to_path_buf();
-                let program = exe
-                    .parent()
-                    .unwrap_or(Path::new("/"))
-                    .join(&manifest.worker.binary);
+                let program = with_exe_suffix(
+                    exe.parent()
+                        .unwrap_or(Path::new("/"))
+                        .join(&manifest.worker.binary),
+                );
                 if !program.is_file() {
                     return Err(LaunchError::MissingWorker(
                         manifest.title.clone(),
@@ -211,6 +212,54 @@ fn packaged_candidates(exe: &Path) -> Vec<PathBuf> {
     ]
 }
 
+/// A path with every symlink resolved, as the system names it. On Windows that is without the
+/// verbatim `\\?\` prefix `canonicalize` adds (grafida/grafida#91): the worker is started by that
+/// path and in that directory, and phpmicro derives its sibling `.phar` from its own path.
+fn real_path(path: &Path) -> PathBuf {
+    let real = std::fs::canonicalize(path).unwrap_or_else(|_| path.to_path_buf());
+    match real.to_str().and_then(strip_verbatim) {
+        Some(plain) => PathBuf::from(plain),
+        None => real,
+    }
+}
+
+/// `\\?\C:\x` → `C:\x` and `\\?\UNC\server\share\x` → `\\server\share\x`; `None` for anything
+/// else, including a verbatim path that cannot be written plainly (a component Win32 would
+/// reinterpret, or one too long without the prefix).
+fn strip_verbatim(path: &str) -> Option<String> {
+    let plain = if let Some(rest) = path.strip_prefix(r"\\?\UNC\") {
+        format!(r"\\{rest}")
+    } else {
+        let rest = path.strip_prefix(r"\\?\")?;
+        let drive = rest.as_bytes();
+        if drive.len() < 3 || !drive[0].is_ascii_alphabetic() || &drive[1..3] != b":\\" {
+            return None;
+        }
+        rest.to_string()
+    };
+    const MAX_PATH: usize = 260;
+    let reinterpreted = plain.split('\\').skip(1).any(|c| {
+        c == "." || c == ".." || c.ends_with(['.', ' ']) || {
+            let stem = c.split('.').next().unwrap_or("").to_ascii_uppercase();
+            matches!(stem.as_str(), "CON" | "PRN" | "AUX" | "NUL")
+                || (stem.len() == 4
+                    && (stem.starts_with("COM") || stem.starts_with("LPT"))
+                    && stem.as_bytes()[3].is_ascii_digit())
+        }
+    });
+    (!reinterpreted && plain.len() < MAX_PATH).then_some(plain)
+}
+
+/// On Windows a program is `<name>.exe`: a manifest names the worker the same way on every
+/// platform (`grafida-worker`), so a name without an extension gets `.exe` there.
+fn with_exe_suffix(program: PathBuf) -> PathBuf {
+    if cfg!(windows) && program.extension().is_none() {
+        program.with_extension("exe")
+    } else {
+        program
+    }
+}
+
 fn absolute(path: &Path) -> PathBuf {
     std::path::absolute(path).unwrap_or_else(|_| path.to_path_buf())
 }
@@ -225,6 +274,47 @@ mod tests {
                 .chain(list.iter().copied())
                 .map(OsString::from),
         )
+    }
+
+    #[test]
+    fn verbatim_paths_are_written_plainly_when_they_can_be() {
+        assert_eq!(
+            strip_verbatim(r"\\?\C:\Program Files\App\shell.json").as_deref(),
+            Some(r"C:\Program Files\App\shell.json")
+        );
+        assert_eq!(
+            strip_verbatim(r"\\?\UNC\srv\share\app").as_deref(),
+            Some(r"\\srv\share\app")
+        );
+        assert_eq!(strip_verbatim(r"C:\already\plain"), None);
+        assert_eq!(strip_verbatim(r"\\?\Volume{0a1b}\x"), None);
+        assert_eq!(strip_verbatim(r"\\?\C:\dir\NUL.txt"), None, "a device name");
+        assert_eq!(
+            strip_verbatim(r"\\?\C:\dir\trailing."),
+            None,
+            "a trailing dot"
+        );
+        assert_eq!(strip_verbatim(r"\\?\C:\dir\com1"), None);
+        assert!(
+            strip_verbatim(r"\\?\C:\dir\COMMON\x").is_some(),
+            "not a device"
+        );
+        let long = format!(r"\\?\C:\{}", "a".repeat(300));
+        assert_eq!(strip_verbatim(&long), None, "too long without the prefix");
+    }
+
+    #[test]
+    fn a_worker_name_without_an_extension_is_an_exe_on_windows() {
+        let named = with_exe_suffix(PathBuf::from("app/grafida-worker"));
+        if cfg!(windows) {
+            assert_eq!(named, PathBuf::from("app/grafida-worker.exe"));
+        } else {
+            assert_eq!(named, PathBuf::from("app/grafida-worker"));
+        }
+        assert_eq!(
+            with_exe_suffix(PathBuf::from("app/w.cmd")),
+            PathBuf::from("app/w.cmd")
+        );
     }
 
     #[test]
@@ -257,8 +347,14 @@ mod tests {
         ));
         std::fs::create_dir_all(&dir).unwrap();
         std::fs::write(dir.join("shell.json"), manifest).unwrap();
-        // The real path: macOS's temp dir is behind a symlink (/var → /private/var).
-        std::fs::canonicalize(dir).unwrap()
+        // The real path: macOS's temp dir is behind a symlink (/var → /private/var); on Windows
+        // written plainly, as the shell itself writes it.
+        real_path(&dir)
+    }
+
+    /// The test worker's file name: `t-worker`, `t-worker.exe` on Windows.
+    fn worker() -> String {
+        format!("t-worker{}", std::env::consts::EXE_SUFFIX)
     }
 
     const MANIFEST: &str = r#"{"id":"app.t","title":"T","scheme":"boson",
@@ -283,11 +379,11 @@ mod tests {
     #[test]
     fn packaged_mode_finds_the_manifest_beside_the_binary() {
         let dir = app_dir(MANIFEST);
-        std::fs::write(dir.join("t-worker"), "").unwrap();
+        std::fs::write(dir.join(worker()), "").unwrap();
         let launch = Options::default()
             .resolve(&dir.join("grafida-shell"))
             .unwrap();
-        assert_eq!(launch.worker.program, dir.join("t-worker").into_os_string());
+        assert_eq!(launch.worker.program, dir.join(worker()).into_os_string());
         assert_eq!(launch.worker.args, vec![OsString::from("-q")]);
         assert_eq!(launch.worker.cwd, dir);
         std::fs::remove_dir_all(dir).unwrap();
@@ -301,22 +397,22 @@ mod tests {
         std::fs::create_dir_all(contents.join("Resources")).unwrap();
         std::fs::write(contents.join("Resources/shell.json"), MANIFEST).unwrap();
         // A worker among the data files is not the worker: it belongs beside the shell.
-        std::fs::write(contents.join("Resources/t-worker"), "").unwrap();
+        std::fs::write(contents.join("Resources").join(worker()), "").unwrap();
         let shell = contents.join("MacOS/grafida-shell");
         let err = Options::default().resolve(&shell).unwrap_err().to_string();
         assert!(
-            err.contains(&contents.join("MacOS/t-worker").display().to_string()),
+            err.contains(&contents.join("MacOS").join(worker()).display().to_string()),
             "{err}"
         );
 
-        std::fs::write(contents.join("MacOS/t-worker"), "").unwrap();
+        std::fs::write(contents.join("MacOS").join(worker()), "").unwrap();
         let launch = Options::default().resolve(&shell).unwrap();
         let resources = contents.join("Resources");
         assert_eq!(launch.manifest_path, resources.join("shell.json"));
         assert_eq!(launch.worker.cwd, resources);
         assert_eq!(
             launch.worker.program,
-            contents.join("MacOS/t-worker").into_os_string()
+            contents.join("MacOS").join(worker()).into_os_string()
         );
         std::fs::remove_dir_all(bundle).unwrap();
     }
@@ -330,7 +426,7 @@ mod tests {
             .to_string();
         assert!(err.contains("`t-worker` is missing"), "{err}");
         assert!(
-            err.contains(&dir.join("t-worker").display().to_string()),
+            err.contains(&dir.join(worker()).display().to_string()),
             "{err}"
         );
         std::fs::remove_dir_all(dir).unwrap();
@@ -356,7 +452,8 @@ mod tests {
             .resolve(Path::new("/nonexistent/bin/shell"))
             .unwrap_err()
             .to_string();
-        assert!(err.contains("/nonexistent/bin/shell.json"), "{err}");
+        let expected = Path::new("/nonexistent/bin").join("shell.json");
+        assert!(err.contains(&expected.display().to_string()), "{err}");
         assert!(err.contains("Resources"), "{err}");
     }
 }

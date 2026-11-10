@@ -190,9 +190,74 @@ machine:
 RUSTFLAGS="-C target-feature=+crt-static" cargo xwin build --release --target x86_64-pc-windows-msvc
 ```
 
+## 7. Day to day: `scripts/dev/winvm.sh` (grafida/grafida#91)
+
+Everything above is the one-off build. Using the VMs afterwards goes through `scripts/dev/winvm.sh
+COMMAND VM`, with VM `windows-11` (port 22220, ssh host `winvm`) or `windows-10` (port 22224,
+`winvm10`, the same `Host` entry as above with that port and its own `known_hosts.winvm10`):
+
+| Command | What it does |
+|---|---|
+| `start` / `stop` | boot with quickemu (a window on this desktop) and wait for SSH; shut down and wait for QEMU to exit |
+| `snapshot … create\|apply\|delete\|list NAME` | the disk snapshots; the VM must be off |
+| `update` | Windows Update + Defender + Edge/WebView2, pass after pass (`winvm/update.ps1`), rebooting between passes, until nothing is left; then `versions` |
+| `versions` | what a clean-machine record notes: Windows build, Edge, WebView2, Defender, Smart App Control, locale |
+| `clean-up` | removes `C:\winvm` and our scheduled tasks, before a `clean` snapshot |
+| `dev-tools` | PHP 8.4 (the SFX's extensions), Git for Windows and Python, each pinned by SHA-256 on the host and again in the guest (`winvm/dev-tools.ps1`) |
+| `push SRC DEST` | copies a host directory into the guest (a tarball unpacked by the guest's own `tar`) |
+| `run PROGRAM [ARG…]` | starts a program **in the desktop session** with `APPDATA`, `LOCALAPPDATA` and `TEMP` in a fresh `C:\winvm\run` (`WINVM_ENV='K=V …'` adds variables); output in `C:\winvm\run\std{out,err}.txt` |
+| `stop-run` | kills that program and everything it started |
+| `tunnel [APP_ID]` | forwards the shell's automation channel to this host and prints a directory: `XDG_RUNTIME_DIR=<it> SHELL_AUTOMATION_REMOTE=1 scripts/dev/automation.py …` then drives the guest's window |
+
+The snapshots: **`clean`** is updated Windows and nothing else (every installer test starts from
+it); **`dev`** is `clean` plus `dev-tools` and the source trees in `C:\src`. Re-take `clean` with
+`update`, `clean-up`, `stop`, `snapshot … delete clean`, `snapshot … create clean`.
+
+The Windows 10 VM is built exactly as the Windows 11 one, from a Windows 10 22H2 ISO (ours is the
+maintainer's Greek one, `CCCOMA_X64FRE_EL-GR`): copy quickget's answer file
+(`windows-11/unattended/autounattend.xml.orig`, plus the two `.msi` files) into
+`windows-10/unattended/`, hard-link `virtio-win.iso`, write `windows-10.conf` like the Windows 11 one,
+and run `winvm-unattend.py` on it.
+
+Gotchas, each one hit:
+
+- ⚠️ **Windows Update refuses an SSH logon** (`E_ACCESSDENIED`): `update` runs each pass as SYSTEM
+  through a scheduled task.
+- ⚠️ **sshd keeps answering while Windows shuts down**, so "SSH is up" right after `Restart-Computer`
+  can be the old boot: a pass started then is killed by the shutdown (`0x8007045B`). `reboot` waits
+  for a new `LastBootUpTime` instead.
+- ⚠️ **Windows 10's OpenSSH (7.7, the optional feature) strips the double quotes** out of the command
+  it hands PowerShell; Windows 11's does not. Scripts therefore travel as `-EncodedCommand`
+  (UTF-16LE, base64), never as text.
+- ⚠️ **On the Windows 10 guest the key file was missing after the first logon** although Setup had
+  queued the command and the next one ran; run again, the same command worked. If `ssh` says
+  `Permission denied (publickey,…)`, log in with the account's password
+  (`SSH_ASKPASS=<script that echoes it> SSH_ASKPASS_REQUIRE=force setsid ssh -o
+  PreferredAuthentications=password -o PubkeyAuthentication=no winvm10 …`) and run that command.
+- **Greek Setup** (and probably any non-English one) ignored Enter sent through the QEMU monitor on
+  its language page; the button's access key (`sendkey alt-e`, "Επόμενο") worked. Its progress page
+  then sat at "0%" while the disk filled: check `qemu-img info -U` before deciding it is stuck.
+- **`python3` is the Microsoft Store's app-execution alias** (`…\WindowsApps\python3.exe`), which
+  opens the Store; the installed interpreter is `python`. A manifest's `dev.worker` must say
+  `python` in the guest.
+- **Two WebView2 apps on one user data folder share one browser process**: kill the first one's
+  process tree and the second one's webview dies with it. `run` therefore refuses while its previous
+  program is alive.
+- A program started through the interactive task can take 10 s and more to appear the first time
+  (a cold PowerShell, and Defender scanning a new executable); `run` waits up to 60 s.
+- `pgrep -f`/`pkill -f` with a pattern that also appears in the calling command line match the
+  caller; `stop-run` kills by the pid the guest recorded.
+
 ## Facts about this guest worth knowing
 
 - Windows 11 Pro build 26300 came with WebView2 Evergreen 157 preinstalled. Read the version with
   `(Get-ItemProperty 'HKLM:\SOFTWARE\WOW6432Node\Microsoft\EdgeUpdate\Clients\{F3017226-FE2A-4295-8BDF-00C3A9A7E4C5}').pv`.
+- **The `clean` snapshots of 2026-11-10** (`versions`, after `update`): `windows-11` is Windows 11
+  Pro 26H2, build 26300.9711, en-GB, Smart App Control in evaluation mode, Defender signatures
+  1.463.226.0; `windows-10` is Windows 10 Pro 22H2, build 19045.6456 (installed at 19045.2965),
+  el-GR, no Smart App Control, signatures 1.463.227.0. Both have WebView2 and Edge 157.0.4341.42:
+  the Windows 10 media from 2023 got the runtime during setup, so a missing runtime cannot be met
+  naturally on either guest. The
+  registry's `ProductName` says "Windows 10" on Windows 11 too; read `Win32_OperatingSystem.Caption`.
 - `msedgewebview2.exe` processes belonging to `SearchHost.exe` (Windows Search) are always running.
   Check a process's `--webview-exe-name=` argument before blaming the shell for a stray one.

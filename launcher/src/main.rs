@@ -1,16 +1,28 @@
 //! Starts the shell beside this binary, or explains which system libraries it is missing.
 //! See `lib.rs` and grafida/grafida#86.
 
+#[cfg(unix)]
 use std::{
     os::unix::process::CommandExt,
     process::{Command, ExitCode},
 };
 
+#[cfg(unix)]
 use grafida_launcher::{Check, alert, check, explain, family, manifest_title, shell_beside};
 
 /// `EX_UNAVAILABLE`, as Grafida's own start-up checks use.
 const EXIT_UNAVAILABLE: u8 = 69;
 
+/// The launcher exists for Linux, where the shell may not load at all (a missing WebKitGTK). On
+/// Windows the shell links only system DLLs and checks for WebView2 itself (grafida/grafida#91), so
+/// nothing ships this binary there; it builds only so the workspace does.
+#[cfg(not(unix))]
+fn main() -> std::process::ExitCode {
+    eprintln!("grafida-launcher is for Linux: on this platform the shell is started directly.");
+    std::process::ExitCode::from(EXIT_UNAVAILABLE)
+}
+
+#[cfg(unix)]
 fn main() -> ExitCode {
     let launcher = std::env::current_exe().unwrap_or_else(|_| "grafida-launcher".into());
     let shell = shell_beside(&launcher);

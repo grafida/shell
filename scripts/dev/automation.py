@@ -17,6 +17,7 @@
 #   automation.py wait 'return document.readyState === "complete"' [timeout_s]
 #   automation.py menu                           # macOS: the live menu bar, key equivalents included
 #   automation.py menu "About Grafida"           # macOS: click that menu item
+#   automation.py click X Y                      # Windows: a real left click at X,Y (page CSS pixels)
 #   automation.py key cmd+shift+v                # macOS: a key press, queued as a real one would be
 #                                                # (activates the app: it takes the keyboard focus)
 #
@@ -35,6 +36,12 @@ def channel_file(app_id):
     # per user and not /tmp).
     base = os.environ.get("XDG_RUNTIME_DIR") or tempfile.gettempdir()
     return os.path.join(base, f"{app_id}.automation.json")
+
+
+def path(p):
+    # SHELL_AUTOMATION_REMOTE=1: the shell runs on another machine (a Windows guest driven over SSH,
+    # scripts/dev/winvm.sh tunnel), so a path names a file there and is passed as it is.
+    return p if os.environ.get("SHELL_AUTOMATION_REMOTE") == "1" else os.path.abspath(p)
 
 
 def send(command, timeout=130):
@@ -65,15 +72,17 @@ def main(argv):
         with open(args[0]) as f:
             answer = send({"cmd": "eval", "js": f.read()})
     elif cmd == "screenshot":
-        answer = send({"cmd": "screenshot", "path": os.path.abspath(args[0])})
+        answer = send({"cmd": "screenshot", "path": path(args[0])})
     elif cmd == "pick":
-        paths = None if args == ["--cancel"] else [os.path.abspath(a) for a in args]
+        paths = None if args == ["--cancel"] else [path(a) for a in args]
         answer = send({"cmd": "pick", "paths": paths})
     elif cmd == "drop":
         answer = send({"cmd": "drop", "x": int(args[0]), "y": int(args[1]),
-                       "paths": [os.path.abspath(a) for a in args[2:]]})
+                       "paths": [path(a) for a in args[2:]]})
     elif cmd == "menu":
         answer = send({"cmd": "menu", "perform": args[0]} if args else {"cmd": "menu"})
+    elif cmd == "click":
+        answer = send({"cmd": "click", "x": float(args[0]), "y": float(args[1])})
     elif cmd == "key":
         *mods, key = args[0].split("+")
         answer = send({"cmd": "key", "key": key, "modifiers": mods})

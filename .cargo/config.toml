@@ -3,3 +3,9 @@
 # explicit MACOSX_DEPLOYMENT_TARGET in the environment still wins. Ignored on other platforms.
 [env]
 MACOSX_DEPLOYMENT_TARGET = "12.0"
+
+# Windows: the C runtime is linked statically (ADR 0001), so neither the shell nor anything it
+# loads needs the Visual C++ redistributable on a clean machine (grafida/grafida#91). The release
+# check reads the imports from the binary.
+[target.x86_64-pc-windows-msvc]
+rustflags = ["-C", "target-feature=+crt-static"]

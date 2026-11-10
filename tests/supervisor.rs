@@ -59,8 +59,7 @@ fn an_external_kill_is_a_crash_too() {
     let h = Harness::start(fake("echo"));
     h.notice();
     let pid = h.pid();
-    // SAFETY: plain kill(2) on a pid this test owns.
-    unsafe { libc::kill(pid as i32, libc::SIGKILL) };
+    common::kill(pid);
     assert!(matches!(h.notice(), Notice::Restarting { .. }));
     assert!(matches!(h.notice(), Notice::Ready { first: false, .. }));
     assert_ne!(h.pid(), pid);
@@ -238,11 +237,12 @@ fn a_slow_request_does_not_block_submission() {
     assert!(started.elapsed() >= Duration::from_millis(800));
 }
 
-#[cfg(target_os = "linux")]
+#[cfg(any(target_os = "linux", windows))]
 #[test]
 fn the_worker_dies_with_the_shell() {
     // A child shell process (this test binary, re-run as a stub) starts a worker that ignores EOF
-    // and is then SIGKILLed; PR_SET_PDEATHSIG must take the worker down with it.
+    // and is then killed outright; PR_SET_PDEATHSIG (Linux) or the Job Object's
+    // KILL_ON_JOB_CLOSE (Windows, grafida/grafida#91) must take the worker down with it.
     let pid = common::orphan_check("deaf", None);
     assert!(
         common::exits_within(pid, Duration::from_secs(5)),
@@ -265,9 +265,10 @@ fn an_idle_worker_exits_at_once_when_its_shell_is_killed() {
 fn a_busy_worker_exits_when_its_request_ends_after_its_shell_is_killed() {
     // A worker in the middle of a request cannot read EOF until the request is over; then its
     // reply hits a closed pipe (or its next read EOF) and it exits. That bound is the design on
-    // macOS, where nothing else ends it (grafida/grafida#88). On Linux PDEATHSIG is quicker.
+    // macOS, where nothing else ends it (grafida/grafida#88). On Linux PDEATHSIG is quicker, and
+    // on Windows the Job Object kills it at once.
     let pid = common::orphan_check("echo", Some(3000));
-    if cfg!(not(target_os = "linux")) {
+    if cfg!(target_os = "macos") {
         std::thread::sleep(Duration::from_millis(1000));
         assert!(
             common::alive(pid),

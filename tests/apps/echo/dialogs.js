@@ -7,7 +7,8 @@ const post = (endpoint, body, headers = {}) =>
 let picked = await (await post('/_native/dialog/open-file', { filters: [{ name: 'Images', extensions: ['png'] }] })).json();
 out.picked = picked;
 const token = picked.files && picked.files[0].token;
-check(typeof token === 'string' && !JSON.stringify(picked).includes('/'), 'a token, never a path');
+// A path in the answer would have a / (or, on Windows, a \\).
+check(typeof token === 'string' && !/[\\/]/.test(JSON.stringify(picked)), 'a token, never a path');
 
 let r = await post('/api/read', {}, { 'X-Shell-File': token, 'X-Shell-File-Path': '/etc/shadow' });
 let j = await r.json();

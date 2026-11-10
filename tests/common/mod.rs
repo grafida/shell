@@ -22,14 +22,18 @@ pub fn sha256(bytes: &[u8]) -> String {
         .collect()
 }
 
+/// The repository root. `SHELL_TEST_ROOT` overrides it, for test binaries cross-built on one machine
+/// and run on another (the Windows guests, grafida/grafida#91), where the build path does not exist.
 pub fn manifest_dir() -> PathBuf {
-    PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+    std::env::var_os("SHELL_TEST_ROOT")
+        .map(PathBuf::from)
+        .unwrap_or_else(|| PathBuf::from(env!("CARGO_MANIFEST_DIR")))
 }
 
 /// The fake worker in the given mode.
 pub fn fake(mode: &str) -> WorkerCommand {
     WorkerCommand {
-        program: "python3".into(),
+        program: python().into(),
         args: vec![
             "-I".into(),
             manifest_dir().join("tests/workers/fake_worker.py").into(),
@@ -37,6 +41,34 @@ pub fn fake(mode: &str) -> WorkerCommand {
         ],
         cwd: manifest_dir(),
         env: Vec::new(),
+    }
+}
+
+/// The Python that runs the fake worker: `SHELL_TEST_PYTHON`, else `python3` (`python` on
+/// Windows, where the installer and the GitHub runners provide no `python3`).
+pub fn python() -> String {
+    std::env::var("SHELL_TEST_PYTHON")
+        .unwrap_or_else(|_| if cfg!(windows) { "python" } else { "python3" }.to_string())
+}
+
+/// Kills a process outright (SIGKILL; TerminateProcess on Windows).
+pub fn kill(pid: u32) {
+    #[cfg(unix)]
+    // SAFETY: plain kill(2) on a pid the test owns.
+    unsafe {
+        libc::kill(pid as i32, libc::SIGKILL);
+    }
+    #[cfg(windows)]
+    // SAFETY: plain Win32 calls on a handle opened and closed here.
+    unsafe {
+        use windows::Win32::{
+            Foundation::CloseHandle,
+            System::Threading::{OpenProcess, PROCESS_TERMINATE, TerminateProcess},
+        };
+        if let Ok(h) = OpenProcess(PROCESS_TERMINATE, false, pid) {
+            let _ = TerminateProcess(h, 1);
+            let _ = CloseHandle(h);
+        }
     }
 }
 
@@ -165,7 +197,24 @@ pub fn alive(pid: u32) -> bool {
             Err(_) => false,
         }
     }
-    #[cfg(not(target_os = "linux"))]
+    #[cfg(windows)]
+    // SAFETY: plain Win32 calls on a handle opened and closed here.
+    unsafe {
+        use windows::Win32::{
+            Foundation::{CloseHandle, STILL_ACTIVE},
+            System::Threading::{
+                GetExitCodeProcess, OpenProcess, PROCESS_QUERY_LIMITED_INFORMATION,
+            },
+        };
+        let Ok(h) = OpenProcess(PROCESS_QUERY_LIMITED_INFORMATION, false, pid) else {
+            return false;
+        };
+        let mut code = 0u32;
+        let running = GetExitCodeProcess(h, &mut code).is_ok() && code == STILL_ACTIVE.0 as u32;
+        let _ = CloseHandle(h);
+        running
+    }
+    #[cfg(not(any(target_os = "linux", windows)))]
     {
         let Ok(out) = Command::new("ps")
             .args(["-o", "stat=", "-p", &pid.to_string()])
@@ -184,7 +233,7 @@ const STUB_MODE_ENV: &str = "SHELL_TEST_ORPHAN_MODE";
 const STUB_BUSY_ENV: &str = "SHELL_TEST_ORPHAN_BUSY_MS";
 
 /// Runs this test binary's `orphan_stub` as a stand-in shell with a fake worker in `mode`, kills
-/// it with SIGKILL once its worker is ready (and, with `busy_ms`, once a `/sleep?ms=busy_ms`
+/// it outright (SIGKILL; TerminateProcess on Windows) once its worker is ready (and, with `busy_ms`, once a `/sleep?ms=busy_ms`
 /// request is in flight), and returns the worker's pid.
 pub fn orphan_check(mode: &str, busy_ms: Option<u64>) -> u32 {
     let dir = tempfile_dir();

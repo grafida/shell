@@ -1,5 +1,13 @@
-shell 0.2.1 (unreleased)
+shell 0.3.0 (unreleased)
 ================================================================================
++ Windows (x86_64, 10 22H2 or later): apps run in a WebView2 the shell creates itself, on a real `boson://` scheme; dev mode for now
++ Windows: the worker joins a Job Object (kill on close) before it runs, and is started without a console window
++ Windows: browser shortcuts, zoom and swipe navigation are off; the context menu keeps editing and spelling items only
++ Windows: a WebView2 browser-process exit is a native alert; a crashed or hung renderer reloads the page
++ Windows: a release shell drops the `WEBVIEW2_*` variables that change the browser, so no debugging port can be injected
++ `scripts/dev/winvm.sh`: Windows 11 and 10 VMs: updates, snapshots, pinned dev tooling, programs in the desktop session, the automation channel over SSH
++ The automation client takes guest paths as they are (`SHELL_AUTOMATION_REMOTE=1`) and gains `click`
+~ Packaged mode on Windows: a worker named without an extension is `<name>.exe`, and no path is verbatim (`\\?\`)
 + `scripts/dev/macguest/`: a test server, the ATS matrix and the release app's idle CPU, for packaged runs in the guests
 
 shell 0.2.0
