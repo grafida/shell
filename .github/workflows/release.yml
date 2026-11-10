@@ -1,14 +1,17 @@
-# Release binaries: Linux (grafida/grafida#86) and macOS (grafida/grafida#88).
+# Release binaries: Linux (grafida/grafida#86), macOS (grafida/grafida#88) and Windows (#91).
 #
 # Every push builds what a release would ship, checks it and runs it:
 #   Linux: on the oldest Ubuntu we promise (22.04, glibc 2.35; ADR 0001), x86_64 and aarch64,
 #          checked by scripts/release/check-linux-binaries.sh, run headless by smoke-linux.sh;
 #   macOS: arm64 only, linked for macOS 12.0 (the floor), checked by check-macos-binaries.sh
 #          (minos from LC_BUILD_VERSION, system libraries only), run by smoke-macos.sh in a
-#          bundle layout.
+#          bundle layout;
+#   Windows: x86_64, MSVC with a static CRT and the WebView2 loader linked in, checked by
+#          check-windows-binaries.sh (GUI subsystem, system DLLs only, the manifest), run by
+#          smoke-windows.sh in the packaged layout.
 # A tag X.Y.Z equal to the crates' version also publishes the release:
 # grafida-shell-linux-{x86_64,aarch64}, grafida-launcher-linux-{x86_64,aarch64} (the static
-# launcher) and grafida-shell-macos-arm64, each with a .sha256. A tag's release is written once
+# launcher), grafida-shell-macos-arm64 and grafida-shell-windows-x86_64.exe, each with a .sha256. A tag's release is written once
 # and never again; consumers pin the tag and the hashes.
 #
 # Release binaries never carry the automation channel: `--features automation` is not passed here,
@@ -153,8 +156,50 @@ jobs:
           path: target/debug/grafida-shell
           retention-days: 30
 
+  windows:
+    name: Windows x86_64
+    runs-on: windows-2022
+    defaults:
+      run:
+        shell: bash   # Git Bash
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - name: The tag is the crates' version
+        if: startsWith(github.ref, 'refs/tags/')
+        run: |
+          for toml in Cargo.toml launcher/Cargo.toml; do
+            version="$(sed -n 's/^version = "\(.*\)"$/\1/p' "$toml" | head -1)"
+            [ "$version" = "$GITHUB_REF_NAME" ] || { echo "$toml says $version, the tag is $GITHUB_REF_NAME"; exit 1; }
+          done
+      - name: Build (release profile, no automation)
+        run: cargo build --release --locked -p grafida-shell
+      - name: Check the binary
+        run: scripts/release/check-windows-binaries.sh target/release/grafida-shell.exe
+      - name: Smoke test (the packaged layout, the fake worker's page mode)
+        run: scripts/release/smoke-windows.sh target/release/grafida-shell.exe
+      - name: Name the asset
+        run: |
+          mkdir -p out
+          cp target/release/grafida-shell.exe out/grafida-shell-windows-x86_64.exe
+          cd out && sha256sum grafida-shell-windows-x86_64.exe > grafida-shell-windows-x86_64.exe.sha256 && cat ./*.sha256
+      - uses: actions/upload-artifact@v4
+        with:
+          name: windows-x86_64
+          path: out/*
+      # The verification build for packaged apps in the Windows guests (parity-windows.sh with
+      # SHELL_BIN + GRAFIDA_PACKAGED, swapped into a copy of the installed app): a DEBUG build with
+      # the automation channel. A workflow artifact only, never a release asset.
+      - name: Build the debug automation shell (for verification only)
+        run: cargo build --locked -p grafida-shell --features automation
+      - uses: actions/upload-artifact@v4
+        with:
+          name: debug-automation-windows-x86_64
+          path: target/debug/grafida-shell.exe
+          retention-days: 30
+
   publish:
-    needs: [linux, macos]
+    needs: [linux, macos, windows]
     if: startsWith(github.ref, 'refs/tags/')
     runs-on: ubuntu-latest
     permissions:
@@ -173,6 +218,11 @@ jobs:
           pattern: macos-*
           path: assets
           merge-multiple: true
+      - uses: actions/download-artifact@v4
+        with:
+          pattern: windows-*
+          path: assets
+          merge-multiple: true
 
       # A draft until every asset is up, so a half-uploaded release is never visible. An existing
       # release for the tag makes this fail: a published release is never rewritten.
@@ -182,5 +232,5 @@ jobs:
         run: |
           gh release create "$GITHUB_REF_NAME" assets/* --draft --verify-tag \
             --title "Grafida Shell $GITHUB_REF_NAME" \
-            --notes "Binaries of the Grafida Shell $GITHUB_REF_NAME (commit $GITHUB_SHA). Linux x86_64 and aarch64: built on Ubuntu 22.04 (glibc 2.35, WebKitGTK 4.1), with the static launcher. macOS arm64: linked for macOS 12.0, ad-hoc signed by the linker only (an app signs it inside its bundle). See CHANGELOG.md. Pin the tag and the .sha256 of each asset."
+            --notes "Binaries of the Grafida Shell $GITHUB_REF_NAME (commit $GITHUB_SHA). Linux x86_64 and aarch64: built on Ubuntu 22.04 (glibc 2.35, WebKitGTK 4.1), with the static launcher. macOS arm64: linked for macOS 12.0, ad-hoc signed by the linker only (an app signs it inside its bundle). Windows x86_64: Windows 10 22H2 or later with the WebView2 Evergreen runtime, a static CRT, unsigned (an app signs it with its installer). See CHANGELOG.md. Pin the tag and the .sha256 of each asset."
           gh release edit "$GITHUB_REF_NAME" --draft=false

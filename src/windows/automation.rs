@@ -414,6 +414,11 @@ fn virtual_key(key: &str) -> Option<VIRTUAL_KEY> {
     let (Some(c), None) = (chars.next(), chars.next()) else {
         return None;
     };
+    // Letters and digits have the same virtual key on every layout ('A'..'Z', '0'..'9'); asking
+    // the layout would fail for a Latin letter on, say, a Greek keyboard.
+    if c.is_ascii_alphanumeric() {
+        return Some(VIRTUAL_KEY(c.to_ascii_uppercase() as u16));
+    }
     // SAFETY: plain Win32 call. The low byte is the virtual key in the current layout.
     let scan = unsafe { VkKeyScanW(c as u16) };
     (scan != -1).then_some(VIRTUAL_KEY((scan as u16) & 0xff))

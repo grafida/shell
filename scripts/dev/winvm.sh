@@ -243,7 +243,8 @@ if (-not (Test-Path C:\winvm\run\pid)) { throw "the program did not start" }
         ;;
     ps) rps "$vm" "${1:?script}" ;;
     stop-run)
-        rps "$vm" 'if (Test-Path C:\winvm\run\pid) { taskkill /T /F /PID (Get-Content C:\winvm\run\pid).Trim() 2>&1 | Out-Null }; "stopped"'
+        # Waits until it is gone: the next `run` refuses while it is still exiting.
+        rps "$vm" 'if (Test-Path C:\winvm\run\pid) { $p = (Get-Content C:\winvm\run\pid).Trim(); taskkill /T /F /PID $p 2>&1 | Out-Null; for ($i = 0; $i -lt 100 -and (Get-Process -Id $p -ErrorAction SilentlyContinue); $i++) { Start-Sleep -Milliseconds 100 } }; "stopped"'
         ;;
     watch-start)
         scp -q "$HERE/winvm/watch.ps1" "$(host "$vm"):C:/winvm/watch.ps1"

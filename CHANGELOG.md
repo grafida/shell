@@ -6,6 +6,8 @@ shell 0.3.0 (unreleased)
 + Windows: a WebView2 browser-process exit is a native alert; a crashed or hung renderer reloads the page
 + Windows: a release shell drops the `WEBVIEW2_*` variables that change the browser, so no debugging port can be injected
 + `scripts/dev/winvm.sh`: Windows 11 and 10 VMs: updates, snapshots, pinned dev tooling, programs in the desktop session, the automation channel over SSH
++ Windows: an application manifest (Common Controls 6, per-monitor DPI, Windows 10/11), linked from a `.res` written by `build.rs`
++ Releases include `grafida-shell-windows-x86_64.exe`, checked (GUI subsystem, system DLLs only, the manifest) and smoke-tested on `windows-2022`
 + CI: a Windows job (fmt, clippy with and without automation, the release guard, the tests)
 + `scripts/dev/parity-windows.sh`: the automatable half of the Windows parity column, driven from the host over SSH
 + `winvm.sh watch-start`/`watch-stop`: every console window shown on a guest's desktop, recorded by a WinEvent hook

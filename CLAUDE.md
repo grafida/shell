@@ -182,6 +182,10 @@ scheduled task), never directly over SSH; the automation channel reaches the hos
   Wayland `app_id` and X11 `WM_CLASS`, so a packaged app's desktop entry must be named
   `<id>.desktop`), and `WEBKIT_DISABLE_DMABUF_RENDERER` per `webview.dmabufRenderer`. The user's
   own value of that variable always wins.
+- **The Windows application manifest is linked from a `.res` that `build.rs` writes** (one
+  `RT_MANIFEST` entry, the documented RESOURCEHEADER format): `embed-manifest` and friends need
+  `mt.exe` to merge manifests, which `lld-link` under `cargo xwin` does not have. An app's packager
+  adds its icon and version resources and must keep this one.
 - **Releases** (`.github/workflows/release.yml`): every push builds, checks
   (`scripts/release/check-linux-binaries.sh`: glibc ≤ 2.35, every NEEDED library from
   `libwebkit2gtk-4.1-0` + `libgtk-3-0`'s dependency closure, no automation marker, a static
@@ -191,8 +195,13 @@ scheduled task), never directly over SSH; the automation channel reaches the hos
   (`check-macos-binaries.sh`: thin arm64, `LC_BUILD_VERSION` minos ≤ 12.0, only `/usr/lib` and
   `/System/Library` linked, no automation marker) and smoke-tests (`smoke-macos.sh`: the shell in a
   bundle layout, manifest in `Contents/Resources`, worker beside the shell, the fake worker's `page`
-  mode) the macOS shell. A tag `X.Y.Z` equal to **both** crates' versions publishes
-  `grafida-{shell,launcher}-linux-{x86_64,aarch64}` and `grafida-shell-macos-arm64`, each with a
+  mode) the macOS shell; and on `windows-2022` (grafida/grafida#91) checks
+  (`check-windows-binaries.sh`: PE32+ AMD64, the GUI subsystem, only DLLs that ship with Windows, so
+  no VC++ runtime and no `WebView2Loader.dll`, the manifest, no automation marker) and smoke-tests
+  (`smoke-windows.sh`: the packaged layout, a `.cmd` running the fake worker's `page` mode) the
+  Windows shell. A tag `X.Y.Z` equal to **both** crates' versions publishes
+  `grafida-{shell,launcher}-linux-{x86_64,aarch64}`, `grafida-shell-macos-arm64` and
+  `grafida-shell-windows-x86_64.exe`, each with a
   `.sha256`, once; consumers pin tag + hashes. The macOS asset is only linker-signed (ad hoc): the
   app's packager signs it inside the bundle. Both platforms also upload a debug automation build as
   a workflow artifact (`debug-automation-{linux-*,macos-arm64}`), never a release asset.

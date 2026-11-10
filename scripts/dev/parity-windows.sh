@@ -159,7 +159,8 @@ record "$( [ "$(ok_field <<<"$answer")" = yes ] && echo PASS || echo FAIL)" \
 # Kill the worker under an in-flight request.
 $CLIENT eval 'window.__slow = fetch("/sleep?ms=4000", {cache: "no-store"}).then(async r => ({status: r.status, body: await r.json()})); return true' >/dev/null
 sleep 0.5
-gps "Stop-Process -Id $(log_worker "$ECHO_LOG") -Force" >/dev/null
+# One guest script finds the worker and kills it: two SSH round trips can outlast the request.
+gps "Stop-Process -Force -Id (Select-String -Path '$ECHO_LOG' -Pattern 'worker started, pid (\\d+)' | Select -Last 1).Matches.Groups[1].Value" >/dev/null
 answer=$($CLIENT eval 'const a = await window.__slow; const b = await fetch("/api/after", {cache: "no-store"}); return {first: a, second: b.status}')
 record "$(grep -q '"worker_restarted"' <<<"$answer" && grep -q '"second": 200' <<<"$answer" && echo PASS || echo FAIL)" \
     "Kill the worker → in-flight request gets 502 worker_restarted, app recovers" \
@@ -168,7 +169,7 @@ record "$(grep -q '"worker_restarted"' <<<"$answer" && grep -q '"second": 200' <
 # Three more kills inside the window (four in all): the supervisor gives up with an alert.
 for _ in 1 2 3; do
     $CLIENT eval 'return (await fetch("/pid")).ok' >/dev/null 2>&1
-    gps "Stop-Process -Id $(log_worker "$ECHO_LOG") -Force" >/dev/null
+    gps "Stop-Process -Force -Id (Select-String -Path '$ECHO_LOG' -Pattern 'worker started, pid (\\d+)' | Select -Last 1).Matches.Groups[1].Value" >/dev/null
     sleep 0.5
 done
 sleep 1
@@ -263,10 +264,12 @@ cpu=$(gps "
 \$all = Get-CimInstance Win32_Process
 \$ids = @($SHELL_PID); \$frontier = @($SHELL_PID)
 while (\$frontier.Count) { \$next = @(\$all | ? { \$frontier -contains \$_.ParentProcessId } | % { \$_.ProcessId }); \$ids += \$next; \$frontier = \$next }
-function cpu { (\$ids | % { (Get-Process -Id \$_ -ErrorAction SilentlyContinue).TotalProcessorTime.TotalSeconds } | Measure-Object -Sum).Sum }
-\$a = cpu; \$t = [Diagnostics.Stopwatch]::StartNew(); Start-Sleep $sample; \$b = cpu
-\$names = (\$ids | % { (Get-Process -Id \$_ -ErrorAction SilentlyContinue).ProcessName } | Group-Object | % { \"\$(\$_.Name) x\$(\$_.Count)\" }) -join ', '
-'{0:N2}|{1}' -f (100 * (\$b - \$a) / \$t.Elapsed.TotalSeconds), \$names")
+function sample { \$h = @{}; foreach (\$i in \$ids) { \$p = Get-Process -Id \$i -ErrorAction SilentlyContinue; if (\$p) { \$h[\$i] = @(\$p.ProcessName, \$p.TotalProcessorTime.TotalSeconds) } }; \$h }
+\$a = sample; \$t = [Diagnostics.Stopwatch]::StartNew(); Start-Sleep $sample; \$b = sample; \$s = \$t.Elapsed.TotalSeconds
+\$by = @{}; \$total = 0
+foreach (\$i in \$b.Keys) { if (\$a.ContainsKey(\$i)) { \$d = 100 * (\$b[\$i][1] - \$a[\$i][1]) / \$s; \$total += \$d; \$by[\$b[\$i][0]] += \$d } }
+[Threading.Thread]::CurrentThread.CurrentCulture = [Globalization.CultureInfo]::InvariantCulture
+'{0:N2}|{1}' -f \$total, ((\$by.GetEnumerator() | Sort-Object Value -Descending | % { '{0} {1:N2}' -f \$_.Key, \$_.Value }) -join ', ')")
 record "$(python3 -I -c "print('PASS' if ${cpu%%|*} < 1 else 'FAIL')" 2>/dev/null || echo FAIL)" \
     "Idle CPU < 1% (whole tree on the Articles screen, ${sample} s after ${settle} s; debug shell)" "${cpu%%|*} % of one core: ${cpu#*|}"
 
@@ -275,7 +278,7 @@ record "$(python3 -I -c "print('PASS' if ${cpu%%|*} < 1 else 'FAIL')" 2>/dev/nul
 # shell's own log: "stopping", then the supervisor's "worker stopped" (or "worker killed").
 worker=$(log_worker "$LOG")
 stop_shell
-closed=$(gps "\$l = Get-Content '$LOG'; \$a = (\$l | Select-String 'stopping \\(exit' | Select -Last 1).Line; \$b = (\$l | Select-String 'worker (stopped|killed)' | Select -Last 1).Line; \$t = { param(\$x) [DateTime]::Parse(\$x.Substring(0, 24)).ToUniversalTime() }; '{0:N2}|{1}' -f ((& \$t \$b) - (& \$t \$a)).TotalSeconds, (\$b -replace '^.*\\] ', '')" | tail -1)
+closed=$(gps "\$l = Get-Content '$LOG'; \$a = (\$l | Select-String 'stopping \\(exit' | Select -Last 1).Line; \$b = (\$l | Select-String 'worker (stopped|killed)' | Select -Last 1).Line; \$t = { param(\$x) [DateTime]::Parse(\$x.Substring(0, 24)).ToUniversalTime() }; [Threading.Thread]::CurrentThread.CurrentCulture = [Globalization.CultureInfo]::InvariantCulture; '{0:N2}|{1}' -f ((& \$t \$b) - (& \$t \$a)).TotalSeconds, (\$b -replace '^.*\\] ', '')" | tail -1)
 took=${closed%%|*}
 gone=$(grep -q 'worker stopped' <<<"${closed#*|}" && ! alive "$worker" && echo yes || echo no)
 wal=()
