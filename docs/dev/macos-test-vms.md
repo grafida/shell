@@ -114,3 +114,51 @@ Gotchas:
 
 Before every run: `scripts/dev/macvm.sh fresh macos-12` (a new clone of `macos-12-clean`), then
 `run` and `wait`. Copy files in with `scp -i ~/.ssh/grafida-macvm_ed25519 … tester@$(tart ip macos-12):`.
+
+### A packaged app on a clean guest (grafida/grafida#88)
+
+The order matters, because some steps change the guest:
+
+1. **Serve the image from the host**: `scripts/dev/macguest/test-server.py 8765 <the .dmg>`. The
+   guests reach the host at their gateway, `192.168.64.1` (the host's firewall must not prompt).
+2. **Install as a user would**, by hand in the VM window: Safari to
+   `http://192.168.64.1:8765/<the .dmg>` (Safari 17.6 on 12 asks to allow downloads from the
+   address; 27.2 did not), open the image, drag the app to Applications, double-click it.
+   **Note every dialog's wording before clicking**: the Gatekeeper dialog appears once per
+   quarantined copy, and a new download brings it back. Then, over SSH: the image's
+   `com.apple.quarantine` (`0183;…;Safari`) and the app's (`01c3`: the 0x40 bit is the user's
+   approval), `spctl -a -vv -t open --context context:primary-signature` on the image, `spctl -a
+   -vv` and `codesign --verify --deep --strict` on the app, its entitlements and Info.plist.
+3. **The floor**: a copy with `LSMinimumSystemVersion` 99 (`plutil -replace`, re-signed ad hoc) must
+   be refused: `open` fails with -10825 (`kLSIncompatibleSystemVersionErr`), and from Finder it
+   says "You can't use this version of the application …".
+4. **Only now the Command Line Tools** (Python for the scripts, `stapler`):
+   `touch /tmp/.com.apple.dt.CommandLineTools.installondemand.in-progress`, `softwareupdate -l`,
+   `sudo softwareupdate -i "<the Command Line Tools label>" --agree-to-license`. From here on the
+   guest has build tools; everything above ran on an untouched one. (Calling `xcrun` before this
+   raises the install dialog in the guest.)
+5. **The automated checks**, in the desktop session (`sudo launchctl asuser $(id -u) sudo -u tester
+   …`) with `TMPDIR=$(getconf DARWIN_USER_TEMP_DIR)`: `scripts/dev/parity-macos.sh` with
+   `GRAFIDA_PACKAGED=/Applications/<App>.app SHELL_BIN=<the release workflow's
+   debug-automation-macos-arm64 artifact>`, then `scripts/dev/macguest/ats-matrix.sh`. Copy in the
+   shell repo's `scripts/dev` and `tests/apps`, `tests/workers` (`git archive`). Keep off the VM:
+   the key rows activate the app.
+6. **By hand**, then **`scripts/dev/macguest/idle-cpu.sh`** on the release app, with the user's
+   hands off and the screen the checklist names (a focused editor's caret alone costs ~1.5 %; a
+   real click on the sidebar takes the focus out of it).
+
+Gotchas found on the way:
+
+- **The guest's screen can freeze** while the system runs on: the pointer stops moving in the VM
+  window, `WindowServer` sits in state `U` (an uninterruptible wait in the kernel, likely the
+  virtual graphics device), and `screencapture` hangs. SSH still answers. Only a restart helps
+  (`sudo shutdown -r now`); nothing on disk is lost. Seen once on macOS 12, with nothing of ours
+  running.
+- **Scripts run in the guests under bash 3.2**: no associative arrays, `${a[@]+"${a[@]}"}` for a
+  possibly empty array under `set -u`, and no `case` inside `$( … )` (move it into a function).
+- **A `.local` name may resolve to IPv6 only** over the virtual network (macOS 27 publishes the
+  guest's and the host's that way), and a test server listening on IPv4 alone then never answers
+  it; `test-server.py` listens on both. Grafida's PHP resolver sees no address for such a name
+  (`gethostbynamel()` is IPv4, `dns_get_record()` never asks Bonjour), and the webview's own
+  fetch to it hung on 27 where `curl` succeeded: the `.local` row of the ATS matrix is not
+  testable in this setup.

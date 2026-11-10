@@ -1,3 +1,7 @@
+shell 0.2.1 (unreleased)
+================================================================================
++ `scripts/dev/macguest/`: a test server, the ATS matrix and the release app's idle CPU, for packaged runs in the guests
+
 shell 0.2.0
 ================================================================================
 + `scripts/dev/parity-linux.sh` runs against a packaged app (`GRAFIDA_PACKAGED`) with a prebuilt debug shell (`SHELL_BIN`)
