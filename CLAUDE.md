@@ -149,8 +149,12 @@ the desktop session through an interactive scheduled task, never directly over S
   checks plus the Blob guard and the shell-SIGKILL lifetime checks. It isolates with `HOME` +
   `CFFIXED_USER_HOME` (Grafida's data, its log and WebKit's website data follow both) and sets
   `TMPDIR` explicitly for shell and client, because `launchctl asuser`/`sudo` strip it and the
-  automation file lives there. `GRAFIDA_PACKAGED=<…>.app` copies the bundle, swaps in `SHELL_BIN` and
-  re-signs the copy ad hoc.
+  automation file lives there. `GRAFIDA_PACKAGED=<…>.app` copies the bundle and swaps in `SHELL_BIN`,
+  re-signing **only the shell and then the bundle**, ad hoc, with the hardened runtime and the
+  original shell's entitlements (checked afterwards); the worker stub keeps shell-packager's
+  signature. Never `codesign --deep`: it re-signs the stub without either, and the run would test a
+  bundle under weaker restrictions than the one that ships. The script runs under bash 3.2 (a clean
+  guest's), so no associative arrays and `${a[@]+"${a[@]}"}` for a possibly empty array.
 - **`scripts/dev/parity-linux.sh` is the automatable half of #82's Linux parity column**: it runs
   the debug shell on the current desktop against `tests/apps/{echo,silent}` and against Grafida
   (`GRAFIDA_DIR`, default `../grafida`) with every per-user directory in a temp dir, and prints a

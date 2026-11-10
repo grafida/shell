@@ -17,7 +17,8 @@
 #
 # Against a packaged Grafida (an .app, e.g. from the DMG on a clean VM), with a debug shell:
 #   GRAFIDA_PACKAGED=/Applications/Grafida.app SHELL_BIN=~/grafida-shell-debug scripts/dev/parity-macos.sh
-# The bundle is copied, its shell swapped for SHELL_BIN and the copy re-signed ad hoc; the original
+# The bundle is copied and only its shell swapped for SHELL_BIN, re-signed ad hoc with the hardened
+# runtime and the original's entitlements (the worker keeps the packager's signature); the original
 # is never modified, and the release binary never carries the channel.
 #
 # Over SSH, run it inside the desktop session (`sudo launchctl asuser $(id -u) sudo -u $USER …`):
@@ -125,9 +126,29 @@ if [ -n "$PACKAGED" ]; then
     ditto "$PACKAGED" "$WORK/packaged.app"
     exe=$(/usr/libexec/PlistBuddy -c 'Print :CFBundleExecutable' "$WORK/packaged.app/Contents/Info.plist")
     PACKAGED_EXE=$WORK/packaged.app/Contents/MacOS/$exe
+    # Only the shell is swapped, and it is re-signed (ad hoc) as the packager signed the original:
+    # the hardened runtime and the same entitlements, then the bundle around it. The worker stub
+    # keeps the packager's signature. Never --deep: that would re-sign the stub without either, and
+    # the run would test a bundle under weaker restrictions than the one that ships.
+    codesign -d --entitlements - --xml "$PACKAGED_EXE" >"$WORK/shell.entitlements" 2>/dev/null || :
+    entitlements=()
+    [ -s "$WORK/shell.entitlements" ] && entitlements=(--entitlements "$WORK/shell.entitlements")
     cp "$BIN" "$PACKAGED_EXE"
-    codesign --force --deep --sign - "$WORK/packaged.app" 2>/dev/null \
-        || { echo "could not re-sign the copied bundle" >&2; exit 1; }
+    for target in "$PACKAGED_EXE" "$WORK/packaged.app"; do
+        codesign --force --options runtime ${entitlements[@]+"${entitlements[@]}"} --sign - "$target" 2>/dev/null \
+            || { echo "could not re-sign $target" >&2; exit 1; }
+    done
+    codesign --verify --strict "$WORK/packaged.app" || { echo "the re-signed bundle does not verify" >&2; exit 1; }
+    for bin in "$PACKAGED_EXE" "$WORK/packaged.app/Contents/MacOS/"*; do
+        # Captured, not piped into grep -q: under pipefail, codesign's SIGPIPE would fail the test.
+        signature=$(codesign -dvv "$bin" 2>&1)
+        [[ $signature =~ flags=0x[0-9a-f]+\([^\)]*runtime ]] \
+            || { echo "$bin is not signed with the hardened runtime" >&2; exit 1; }
+    done
+    after=$(codesign -d --entitlements - --xml "$PACKAGED_EXE" 2>/dev/null || :)
+    [ "$after" = "$(cat "$WORK/shell.entitlements")" ] \
+        || { echo "the swapped shell's entitlements differ from the packaged one's" >&2; exit 1; }
+    echo "packaged: $PACKAGED, shell swapped for $BIN (hardened runtime, entitlements kept; worker untouched)"
     GRAFIDA_DIR=$WORK/packaged.app/Contents/Resources
 fi
 mkdir -p "$WORK/home" "$WORK/exports"
