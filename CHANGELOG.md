@@ -1,4 +1,4 @@
-shell 0.3.0 (unreleased)
+shell 0.3.0
 ================================================================================
 + Windows (x86_64, 10 22H2 or later): apps run in a WebView2 the shell creates itself, on a real `boson://` scheme; dev mode for now
 + Windows: the worker joins a Job Object (kill on close) before it runs, and is started without a console window
