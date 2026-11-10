@@ -1,4 +1,4 @@
-shell 0.1.1 (unreleased)
+shell 0.2.0
 ================================================================================
 + `scripts/dev/parity-linux.sh` runs against a packaged app (`GRAFIDA_PACKAGED`) with a prebuilt debug shell (`SHELL_BIN`)
 + CI uploads a debug automation build per arch for verifying packaged apps; never a release asset
