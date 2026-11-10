@@ -21,8 +21,11 @@ $ErrorActionPreference = 'Stop'
 Start-Sleep $Settle
 $all = Get-CimInstance Win32_Process
 $ids = @($ProcessId); $frontier = @($ProcessId)
+# A child is one that names the process as its parent AND started after it: ParentProcessId is never
+# updated when a parent exits, so processes whose dead parent's pid was reused for ours name ours.
+$born = @{}; foreach ($p in $all) { $born[[int]$p.ProcessId] = $p.CreationDate }
 while ($frontier.Count) {
-    $next = @($all | Where-Object { $frontier -contains $_.ParentProcessId } | ForEach-Object { $_.ProcessId })
+    $next = @($all | Where-Object { $frontier -contains $_.ParentProcessId -and $_.CreationDate -ge $born[[int]$_.ParentProcessId] } | ForEach-Object { $_.ProcessId })
     $ids += $next; $frontier = $next
 }
 function Measure-Tree {

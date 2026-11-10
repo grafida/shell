@@ -8,4 +8,4 @@ MACOSX_DEPLOYMENT_TARGET = "12.0"
 # loads needs the Visual C++ redistributable on a clean machine (grafida/grafida#91). The release
 # check reads the imports from the binary.
 [target.x86_64-pc-windows-msvc]
-rustflags = ["-C", "target-feature=+crt-static"]
+rustflags = ["-C", "target-feature=+crt-static", "-C", "link-arg=/IGNORE:4099"]

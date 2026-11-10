@@ -17,7 +17,14 @@
 #   automation.py wait 'return document.readyState === "complete"' [timeout_s]
 #   automation.py menu                           # macOS: the live menu bar, key equivalents included
 #   automation.py menu "About Grafida"           # macOS: click that menu item
-#   automation.py click X Y                      # Windows: a real left click at X,Y (page CSS pixels)
+#   automation.py click X Y                      # Windows: a left click at X,Y (page CSS pixels), DevTools input
+#   automation.py mouse X Y [left|right]         # Windows: a real click through SendInput (a right one opens
+#                                                #   WebView2's own context menu)
+#   automation.py drag SX SY X Y                 # Windows: a real drag from screen SX,SY (e.g. a file in
+#                                                #   Explorer) to the page's X,Y
+#   automation.py type 'some text'               # Windows: real typing, one Unicode key press per character
+#   automation.py window                         # Windows: title, frame, client area, DPI, dark title bar
+#   automation.py record off|on                  # off: external URLs really go to the OS browser
 #   automation.py key cmd+shift+v                # macOS: a key press, queued as a real one would be
 #                                                # (activates the app: it takes the keyboard focus)
 #
@@ -81,6 +88,19 @@ def main(argv):
                        "paths": [path(a) for a in args[2:]]})
     elif cmd == "menu":
         answer = send({"cmd": "menu", "perform": args[0]} if args else {"cmd": "menu"})
+    elif cmd == "type":
+        answer = send({"cmd": "type", "text": args[0]})
+    elif cmd == "record":
+        answer = send({"cmd": "record", "on": args[0] != "off"})
+    elif cmd == "window":
+        answer = send({"cmd": "window"})
+    elif cmd == "mouse":
+        # mouse X Y [ctrl+][shift+][left|right]
+        spec = (args[2] if len(args) > 2 else "left").split("+")
+        answer = send({"cmd": "mouse", "x": float(args[0]), "y": float(args[1]),
+                       "button": spec[-1], "modifiers": spec[:-1]})
+    elif cmd == "drag":
+        answer = send({"cmd": "drag", "from": [int(args[0]), int(args[1])], "x": float(args[2]), "y": float(args[3])})
     elif cmd == "click":
         answer = send({"cmd": "click", "x": float(args[0]), "y": float(args[1])})
     elif cmd == "key":

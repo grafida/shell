@@ -493,7 +493,13 @@ fn create_environment(
         registration.set_allowed_origins(vec![origin.to_string()]);
         options.set_scheme_registrations(vec![Some(registration.into())]);
         options.set_additional_browser_arguments(BROWSER_ARGUMENTS.to_string());
-        if let Some(language) = ui_language() {
+        // Debug builds: SHELL_WINDOWS_LANGUAGE=none passes no language, any other value that one.
+        let language = match std::env::var("SHELL_WINDOWS_LANGUAGE") {
+            Ok(v) if cfg!(debug_assertions) && v == "none" => None,
+            Ok(v) if cfg!(debug_assertions) => Some(v),
+            _ => ui_language(),
+        };
+        if let Some(language) = language {
             options.set_language(language);
         }
         if !cfg!(debug_assertions) {
@@ -908,8 +914,10 @@ const CONTEXT_MENU_KEEP: [&str; 14] = [
 /// Whether a context-menu item stays: by name, or a spelling suggestion (WebView2 names those
 /// after nothing we can list), or "Inspect" when devtools are on.
 fn keep_menu_item(name: &str, devtools: bool) -> bool {
+    // WebView2 names a spelling suggestion "spellcheck", all lower case (seen on runtime 157.0.4341.42);
+    // matched without regard to case, so a renamed one still stays.
     CONTEXT_MENU_KEEP.contains(&name)
-        || name.starts_with("spellCheck")
+        || name.to_ascii_lowercase().starts_with("spellcheck")
         || (devtools && name == "inspectElement")
 }
 
@@ -937,6 +945,7 @@ fn install_context_menu(
                 let mut count = 0u32;
                 items.Count(&mut count)?;
                 let mut seen = Vec::new();
+                let mut kept = Vec::new();
                 let mut i = 0;
                 while i < count {
                     let item = items.GetValueAtIndex(i)?;
@@ -948,6 +957,11 @@ fn install_context_menu(
                     let separator = kind == COREWEBVIEW2_CONTEXT_MENU_ITEM_KIND_SEPARATOR;
                     seen.push(name.clone());
                     if separator || keep_menu_item(&name, devtools) {
+                        if probe && !separator {
+                            let mut label = PWSTR::null();
+                            item.Label(&mut label)?;
+                            kept.push(format!("{name}={}", take_pwstr(label)));
+                        }
                         i += 1;
                     } else {
                         items.RemoveValueAtIndex(i)?;
@@ -956,7 +970,14 @@ fn install_context_menu(
                 }
                 tidy_separators(&items)?;
                 if probe {
-                    log.line("menu", &format!("context menu items: {}", seen.join(", ")));
+                    log.line(
+                        "menu",
+                        &format!(
+                            "context menu items: {}; kept: {}",
+                            seen.join(", "),
+                            kept.join(" | ")
+                        ),
+                    );
                 }
                 Ok(())
             })),
@@ -1173,6 +1194,7 @@ mod tests {
             "paste",
             "pasteAndMatchStyle",
             "spellCheck",
+            "spellcheck",
             "spellCheckSuggestion1",
             "emoji",
         ] {

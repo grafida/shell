@@ -68,6 +68,66 @@ pub fn run(webview: Option<&ICoreWebView2>, hwnd: HWND, picks: &Picks, command: 
             picks.lock().unwrap().push_back(paths("paths"));
             let _ = reply.send(json!({"ok": true}));
         }
+        Some("record") => {
+            // On (the default while the channel is open): external URLs are recorded, not
+            // opened. Off: the shell really hands them to the OS browser, for checking that path.
+            let on = request.get("on").and_then(Value::as_bool).unwrap_or(true);
+            *RECORDED_OPENS.lock().unwrap() = on.then(Vec::new);
+            let _ = reply.send(json!({"ok": true, "result": on}));
+        }
+        Some("type") => {
+            let text = request.get("text").and_then(Value::as_str).unwrap_or("");
+            let _ = reply.send(match type_text(hwnd, text) {
+                Ok(()) => json!({"ok": true}),
+                Err(e) => fail(e),
+            });
+        }
+        Some("window") => {
+            let _ = reply.send(json!({"ok": true, "result": window_info(hwnd)}));
+        }
+        Some(cmd @ ("mouse" | "drag")) => {
+            let num = |k: &str| request.get(k).and_then(Value::as_f64);
+            let button = request
+                .get("button")
+                .and_then(Value::as_str)
+                .unwrap_or("left");
+            let mods: Vec<String> = request
+                .get("modifiers")
+                .and_then(Value::as_array)
+                .map(|a| {
+                    a.iter()
+                        .filter_map(Value::as_str)
+                        .map(str::to_lowercase)
+                        .collect()
+                })
+                .unwrap_or_default();
+            let answer = if cmd == "mouse" {
+                mouse_click(
+                    hwnd,
+                    num("x").unwrap_or(0.0),
+                    num("y").unwrap_or(0.0),
+                    button,
+                    &mods,
+                )
+            } else {
+                let from = request.get("from").and_then(Value::as_array).map(|a| {
+                    (
+                        a.first().and_then(Value::as_i64).unwrap_or(0) as i32,
+                        a.get(1).and_then(Value::as_i64).unwrap_or(0) as i32,
+                    )
+                });
+                match from {
+                    Some(from) => {
+                        drag(hwnd, from, num("x").unwrap_or(0.0), num("y").unwrap_or(0.0))
+                    }
+                    None => Err("`from` must be [screen x, screen y]".into()),
+                }
+            };
+            let _ = reply.send(match answer {
+                Ok(at) => json!({"ok": true, "result": {"screen": at}}),
+                Err(e) => fail(e),
+            });
+        }
         Some("opened") => {
             let urls = RECORDED_OPENS
                 .lock()
@@ -327,6 +387,267 @@ fn mime(name: &str) -> &'static str {
     }
 }
 
+/// The window as the desktop sees it: its title, its frame and client area in screen pixels, its
+/// DPI, whether DWM draws its title bar dark (`DWMWA_USE_IMMERSIVE_DARK_MODE`), and whether it is
+/// in the foreground.
+fn window_info(hwnd: HWND) -> Value {
+    use windows::Win32::{
+        Foundation::{POINT, RECT},
+        Graphics::{Dwm::DwmGetWindowAttribute, Gdi::ClientToScreen},
+        UI::{
+            HiDpi::GetDpiForWindow,
+            WindowsAndMessaging::{GetClientRect, GetWindowRect, GetWindowTextW},
+        },
+    };
+    // SAFETY: plain Win32 calls on our own window, into buffers that outlive them.
+    unsafe {
+        let mut frame = RECT::default();
+        let _ = GetWindowRect(hwnd, &mut frame);
+        let mut client = RECT::default();
+        let _ = GetClientRect(hwnd, &mut client);
+        let mut origin = POINT::default();
+        let _ = ClientToScreen(hwnd, &mut origin);
+        let mut title = [0u16; 512];
+        let n = GetWindowTextW(hwnd, &mut title);
+        // 20 since Windows 10 20H1; 19 before it.
+        let mut dark = windows::core::BOOL::default();
+        let read = [20u32, 19].into_iter().any(|attribute| {
+            DwmGetWindowAttribute(
+                hwnd,
+                windows::Win32::Graphics::Dwm::DWMWINDOWATTRIBUTE(attribute as i32),
+                (&raw mut dark).cast(),
+                size_of::<windows::core::BOOL>() as u32,
+            )
+            .is_ok()
+        });
+        json!({
+            "title": String::from_utf16_lossy(&title[..n.max(0) as usize]),
+            "frame": [frame.left, frame.top, frame.right, frame.bottom],
+            "client": [origin.x, origin.y, client.right, client.bottom],
+            "dpi": GetDpiForWindow(hwnd),
+            "darkTitleBar": read.then(|| dark.as_bool()),
+            "foreground": GetForegroundWindow() == hwnd,
+        })
+    }
+}
+
+/// A point of the page (CSS pixels at 100 % zoom) on the screen.
+fn to_screen(hwnd: HWND, x: f64, y: f64) -> (i32, i32) {
+    use windows::Win32::{
+        Foundation::POINT, Graphics::Gdi::ClientToScreen, UI::HiDpi::GetDpiForWindow,
+    };
+    // SAFETY: plain Win32 calls on our own window.
+    unsafe {
+        let scale = f64::from(GetDpiForWindow(hwnd).max(96)) / 96.0;
+        let mut p = POINT {
+            x: (x * scale).round() as i32,
+            y: (y * scale).round() as i32,
+        };
+        let _ = ClientToScreen(hwnd, &mut p);
+        (p.x, p.y)
+    }
+}
+
+/// Moves the real pointer (SendInput, absolute) and optionally presses or releases a button.
+fn pointer(
+    x: i32,
+    y: i32,
+    flags: windows::Win32::UI::Input::KeyboardAndMouse::MOUSE_EVENT_FLAGS,
+) -> Result<(), String> {
+    use windows::Win32::UI::{
+        Input::KeyboardAndMouse::{
+            INPUT_0, INPUT_MOUSE, MOUSEEVENTF_ABSOLUTE, MOUSEEVENTF_MOVE, MOUSEEVENTF_VIRTUALDESK,
+            MOUSEINPUT,
+        },
+        WindowsAndMessaging::{
+            GetSystemMetrics, SM_CXVIRTUALSCREEN, SM_CYVIRTUALSCREEN, SM_XVIRTUALSCREEN,
+            SM_YVIRTUALSCREEN,
+        },
+    };
+    // SAFETY: plain Win32 calls with an input built here.
+    unsafe {
+        let (vx, vy) = (
+            GetSystemMetrics(SM_XVIRTUALSCREEN),
+            GetSystemMetrics(SM_YVIRTUALSCREEN),
+        );
+        let (vw, vh) = (
+            GetSystemMetrics(SM_CXVIRTUALSCREEN).max(1),
+            GetSystemMetrics(SM_CYVIRTUALSCREEN).max(1),
+        );
+        let input = INPUT {
+            r#type: INPUT_MOUSE,
+            Anonymous: INPUT_0 {
+                mi: MOUSEINPUT {
+                    dx: ((x - vx) * 65535) / (vw - 1),
+                    dy: ((y - vy) * 65535) / (vh - 1),
+                    dwFlags: MOUSEEVENTF_MOVE
+                        | MOUSEEVENTF_ABSOLUTE
+                        | MOUSEEVENTF_VIRTUALDESK
+                        | flags,
+                    ..Default::default()
+                },
+            },
+        };
+        if SendInput(&[input], size_of::<INPUT>() as i32) == 1 {
+            Ok(())
+        } else {
+            Err("SendInput refused the mouse input".into())
+        }
+    }
+}
+
+/// A real click (left or right) at a point of the page: what a user's mouse does, so WebView2
+/// shows its own context menu for a right click.
+fn mouse_click(
+    hwnd: HWND,
+    x: f64,
+    y: f64,
+    button: &str,
+    mods: &[String],
+) -> Result<(i32, i32), String> {
+    use windows::Win32::UI::Input::KeyboardAndMouse::{
+        MOUSE_EVENT_FLAGS, MOUSEEVENTF_LEFTDOWN, MOUSEEVENTF_LEFTUP, MOUSEEVENTF_RIGHTDOWN,
+        MOUSEEVENTF_RIGHTUP,
+    };
+    let (down, up) = match button {
+        "left" => (MOUSEEVENTF_LEFTDOWN, MOUSEEVENTF_LEFTUP),
+        "right" => (MOUSEEVENTF_RIGHTDOWN, MOUSEEVENTF_RIGHTUP),
+        other => return Err(format!("unknown button {other:?}")),
+    };
+    let held = modifier_keys(mods)?;
+    foreground(hwnd)?;
+    let (sx, sy) = to_screen(hwnd, x, y);
+    pointer(sx, sy, MOUSE_EVENT_FLAGS(0))?;
+    std::thread::sleep(std::time::Duration::from_millis(50));
+    keys(&held, false);
+    pointer(sx, sy, down)?;
+    std::thread::sleep(std::time::Duration::from_millis(50));
+    pointer(sx, sy, up)?;
+    keys(&held, true);
+    Ok((sx, sy))
+}
+
+/// Types text as a keyboard would, one Unicode key press per character (`KEYEVENTF_UNICODE`),
+/// into whatever has the focus in the window.
+fn type_text(hwnd: HWND, text: &str) -> Result<(), String> {
+    use windows::Win32::UI::Input::KeyboardAndMouse::KEYEVENTF_UNICODE;
+    foreground(hwnd)?;
+    for unit in text.encode_utf16() {
+        let input = |up: bool| INPUT {
+            r#type: INPUT_KEYBOARD,
+            Anonymous: INPUT_0 {
+                ki: KEYBDINPUT {
+                    wScan: unit,
+                    dwFlags: if up {
+                        KEYEVENTF_UNICODE | KEYEVENTF_KEYUP
+                    } else {
+                        KEYEVENTF_UNICODE
+                    },
+                    ..Default::default()
+                },
+            },
+        };
+        // SAFETY: plain Win32 call with inputs built above.
+        let sent = unsafe { SendInput(&[input(false), input(true)], size_of::<INPUT>() as i32) };
+        if sent != 2 {
+            return Err("SendInput refused a key".into());
+        }
+        std::thread::sleep(std::time::Duration::from_millis(15));
+    }
+    Ok(())
+}
+
+/// The modifier keys by name (`ctrl`, `shift`, `alt`).
+fn modifier_keys(mods: &[String]) -> Result<Vec<VIRTUAL_KEY>, String> {
+    mods.iter()
+        .map(|m| match m.as_str() {
+            "ctrl" | "control" | "cmdorctrl" => Ok(VK_CONTROL),
+            "shift" => Ok(VK_SHIFT),
+            "alt" => Ok(VK_MENU),
+            other => Err(format!("unknown modifier {other:?}")),
+        })
+        .collect()
+}
+
+/// Presses a set of keys, or (`up`) releases them in reverse order.
+fn keys(held: &[VIRTUAL_KEY], up: bool) {
+    let input = |vk: VIRTUAL_KEY| INPUT {
+        r#type: INPUT_KEYBOARD,
+        Anonymous: INPUT_0 {
+            ki: KEYBDINPUT {
+                wVk: vk,
+                dwFlags: if up {
+                    KEYEVENTF_KEYUP
+                } else {
+                    Default::default()
+                },
+                ..Default::default()
+            },
+        },
+    };
+    let inputs: Vec<INPUT> = if up {
+        held.iter().rev().map(|&k| input(k)).collect()
+    } else {
+        held.iter().map(|&k| input(k)).collect()
+    };
+    if !inputs.is_empty() {
+        // SAFETY: plain Win32 call with inputs built above.
+        unsafe { SendInput(&inputs, size_of::<INPUT>() as i32) };
+    }
+}
+
+/// A real drag with the left button, from a screen point (another program's window: a file in
+/// Explorer) to a point of the page, in small steps, as a hand would move it.
+fn drag(hwnd: HWND, from: (i32, i32), x: f64, y: f64) -> Result<(i32, i32), String> {
+    use windows::Win32::UI::Input::KeyboardAndMouse::{
+        MOUSE_EVENT_FLAGS, MOUSEEVENTF_LEFTDOWN, MOUSEEVENTF_LEFTUP,
+    };
+    let pause = |ms| std::thread::sleep(std::time::Duration::from_millis(ms));
+    let (tx, ty) = to_screen(hwnd, x, y);
+    pointer(from.0, from.1, MOUSE_EVENT_FLAGS(0))?;
+    pause(150);
+    pointer(from.0, from.1, MOUSEEVENTF_LEFTDOWN)?;
+    pause(150);
+    // Past the drag threshold first, then across in steps.
+    pointer(from.0 + 12, from.1 + 12, MOUSE_EVENT_FLAGS(0))?;
+    pause(150);
+    let steps = 30;
+    for i in 1..=steps {
+        let px = from.0 + (tx - from.0) * i / steps;
+        let py = from.1 + (ty - from.1) * i / steps;
+        pointer(px, py, MOUSE_EVENT_FLAGS(0))?;
+        pause(25);
+    }
+    pause(300);
+    pointer(tx, ty, MOUSEEVENTF_LEFTUP)?;
+    Ok((tx, ty))
+}
+
+/// Brings the window to the foreground (see [`press`]); an error if Windows refuses.
+fn foreground(hwnd: HWND) -> Result<(), String> {
+    // SAFETY: plain Win32 calls; the input queues are detached again.
+    unsafe {
+        if GetForegroundWindow() != hwnd {
+            let fg = GetForegroundWindow();
+            let theirs = GetWindowThreadProcessId(fg, None);
+            let ours = GetCurrentThreadId();
+            let attached =
+                theirs != 0 && theirs != ours && AttachThreadInput(ours, theirs, true).as_bool();
+            let _ = BringWindowToTop(hwnd);
+            let _ = SetForegroundWindow(hwnd);
+            if attached {
+                let _ = AttachThreadInput(ours, theirs, false);
+            }
+            std::thread::sleep(std::time::Duration::from_millis(150));
+        }
+        if GetForegroundWindow() == hwnd {
+            Ok(())
+        } else {
+            Err("the window is not in the foreground".into())
+        }
+    }
+}
+
 /// Presses a key with modifiers (`ctrl`, `shift`, `alt`). `SendInput` delivers to the foreground
 /// window, so the shell's window is brought there first; if Windows' foreground lock still refuses,
 /// nothing is sent (it would type into another program) and the command fails.
@@ -395,6 +716,8 @@ fn virtual_key(key: &str) -> Option<VIRTUAL_KEY> {
     let named = match key.to_ascii_lowercase().as_str() {
         "enter" | "return" => Some(VK_RETURN),
         "tab" => Some(VK_TAB),
+        "space" => Some(windows::Win32::UI::Input::KeyboardAndMouse::VK_SPACE),
+        "backspace" => Some(windows::Win32::UI::Input::KeyboardAndMouse::VK_BACK),
         "esc" | "escape" => Some(VK_ESCAPE),
         "delete" => Some(VK_DELETE),
         "left" => Some(VK_LEFT),

@@ -20,6 +20,19 @@
 //! {"token":"…","cmd":"key","key":"v","modifiers":["cmd"]}     → {"ok":true}  (macOS: a queued key press)
 //! ```
 //!
+//! Windows adds real input through `SendInput`, into the window brought to the foreground:
+//!
+//! ```text
+//! {"token":"…","cmd":"type","text":"Ελληνικά"}                → {"ok":true}  (one Unicode key press per character)
+//! {"token":"…","cmd":"mouse","x":120,"y":80,"button":"right","modifiers":["ctrl"]} → {"ok":true,"result":{"screen":[x,y]}}
+//! {"token":"…","cmd":"drag","from":[300,200],"x":800,"y":400}  → {"ok":true,…}  (from a screen point to the page)
+//! {"token":"…","cmd":"click","x":120,"y":80}                  → {"ok":true}  (DevTools input, not SendInput)
+//! {"token":"…","cmd":"window"}                                → {"ok":true,"result":{title,frame,client,dpi,darkTitleBar,foreground}}
+//! {"token":"…","cmd":"record","on":false}                     → {"ok":true}  (external URLs really open)
+//! ```
+//!
+//! Page coordinates are CSS pixels at 100 % zoom, scaled by the window's DPI.
+//!
 //! `key` activates the app and makes its window key first (it takes the keyboard focus), then
 //! queues the event, so it travels the path a real key press does: the menu bar's key equivalents,
 //! then the page.

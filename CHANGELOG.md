@@ -12,7 +12,14 @@ shell 0.3.0 (unreleased)
 + `scripts/dev/parity-windows.sh`: the automatable half of the Windows parity column, driven from the host over SSH
 + `winvm.sh watch-start`/`watch-stop`: every console window shown on a guest's desktop, recorded by a WinEvent hook
 + The automation client takes guest paths as they are (`SHELL_AUTOMATION_REMOTE=1`) and gains `click`
+- Windows: the context menu kept no spelling suggestions (WebView2 names them `spellcheck`, lower case)
 ~ The automation channel's `key` (Windows) brings the window forward first, and sends nothing if it cannot
++ Windows debug builds: `SHELL_WINDOWS_LANGUAGE` overrides the language passed to WebView2
+~ `winvm.sh run`/`stop-run` no longer take a reused pid for the program they started; guest output is UTF-8
+~ The idle-CPU measurements count only real children of the shell (`ParentProcessId` is never updated when a parent exits)
++ Windows automation: real input (`type`, `mouse` left/right with modifiers, `drag`), `window` (title, frame, DPI, dark title bar) and `record off|on`
++ `winvm.sh desktop`: PowerShell helpers in the guest's desktop session (screenshots, native dialogs, clipboard, colour mode, Explorer, cursor, close button); `winvm.sh get`
+~ `parity-windows.sh` covers what was a by-hand pass: spelling, real typing and undo, formatted paste, theme and title bar, native dialogs, an Explorer drag, links, reveal, AI streaming, the launch cursor, the close button, Inspect
 ~ Packaged mode on Windows: a worker named without an extension is `<name>.exe`, and no path is verbatim (`\\?\`)
 + `scripts/dev/macguest/`: a test server, the ATS matrix and the release app's idle CPU, for packaged runs in the guests
 

@@ -14,8 +14,9 @@
 #   reboot VM                restart Windows and wait until it is back (a new boot time)
 #   versions VM              what a clean-machine record notes: Windows, Edge, WebView2, Defender,
 #                            Smart App Control, locale
-#   desktop VM CMD           run CMD in the logged-on user's desktop session (an /IT scheduled task):
-#                            a process started over SSH cannot show a window
+#   get VM GUEST HOST        copy a file out of the guest
+#   desktop VM SCRIPT [ARG…] run a PowerShell script in the logged-on user's desktop session (the
+#                            SSH session sees no window) and print its output; scripts/dev/winvm/desk/
 #   clean-up VM              remove C:\winvm and its scheduled tasks (before a `clean` snapshot)
 #   dev-tools VM             PHP, Git for Windows and Python, pinned (what makes a `dev` snapshot;
 #                            never on `clean`): scripts/dev/winvm/dev-tools.ps1
@@ -66,9 +67,15 @@ rssh() { local vm=$1; shift; ssh -o ConnectTimeout=10 "$(host "$vm")" "$@"; }
 # Runs a PowerShell script in the guest. ⚠️ Windows 10's OpenSSH (7.7, the optional feature) strips
 # the double quotes out of the command it hands its shell, so a script never travels as text:
 # -EncodedCommand (UTF-16LE, base64) has nothing in it to lose.
+# The program `run` started, if it is still running: the process with the recorded pid, provided it
+# started before the pid file was written. ⚠️ Windows hands a dead process's pid to a new one quickly
+# (seen on Windows 10), and a bare pid check then calls an unrelated process ours: `run` refused to
+# start, and `stop-run` would have killed that process's tree.
+OURS='function Ours { if (-not (Test-Path C:\winvm\run\pid)) { return $null }; $f = Get-Item C:\winvm\run\pid; $p = Get-Process -Id ([int](Get-Content $f).Trim()) -ErrorAction SilentlyContinue; if ($p -and $p.StartTime -le $f.LastWriteTime) { $p } else { $null } }'
+
 rps() {
     local vm=$1 script=$2 encoded
-    encoded=$(printf "\$ProgressPreference = 'SilentlyContinue'\n%s" "$script" | iconv -f UTF-8 -t UTF-16LE | base64 -w0)
+    encoded=$(printf "\$ProgressPreference = 'SilentlyContinue'\n[Console]::OutputEncoding = [Text.Encoding]::UTF8\n%s" "$script" | iconv -f UTF-8 -t UTF-16LE | base64 -w0)
     rssh "$vm" "powershell -NoProfile -NonInteractive -EncodedCommand $encoded"
 }
 
@@ -192,8 +199,34 @@ case $cmd in
     versions) versions "$vm" ;;
     reboot) reboot "$vm" ;;
     desktop)
-        task="winvm-desktop-$$"
-        rps "$vm" "schtasks /Create /TN $task /TR '$*' /SC ONCE /ST 23:59 /IT /RU \$env:USERNAME /F | Out-Null; schtasks /Run /TN $task | Out-Null; Start-Sleep 2; schtasks /Delete /TN $task /F | Out-Null"
+        # A guest script in the logged-on user's desktop session, where windows exist (the SSH
+        # session sees none): UI Automation, the clipboard, screenshots, the cursor, the registry
+        # of the user who is logged on. Started through the headless console host, so its own
+        # PowerShell never shows a window. Prints what the script printed.
+        script=${1:?script}; shift
+        name=$(basename "$script" .ps1)
+        rssh "$vm" 'New-Item -ItemType Directory -Force C:\winvm\desk | Out-Null'
+        scp -q "$script" "$(host "$vm"):C:/winvm/desk/$name.ps1"
+        args_json=$(python3 -I -c 'import json, sys; print(json.dumps(sys.argv[1:]))' "$@")
+        printf '%s' "$args_json" | rssh "$vm" "\$input | Set-Content -Encoding utf8 C:\\winvm\\desk\\$name.args.json"
+        rps "$vm" "Remove-Item C:\\winvm\\desk\\$name.out, C:\\winvm\\desk\\$name.done -ErrorAction SilentlyContinue
+\$runner = 'C:\\winvm\\desk\\$name.run.ps1'
+Set-Content -Encoding utf8 \$runner @'
+\$a = [object[]](Get-Content -Raw C:\\winvm\\desk\\$name.args.json | ConvertFrom-Json)
+try { & C:\\winvm\\desk\\$name.ps1 @a *> C:\\winvm\\desk\\$name.out } catch { \$_ | Out-String | Add-Content C:\\winvm\\desk\\$name.out }
+Set-Content C:\\winvm\\desk\\$name.done done
+'@
+schtasks /Create /TN winvm-desk-$name /TR \"conhost.exe --headless powershell.exe -NoProfile -ExecutionPolicy Bypass -File \$runner\" /SC ONCE /ST 23:59 /IT /RU \$env:USERNAME /F | Out-Null
+schtasks /Run /TN winvm-desk-$name | Out-Null
+for (\$i = 0; \$i -lt 1800 -and -not (Test-Path C:\\winvm\\desk\\$name.done); \$i++) { Start-Sleep -Milliseconds 100 }
+schtasks /Delete /TN winvm-desk-$name /F | Out-Null
+if (Test-Path C:\\winvm\\desk\\$name.out) { Get-Content C:\\winvm\\desk\\$name.out }
+if (-not (Test-Path C:\\winvm\\desk\\$name.done)) { throw 'the desktop script did not finish within 3 minutes' }"
+        ;;
+    get)
+        # A guest file to the host (a screenshot a desktop helper wrote).
+        guest=${1:?guest path}; to=${2:?host path}
+        scp -q "$(host "$vm"):${guest//\\//}" "$to"
         ;;
     clean-up)
         rps "$vm" 'schtasks /Query /FO CSV | ConvertFrom-Csv | Where-Object { $_.TaskName -like "\winvm-*" } | ForEach-Object { schtasks /Delete /TN $_.TaskName /F | Out-Null }; Remove-Item -Recurse -Force C:\winvm -ErrorAction SilentlyContinue; "cleaned"'
@@ -234,7 +267,8 @@ print(json.dumps({"program": sys.argv[1], "args": sys.argv[2:], "env": env, "kee
         scp -q "$HERE/winvm/run.ps1" "$(host "$vm"):C:/winvm/run.ps1"
         # One at a time: a second program would delete the first one's C:\winvm\run, and two
         # WebView2 apps on one profile share a browser process (killing one kills both webviews).
-        rps "$vm" 'if ((Test-Path C:\winvm\run\pid) -and (Get-Process -Id (Get-Content C:\winvm\run\pid).Trim() -ErrorAction SilentlyContinue)) { throw "the previous program is still running: winvm.sh stop-run first" }
+        rps "$vm" "$OURS"'
+if (Ours) { throw "the previous program is still running: winvm.sh stop-run first" }
 Remove-Item C:\winvm\run\pid -ErrorAction SilentlyContinue
 schtasks /Create /TN winvm-run /TR "conhost.exe --headless powershell.exe -NoProfile -ExecutionPolicy Bypass -File C:\winvm\run.ps1" /SC ONCE /ST 23:59 /IT /RU $env:USERNAME /F | Out-Null
 schtasks /Run /TN winvm-run | Out-Null
@@ -250,7 +284,8 @@ if (-not (Test-Path C:\winvm\run\pid)) { throw "the program did not start" }
         ;;
     stop-run)
         # Waits until it is gone: the next `run` refuses while it is still exiting.
-        rps "$vm" 'if (Test-Path C:\winvm\run\pid) { $p = (Get-Content C:\winvm\run\pid).Trim(); taskkill /T /F /PID $p 2>&1 | Out-Null; for ($i = 0; $i -lt 100 -and (Get-Process -Id $p -ErrorAction SilentlyContinue); $i++) { Start-Sleep -Milliseconds 100 } }; "stopped"'
+        rps "$vm" "$OURS"'
+$p = Ours; if ($p) { taskkill /T /F /PID $p.Id 2>&1 | Out-Null; for ($i = 0; $i -lt 100 -and (Ours); $i++) { Start-Sleep -Milliseconds 100 } }; "stopped"'
         ;;
     watch-start)
         scp -q "$HERE/winvm/watch.ps1" "$(host "$vm"):C:/winvm/watch.ps1"

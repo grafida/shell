@@ -22,11 +22,16 @@
 #                    there with `winvm.sh push`); its dev worker is `php bin/worker.php` (dev-tools)
 #   GRAFIDA_PACKAGED an installed Grafida in the guest: it is copied to C:\winvm\packaged and only its
 #                    shell is swapped for SHELL_BIN (a release shell has no automation channel)
-#   QUICK=1          a 10 s idle-CPU sample instead of 60 s after 60 s
+#   QUICK=1          a 10 s idle-CPU sample after 30 s, instead of 60 s after 60 s
 #
-# The guest needs the `dev` snapshot's Python (the fake worker, the database seed). The checks that
-# need a human (the context menu, spelling, real dialogs, a real drag from Explorer, the title bar,
-# AI streaming, …) are in the issue; this script does not pretend to cover them.
+#   EVIDENCE         where the screenshots go (default target/parity-windows)
+#
+# The guest needs the `dev` snapshot's Python (the fake worker, the database seed). Nothing here is
+# left to a human: real keys, clicks and drags go through SendInput (the automation channel's
+# type/key/mouse/drag), native dialogs, File Explorer, the clipboard, the cursor and the Windows
+# colour mode through desktop-session helpers (scripts/dev/winvm/desk/, UI Automation), and AI
+# streaming through a test server on the host. The host needs ImageMagick (`magick`) for the
+# screenshot checks.
 
 set -uo pipefail
 
@@ -67,6 +72,10 @@ start_shell() { # program app_id keep(0|1) [args…]; WINVM_ENV for variables
     "$W" stop-run "$VM" >/dev/null 2>&1
     export SHELL_APP_ID=$id
     SHELL_PID=$(WINVM_KEEP=$keep "$W" run "$VM" "$program" "$@" --automation | tr -d '\r' | tail -1)
+    if [ -z "$SHELL_PID" ]; then
+        record FAIL "Start $id" "winvm.sh run refused or failed; the rows that follow are not valid"
+        return 1
+    fi
     TUNNEL_DIR=$("$W" tunnel "$VM" "$id")
     export XDG_RUNTIME_DIR=$TUNNEL_DIR
     # The app's own document, not the blank one the window shows until the worker is ready.
@@ -87,9 +96,25 @@ log_worker() { gps "(Select-String -Path '$1' -Pattern 'worker started, pid (\\d
 
 js() { $CLIENT eval-file "$1"; }
 
+DESK="$SHELL_DIR/scripts/dev/winvm/desk"
+EVIDENCE=${EVIDENCE:-$SHELL_DIR/target/parity-windows}
+rm -rf "$EVIDENCE"; mkdir -p "$EVIDENCE"
+desk() { local s=$1; shift; "$W" desktop "$VM" "$DESK/$s.ps1" "$@" 2>&1 | tr -d '\r'; }
+shot() { desk screen "C:\\winvm\\desk\\$1.png" >/dev/null && "$W" get "$VM" "C:\\winvm\\desk\\$1.png" "$EVIDENCE/$1.png"; }
+# Red pixels (a spelling underline) in a page rectangle of a desktop screenshot: png x y w h.
+red_in() {
+    python3 -I - "$1" "$CX" "$CY" "$SCALE" "$2" "$3" "$4" "$5" <<'RED'
+import subprocess, sys
+png = sys.argv[1]; cx, cy, s, x, y, w, h = map(float, sys.argv[2:])
+box = f"{int(w * s)}x{int(h * s)}+{int(cx + x * s)}+{int(cy + y * s)}"
+raw = subprocess.run(["magick", png, "-crop", box, "+repage", "-depth", "8", "rgb:-"], capture_output=True, check=True).stdout
+print(sum(1 for i in range(0, len(raw) - 2, 3) if raw[i] > 190 and raw[i + 1] < 110 and raw[i + 2] < 110))
+RED
+}
+
 ok_field() { python3 -I -c 'import json,sys; a=json.load(sys.stdin); r=a.get("result") or {}; print("yes" if a.get("ok") and (r.get("ok", True) is True) and not r.get("failures") else "no: " + json.dumps(r.get("failures", a))[:300])'; }
 
-trap 'close_tunnel; "$W" stop-run "$VM" >/dev/null 2>&1' EXIT
+trap 'close_tunnel; [ -n "${AI_SERVER:-}" ] && kill "$AI_SERVER" 2>/dev/null; "$W" stop-run "$VM" >/dev/null 2>&1' EXIT
 
 [ -f "$BIN" ] || { echo "No shell binary at $BIN" >&2; exit 1; }
 "$W" wait "$VM" || exit 1
@@ -181,7 +206,7 @@ close_tunnel
 
 # The shell killed outright: the Job Object takes the worker with it, idle or mid-request.
 for busy in 0 1; do
-    start_shell "$GS\\grafida-shell.exe" test.shell.echo 0 --dev "$ECHO"
+    start_shell "$GS\\grafida-shell.exe" test.shell.echo 0 --dev "$ECHO" || continue
     worker=$(log_worker "$ECHO_LOG")
     [ "$busy" = 1 ] && { $CLIENT eval 'fetch("/sleep?ms=5000", {cache: "no-store"}); return true' >/dev/null; sleep 1; }
     gps "Stop-Process -Id $SHELL_PID -Force" >/dev/null
@@ -208,6 +233,7 @@ record "$( [ -n "$line" ] && alive "$silent" && echo PASS || echo FAIL)" \
 
 # ── Grafida: in dev mode, or packaged (GRAFIDA_PACKAGED) ───────────────────────────────────────
 LOG="$RUN\\Local\\grafida\\Logs\\shell.log"
+export WINVM_ENV="SHELL_WINDOWS_MENU_LOG=1"
 DATA="$RUN\\Roaming\\Grafida"
 grafida() { # keep [env…]: start Grafida
     local keep=$1
@@ -238,13 +264,111 @@ $CLIENT wait 'return !!document.querySelector("#sidebar") && State.sites && Stat
 answer=$($CLIENT eval-file "$SHELL_DIR/scripts/dev/parity/grafida-editor.js")
 record "$( [ "$(ok_field <<<"$answer")" = yes ] && echo PASS || echo FAIL)" \
     "Grafida: the Ctrl+Shift+V path pastes the clipboard as plain text (the shell reads CF_UNICODETEXT)" "$(ok_field <<<"$answer")"
-read -r dx dy < <(python3 -I -c 'import json,sys; print(*json.load(sys.stdin)["result"]["dropAt"])' <<<"$answer")
-$CLIENT eval 'await navigator.clipboard.writeText("typed chord"); const ed = State.tinyMCEEditor; ed.setContent("<p>start</p>"); ed.focus(); ed.selection.select(ed.getBody(), true); ed.selection.collapse(false); return true' >/dev/null
+
+# ── What used to be a by-hand pass (grafida/grafida#91): real input through SendInput, native
+# windows through UI Automation, the desktop as a user sees it. Screenshots go to $EVIDENCE. ──────
+read -r CX CY SCALE < <($CLIENT window | python3 -I -c 'import json,sys; r=json.load(sys.stdin)["result"]; print(r["client"][0], r["client"][1], r["dpi"] / 96)')
+# The editor's paragraph (or one word of it) in page pixels: x y w h.
+$CLIENT eval 'window.__rect = (w) => { const ed = State.tinyMCEEditor; const p = ed.getBody().querySelector("p"); const f = ed.iframeElement.getBoundingClientRect(); let r = p.getBoundingClientRect(); if (w) { const t = p.firstChild; const i = t.data.indexOf(w); const g = ed.getDoc().createRange(); g.setStart(t, i); g.setEnd(t, i + w.length); r = g.getBoundingClientRect(); } return [Math.round(f.left + r.left), Math.round(f.top + r.top), Math.round(r.width), Math.round(r.height)]; }; window.__fresh = (html) => { const ed = State.tinyMCEEditor; ed.setContent(html); ed.undoManager.clear(); ed.focus(); ed.selection.select(ed.getBody(), true); ed.selection.collapse(false); return true; }; return true' >/dev/null
+content() { $CLIENT eval 'return State.tinyMCEEditor.getContent()' | python3 -I -c 'import json,sys; print(json.load(sys.stdin).get("result"))'; }
+rect() { $CLIENT eval "return __rect(${1:-})" | python3 -I -c 'import json,sys; print(*json.load(sys.stdin)["result"])'; }
+centre() { python3 -I -c 'import sys; x, y, w, h = map(float, sys.argv[1:]); print(round(x + w / 2), round(y + h / 2))' "$@"; }
+menu_line() { gps "(Select-String -Encoding UTF8 -Path '$LOG' -Pattern '\\[menu\\] context menu items' | Select -Last 1).Line" | sed 's/^.*context menu items: //'; }
+
+# Spelling: words typed with real keys are underlined; Ctrl+right-click (TinyMCE keeps a plain
+# right click for its own menu) shows WebView2's menu with the suggestions; choosing one replaces
+# the word. ⚠️ A real key press is what wakes the spell checker: Unicode injection alone
+# (KEYEVENTF_UNICODE, a VK_PACKET) types the text but leaves it unchecked, hence the trailing space.
+# ⚠️ WebView2 checks the user's primary language only (its profile's spellcheck.dictionaries is
+# ["el"] on the Greek guest, with US English spell checking installed and in the Windows language
+# list too), so the misspellings are in the guest's language.
+if [[ $($CLIENT eval 'return navigator.languages[0]' | python3 -I -c 'import json,sys; print(json.load(sys.stdin).get("result"))') == el* ]]; then
+    SPELL_TEXT=' το κείμενο είναι λάθως γραμένο' SPELL_WORD='λάθως' SPELL_MORE=' λέξι'
+else
+    SPELL_TEXT=' the wurdz are wrnog' SPELL_WORD='wurdz' SPELL_MORE=' qwertz'
+fi
+$CLIENT eval 'return __fresh("<p>Start</p>")' >/dev/null
+$CLIENT type "$SPELL_TEXT" >/dev/null
+$CLIENT key space >/dev/null
+# ⚠️ After a cold boot the first text typed can stay unchecked (seen on both guests: the Windows
+# spell checker still starting, the request lost); the next edit gets it all checked, earlier words
+# included. So, as a user would, keep typing: another misspelling between looks.
+for _ in 1 2 3 4; do
+    sleep 2
+    read -r lx ly lw lh < <(rect)
+    shot spell-on
+    red_on=$(red_in "$EVIDENCE/spell-on.png" "$lx" "$ly" "$lw" "$((lh + 6))")
+    [ "${red_on:-0}" -gt 30 ] && break
+    $CLIENT type "$SPELL_MORE" >/dev/null
+    $CLIENT key space >/dev/null
+    sleep 6
+done
+read -r wx wy < <(centre $(rect "\"$SPELL_WORD\""))
+$CLIENT mouse "$wx" "$wy" ctrl+right >/dev/null
+sleep 1.5
+shot spell-menu
+menu=$(menu_line)
+# WebView2 gives a suggestion an empty label, so what was offered is counted, and what Enter chose
+# (the first, highlighted) is read back from the article.
+suggestions=$(grep -o 'spellcheck=' <<<"${menu#*kept: }" | wc -l)
+# Enter takes the highlighted first item: only a suggestion (on a menu without any it is Emoji,
+# whose panel would then swallow the typing of the next row).
+if [ "$suggestions" -ge 1 ]; then $CLIENT key enter >/dev/null; else $CLIENT key esc >/dev/null; fi
+sleep 1
+# TinyMCE writes non-ASCII letters as named entities (&lambda;): compared as text.
+fixed=$(content | python3 -I -c 'import html,sys; print(html.unescape(sys.stdin.read()).strip())')
+replaced=$(python3 -I -c 'import sys; before, after = sys.argv[1].split(), sys.argv[2].replace("<p>", " ").replace("</p>", " ").replace("&nbsp;", " ").split(); print(next((a for b, a in zip(before, after) if b == sys.argv[3] and a != b), ""))' "Start$SPELL_TEXT" "$fixed" "$SPELL_WORD")
+record "$( [ "${red_on:-0}" -gt 30 ] && [ "$suggestions" -ge 1 ] && [ -n "$replaced" ] && ! grep -qF -- "$SPELL_WORD" <<<"$fixed" && echo PASS || echo FAIL)" \
+    "Spelling: misspellings typed with real keys are underlined; Ctrl+right-click offers WebView2's suggestions; choosing one replaces the word" \
+    "red underline pixels ${red_on:-?}; ${suggestions} suggestions offered; '$SPELL_WORD' became '${replaced}': $fixed; menu kept: ${menu#*kept: }"
+
+$CLIENT eval 'await applySpellCheckChange(false); return true' >/dev/null
+$CLIENT eval "return __fresh('<p>Start$SPELL_TEXT</p>')" >/dev/null
+$CLIENT type "$SPELL_MORE" >/dev/null
+$CLIENT key space >/dev/null
+sleep 2
+read -r lx ly lw lh < <(rect)
+shot spell-off
+red_off=$(red_in "$EVIDENCE/spell-off.png" "$lx" "$ly" "$lw" "$((lh + 6))")
+$CLIENT eval 'await applySpellCheckChange(true); return true' >/dev/null
+record "$( [ "${red_off:-99}" -lt 5 ] && echo PASS || echo FAIL)" \
+    "Spelling off (the setting): nothing is underlined, typed text included" "red underline pixels ${red_off:-?}"
+
+# Real typing in the title field (a click, then Unicode text), and undo/redo in the editor.
+read -r tx ty < <($CLIENT eval 'const r = document.getElementById("editor-title-input").getBoundingClientRect(); return [Math.round(r.left + r.width / 2), Math.round(r.top + r.height / 2)]' | python3 -I -c 'import json,sys; print(*json.load(sys.stdin)["result"])')
+$CLIENT mouse "$tx" "$ty" >/dev/null
+$CLIENT type 'Ελληνικά & ünïcode — ok' >/dev/null
+title=$($CLIENT eval 'return document.getElementById("editor-title-input").value' | python3 -I -c 'import json,sys; print(json.load(sys.stdin).get("result"))')
+$CLIENT eval 'return __fresh("<p>one</p>")' >/dev/null
+for k in space t w o; do $CLIENT key "$k" >/dev/null; done
+typed=$(content)
+$CLIENT key ctrl+z >/dev/null; sleep 0.5; undone=$(content)
+$CLIENT key ctrl+y >/dev/null; sleep 0.5; redone=$(content)
+# Virtual keys go through the guest's keyboard layout (t w o types τ σ ο on a Greek one), so the
+# check is that something was typed, undone and redone.
+record "$( [ "$title" = 'Ελληνικά & ünïcode — ok' ] && [ "$typed" != "<p>one</p>" ] && grep -q '^<p>one ' <<<"$typed" && [ "$undone" = "<p>one</p>" ] && [ "$redone" = "$typed" ] && echo PASS || echo FAIL)" \
+    "Real keys: a click into the title and typing (Greek, accents, a dash); in the editor Ctrl+Z undoes and Ctrl+Y redoes" \
+    "title '$title'; typed $typed; Ctrl+Z $undone; Ctrl+Y $redone"
+
+# The clipboard as another program leaves it (HTML + text, set in the desktop session): Ctrl+V
+# keeps the formatting, the Ctrl+Shift+V chord reaches the page and pastes the text alone.
+desk clipboard 'Pasted <strong>bold</strong> text' 'Pasted bold text' >/dev/null
+$CLIENT eval 'return __fresh("<p>start</p>")' >/dev/null
+$CLIENT key ctrl+v >/dev/null
+sleep 1.5
+formatted=$(content)
+record "$(grep -q '<strong>bold</strong>' <<<"$formatted" && echo PASS || echo FAIL)" \
+    "Grafida: Ctrl+V of formatted text from another program keeps its formatting" "$formatted"
+$CLIENT eval 'return __fresh("<p>start</p>")' >/dev/null
 keyed=$($CLIENT key ctrl+shift+v 2>&1 | tr -d '\n ')
 sleep 1.5
-chord=$($CLIENT eval 'return State.tinyMCEEditor.getContent()' | python3 -I -c 'import json,sys; print(json.load(sys.stdin).get("result"))')
-record "$( [ "$chord" = "<p>starttyped chord</p>" ] && echo PASS || echo FAIL)" \
+chord=$(content)
+record "$( [ "$chord" = "<p>startPasted bold text</p>" ] && echo PASS || echo FAIL)" \
     "Grafida: the real Ctrl+Shift+V chord in the editor reaches the page and pastes plain text" "$chord; key: $(cut -c1-100 <<<"$keyed")"
+
+# The drop point now: the rows above have changed the page since grafida-editor.js measured it.
+$CLIENT eval 'return __fresh("<p>drop here</p>")' >/dev/null
+read -r dx dy < <($CLIENT eval 'const f = State.tinyMCEEditor.iframeElement.getBoundingClientRect(); return [Math.round(f.left + f.width / 2), Math.round(f.top + 40)]' | python3 -I -c 'import json,sys; print(*json.load(sys.stdin)["result"])')
 $CLIENT drop "$dx" "$dy" 'C:\winvm\files\dropped.png' >/dev/null
 sleep 2
 # TinyMCE's own drop handling inserts the image (no data-grafida-media-id, which only Grafida's
@@ -253,17 +377,114 @@ dropped=$($CLIENT eval 'return [...State.tinyMCEEditor.getBody().querySelectorAl
 record "$(grep -q 'boson://app/api/media/' <<<"$dropped" && echo PASS || echo FAIL)" \
     "Grafida: an image file dropped on the editor is inserted as offline media (File objects, as WebView2 delivers a drop)" \
     "$(tr -d '\n ' <<<"$dropped" | cut -c1-120)"
+
+# A real drag of a file out of File Explorer onto the editor (an OLE drop, which WebView2 turns
+# into the page's drop event).
+$CLIENT eval 'return __fresh("<p>drop here</p>")' >/dev/null
+images() { $CLIENT eval 'return State.tinyMCEEditor.getBody().querySelectorAll("img[src^=\"boson://app/api/media/\"]").length' | python3 -I -c 'import json,sys; print(json.load(sys.stdin).get("result"))'; }
+before=$(images)
+from=$(desk explorer 'C:\winvm\files\dropped.png' | grep -o 'at [0-9]* [0-9]*')
+read -r px py < <($CLIENT eval 'const f = State.tinyMCEEditor.iframeElement.getBoundingClientRect(); return [Math.round(f.left + f.width * 0.8), Math.round(f.top + 120)]' | python3 -I -c 'import json,sys; print(*json.load(sys.stdin)["result"])')
+[ -n "$from" ] && $CLIENT drag ${from#at } "$px" "$py" >/dev/null
+sleep 2
+shot drag
+after=$(images)
+desk windows CabinetWClass close >/dev/null
+record "$( [ -n "$from" ] && [ "${after:-0}" -gt "${before:-0}" ] && echo PASS || echo FAIL)" \
+    "Grafida: a file dragged out of File Explorer with the real mouse and dropped on the editor is inserted" \
+    "Explorer item ${from:-not found}; offline images in the editor ${before} → ${after}"
+
+# The real native dialogs, driven through UI Automation as a user would: Open (accept, cancel),
+# Select Folder and Save. Their titles and buttons are recorded (a Greek guest shows Greek).
+dialog() { # page call, then the dialog's answer (accept PATH | cancel)
+    $CLIENT eval "window.__d = $1.then(r => r, e => ({error: String(e && (e.code || e.message) || e)})); return true" >/dev/null
+    local seen
+    seen=$(desk dialog "$SHELL_PID" "$2" "${3:-}" | tr '\n' ';')
+    echo "$seen"
+    $CLIENT eval 'return await window.__d' | python3 -I -c 'import json,sys; print(json.dumps(json.load(sys.stdin).get("result")))'
+}
+open_ok=$(dialog 'GrafidaShell.openFile({filters: []})' accept 'C:\winvm\files\dropped.png')
+open_no=$(dialog 'GrafidaShell.openFile({filters: []})' cancel)
+folder=$(dialog 'GrafidaShell.selectFolder()' accept 'C:\winvm\files\exports')
+save=$(dialog 'GrafidaShell.saveFile({suggestedName: "parity.txt"})' accept 'C:\winvm\files\exports\parity.txt')
+record "$(grep -q '"name": "dropped.png"' <<<"$open_ok" && grep -q '"token"' <<<"$open_ok" && grep -qi 'cancel' <<<"$(tail -1 <<<"$open_no")" && grep -q '"name": "exports"' <<<"$folder" && grep -q '"name": "parity.txt"' <<<"$save" && echo PASS || echo FAIL)" \
+    "The real native dialogs (UI Automation): Open → a token for the file; Cancel → cancelled; Select Folder and Save → a token each" \
+    "open: $(tr '\n' ' ' <<<"$open_ok"); cancel: $(tr '\n' ' ' <<<"$open_no"); folder: $(tr '\n' ' ' <<<"$folder"); save: $(tr '\n' ' ' <<<"$save")"
+
+# Reveal a picked file: an Explorer window on its folder.
+$CLIENT pick 'C:\winvm\files\dropped.png' >/dev/null
+revealed=$($CLIENT eval 'const r = await GrafidaShell.openFile({filters: []}); return await GrafidaShell.reveal(r.files[0].token)' | tr -d '\n ')
+sleep 2
+shown=$(desk windows CabinetWClass close | tr '\n' ';')
+record "$(grep -q '"ok":true' <<<"$revealed" && grep -qE '(^|;)files( - [^|;]*)? \|' <<<"$shown" && echo PASS || echo FAIL)" \
+    "Reveal a picked file → File Explorer opens on its folder" "answer $revealed; Explorer windows: ${shown:-none}"
+
+# A real link: recording off, the sidebar's Visit site button clicked with the real mouse, and
+# the URL reaches the OS browser (Edge, on a clean guest).
+$CLIENT record off >/dev/null
+gps "Stop-Process -Name msedge -Force -ErrorAction SilentlyContinue" >/dev/null   # only the click may start it
+read -r vx vy < <($CLIENT eval 'const b = [...document.querySelectorAll("#sidebar button")].find(b => b.textContent.includes(t("GRAFIDA_BTN_OPEN_SITE"))); const r = b.getBoundingClientRect(); return [Math.round(r.left + r.width / 2), Math.round(r.top + r.height / 2)]' | python3 -I -c 'import json,sys; print(*json.load(sys.stdin)["result"])')
+$CLIENT mouse "$vx" "$vy" >/dev/null
+browser=$(gps "for (\$i = 0; \$i -lt 100; \$i++) { \$p = Get-CimInstance Win32_Process -Filter \"Name='msedge.exe'\" | ? { \$_.CommandLine -match 'example\\.invalid' } | Select -First 1; if (\$p) { break }; Start-Sleep -Milliseconds 200 }; if (\$p) { \$p.Name + ' ' + (\$p.CommandLine -replace '^.*(https?://\\S+).*$', '\$1') }")
+gps "Stop-Process -Name msedge -Force -ErrorAction SilentlyContinue" >/dev/null
+$CLIENT record on >/dev/null
+record "$(grep -q 'example.invalid' <<<"$browser" && echo PASS || echo FAIL)" \
+    "Visit site (a real click) opens the site in the OS browser" "${browser:-no browser process with the URL within 20 s}"
+
+# Theme: dark and light from the app, and auto following a Windows mode switch (the SPA's own
+# 30 s re-probe); the page and the title bar (DWMWA_USE_IMMERSIVE_DARK_MODE) both follow.
+theme_state() { echo "$($CLIENT eval 'return document.documentElement.dataset.theme' | python3 -I -c 'import json,sys; print(json.load(sys.stdin).get("result"))')/$($CLIENT window | python3 -I -c 'import json,sys; print(json.load(sys.stdin)["result"]["darkTitleBar"])')"; }
+wait_theme() { for _ in $(seq 1 45); do [ "$($CLIENT eval 'return document.documentElement.dataset.theme' | python3 -I -c 'import json,sys; print(json.load(sys.stdin).get("result"))')" = "$1" ] && break; sleep 1; done; sleep 0.5; theme_state; }
+os_light=$(gps "(Get-ItemProperty HKCU:\\Software\\Microsoft\\Windows\\CurrentVersion\\Themes\\Personalize).AppsUseLightTheme")
+$CLIENT eval 'await applyDisplayModeChange("dark", {silent: true}); return true' >/dev/null; sleep 1; dark=$(theme_state)
+shot theme-dark
+$CLIENT eval 'await applyDisplayModeChange("light", {silent: true}); return true' >/dev/null; sleep 1; light=$(theme_state)
+desk theme light >/dev/null
+$CLIENT eval 'await applyDisplayModeChange("auto", {silent: true}); return true' >/dev/null
+desk theme dark >/dev/null; auto_dark=$(wait_theme dark)
+desk theme light >/dev/null; auto_light=$(wait_theme light)
+[ "$os_light" = 0 ] && desk theme dark >/dev/null
+record "$( [ "$dark" = dark/True ] && [ "$light" = light/False ] && [ "$auto_dark" = dark/True ] && [ "$auto_light" = light/False ] && echo PASS || echo FAIL)" \
+    "Theme: dark and light, and auto following a Windows mode switch; the title bar follows the page" \
+    "page/dark title bar — dark $dark; light $light; auto with Windows dark $auto_dark, then light $auto_light"
+
+# AI streaming from a local model: test-server.py on the host, which the guest reaches at QEMU's
+# 10.0.2.2, over plain HTTP. The panel's direct fetch must stream (many partial renders), not fall
+# back to the PHP proxy.
+python3 -I "$SHELL_DIR/scripts/dev/macguest/test-server.py" 8765 >"$EVIDENCE/ai-server.log" 2>&1 &
+AI_SERVER=$!
+$CLIENT eval 'const b = {name: "Parity AI", provider: "custom", endpoint: "http://10.0.2.2:8765/v1", model: "fake-model", params: {stream: true}, key: "parity-key"}; await createAiServiceWithInsecureFallback(b); State.tinyMCEEditor.setDirty(false); location.reload(); return true' >/dev/null 2>&1
+sleep 2
+$CLIENT wait 'return !!document.querySelector("#sidebar") && State.sites && State.sites.length > 0 && State.aiDefaultServiceId' 30 >/dev/null
+$CLIENT eval 'openNewArticle(); for (let i = 0; i < 100 && !(State.tinyMCEEditor && State.tinyMCEEditor.initialized); i++) await new Promise(r => setTimeout(r, 100)); State.tinyMCEEditor.setContent("<p>An article.</p>"); window.__fetches = []; const of = window.fetch; window.fetch = function (u, o) { const url = String(u && u.url || u); const p = of.apply(this, arguments); p.then(r => __fetches.push(url + " " + r.status), e => __fetches.push(url + " " + e)); return p; }; GrafidaAIPanel.toggle(); return true' >/dev/null
+sleep 1
+read -r ax ay < <($CLIENT eval 'const r = document.getElementById("ai-input").getBoundingClientRect(); return [Math.round(r.left + r.width / 2), Math.round(r.top + r.height / 2)]' | python3 -I -c 'import json,sys; print(*json.load(sys.stdin)["result"])')
+$CLIENT mouse "$ax" "$ay" >/dev/null
+$CLIENT type 'Say hello' >/dev/null
+$CLIENT key ctrl+enter >/dev/null
+answer=$($CLIENT eval 'const seen = new Set(); const t0 = Date.now(); let text = ""; while (Date.now() - t0 < 25000) { const b = [...document.querySelectorAll("#ai-conversation .ai-bubble-assistant")].pop(); text = b ? b.textContent.trim() : ""; seen.add(text.length); if (text.includes("stream.") && !document.querySelector(".ai-bubble-streaming")) break; await new Promise(r => setTimeout(r, 100)); } return {partials: seen.size, text: text.slice(0, 160), fetches: __fetches.filter(f => !f.includes("/api/ai/render"))}')
+shot ai
+kill "$AI_SERVER" 2>/dev/null
+record "$(python3 -I -c 'import json,sys; r=json.load(sys.stdin)["result"]; ok = "streamed from 10.0.2.2" in r["text"] and r["partials"] >= 5 and any("10.0.2.2:8765/v1/chat/completions 200" in f for f in r["fetches"]) and not any("/api/ai/proxy" in f for f in r["fetches"]); print("PASS" if ok else "FAIL")' <<<"$answer" 2>/dev/null || echo FAIL)" \
+    "AI: a reply from a local model over plain HTTP streams into the panel (the direct fetch, not the PHP proxy)" \
+    "$(python3 -I -c 'import json,sys; r=json.load(sys.stdin)["result"]; print("%d partial renders; %s; requests %s" % (r["partials"], r["text"][:90], r["fetches"]))' <<<"$answer" 2>/dev/null || tr -d '\n' <<<"$answer" | cut -c1-200)"
+$CLIENT eval 'GrafidaAIPanel.onEditorLeave && GrafidaAIPanel.onEditorLeave(); return true' >/dev/null
+
 $CLIENT eval 'State.tinyMCEEditor.setDirty(false); showScreen("articles"); document.activeElement && document.activeElement.blur(); return true' >/dev/null
 
 # Idle CPU of the whole tree, on the Articles screen with a site, the focus out of the editor.
 settle=60 sample=60
-[ -n "${QUICK:-}" ] && settle=5 sample=10
+[ -n "${QUICK:-}" ] && settle=30 sample=10   # less than ~30 s measures the previous row's tail
 $CLIENT eval 'document.querySelector("#main-nav [data-screen=\"articles\"]").click(); document.body.focus(); return true' >/dev/null
 sleep "$settle"
+shot idle
 cpu=$(gps "
 \$all = Get-CimInstance Win32_Process
 \$ids = @($SHELL_PID); \$frontier = @($SHELL_PID)
-while (\$frontier.Count) { \$next = @(\$all | ? { \$frontier -contains \$_.ParentProcessId } | % { \$_.ProcessId }); \$ids += \$next; \$frontier = \$next }
+# A child is one that names the process as its parent AND started after it: ParentProcessId is never
+# updated when a parent exits, so processes whose dead parent's pid was reused for ours name ours.
+\$born = @{}; foreach (\$p in \$all) { \$born[[int]\$p.ProcessId] = \$p.CreationDate }
+while (\$frontier.Count) { \$next = @(\$all | ? { \$frontier -contains \$_.ParentProcessId -and \$_.CreationDate -ge \$born[[int]\$_.ParentProcessId] } | % { \$_.ProcessId }); \$ids += \$next; \$frontier = \$next }
 function sample { \$h = @{}; foreach (\$i in \$ids) { \$p = Get-Process -Id \$i -ErrorAction SilentlyContinue; if (\$p) { \$h[\$i] = @(\$p.ProcessName, \$p.TotalProcessorTime.TotalSeconds) } }; \$h }
 \$a = sample; \$t = [Diagnostics.Stopwatch]::StartNew(); Start-Sleep $sample; \$b = sample; \$s = \$t.Elapsed.TotalSeconds
 \$by = @{}; \$total = 0
@@ -274,10 +495,12 @@ record "$(python3 -I -c "print('PASS' if ${cpu%%|*} < 1 else 'FAIL')" 2>/dev/nul
     "Idle CPU < 1% (whole tree on the Articles screen, ${sample} s after ${settle} s; debug shell)" "${cpu%%|*} % of one core: ${cpu#*|}"
 
 # Close → the worker exits within 3 s, nothing is orphaned, the WAL does not grow.
-# Through the shell's stop path (the window's close button takes the same one), timed from the
-# shell's own log: "stopping", then the supervisor's "worker stopped" (or "worker killed").
+# The window's own close button, clicked with the real mouse; timed from the shell's own log:
+# "stopping", then the supervisor's "worker stopped" (or "worker killed").
 worker=$(log_worker "$LOG")
-stop_shell
+xclose=$(desk close "$SHELL_PID" | tail -1)
+gps "for (\$i = 0; \$i -lt 50 -and (Get-Process -Id $SHELL_PID -ErrorAction SilentlyContinue); \$i++) { Start-Sleep -Milliseconds 100 }" >/dev/null
+close_tunnel; "$W" stop-run "$VM" >/dev/null 2>&1; SHELL_PID=
 closed=$(gps "\$l = Get-Content '$LOG'; \$a = (\$l | Select-String 'stopping \\(exit' | Select -Last 1).Line; \$b = (\$l | Select-String 'worker (stopped|killed)' | Select -Last 1).Line; \$t = { param(\$x) [DateTime]::Parse(\$x.Substring(0, 24)).ToUniversalTime() }; [Threading.Thread]::CurrentThread.CurrentCulture = [Globalization.CultureInfo]::InvariantCulture; '{0:N2}|{1}' -f ((& \$t \$b) - (& \$t \$a)).TotalSeconds, (\$b -replace '^.*\\] ', '')" | tail -1)
 took=${closed%%|*}
 gone=$(grep -q 'worker stopped' <<<"${closed#*|}" && ! alive "$worker" && echo yes || echo no)
@@ -291,11 +514,22 @@ for _ in 1 2 3; do
 done
 orphans=$(gps "(Get-CimInstance Win32_Process | ? { \$_.CommandLine -match 'bin.worker\\.php|grafida-worker' -and \$_.CommandLine -notmatch 'Get-CimInstance' } | % { \$_.ProcessId }) -join ' '")
 record "$( [ "$gone" = yes ] && [ -z "$orphans" ] && python3 -I -c "import sys; sys.exit(0 if float('${took:-99}'.replace(',', '.')) <= 3.5 else 1)" && echo PASS || echo FAIL)" \
-    "Close the window → worker exits within 3 s; no orphan worker; no -wal growth" \
-    "${closed#*|} after ${took} s; gone: $gone; orphans: ${orphans:-none}; -wal bytes after each of 3 restarts: ${wal[*]:-none}"
+    "Close the window (its X, a real click) → worker exits within 3 s; no orphan worker; no -wal growth" \
+    "$xclose; ${closed#*|} after ${took} s; gone: $gone; orphans: ${orphans:-none}; -wal bytes after each of 3 restarts: ${wal[*]:-none}"
+
+# The pointer at launch: Windows shows "working in background" for a GUI process it has just
+# started until that process takes input, so a child that never does (a GUI worker) keeps it up.
+desk cursor 25 640 400 >"$EVIDENCE/cursor.txt" &
+cursor_job=$!
+sleep 6
+grafida 1
+wait "$cursor_job"
+cursor=$(tail -1 "$EVIDENCE/cursor.txt")
+longest=$(grep -o 'longest [0-9]*' <<<"$cursor" | grep -o '[0-9]*')
+record "$( [ -n "$longest" ] && [ "$longest" -le 15 ] && echo PASS || echo FAIL)" \
+    "Launch: the pointer does not stay on \"working in background\" (≤ 1.5 s at a stretch)" "${cursor:-no samples} (100 ms each)"
 
 # A token from the previous session.
-grafida 1
 answer=$($CLIENT eval "const r = await fetch('/api/request-log/export', {method: 'POST', headers: GrafidaShell.fileHeaders('$token'), body: '{}'}); return {status: r.status, error: (await r.json()).error}")
 record "$(grep -q stale_file_token <<<"$answer" && echo PASS || echo FAIL)" \
     "A token from a previous session is rejected" "$(tr -d '\n ' <<<"$answer" | cut -c1-120)"
@@ -303,12 +537,18 @@ stop_shell
 
 # DevTools follow GRAFIDA_DEBUG.
 off=$(gps "(Select-String -Path '$LOG' -Pattern '\\(devtools off\\)').Count")
-WINVM_ENV="GRAFIDA_DEBUG=1" grafida 1
+inspect_off=$(gps "(Select-String -Path '$LOG' -Pattern 'kept: .*inspectElement').Count")
+WINVM_ENV="GRAFIDA_DEBUG=1 SHELL_WINDOWS_MENU_LOG=1" grafida 1
+$CLIENT mouse 100 60 right >/dev/null
+sleep 1.5
+shot devtools-menu
+$CLIENT key esc >/dev/null
+inspect_on=$(gps "(Select-String -Path '$LOG' -Pattern 'kept: .*inspectElement').Count")
 stop_shell
 on=$(gps "(Select-String -Path '$LOG' -Pattern '\\(devtools on\\)').Count")
-record "$( [ "${off:-0}" -ge 1 ] && [ "${on:-0}" -ge 1 ] && echo PASS || echo FAIL)" \
-    "DevTools only with GRAFIDA_DEBUG=1 (the WebView2 setting; Inspect itself is a manual check)" \
-    "launches with devtools off: ${off:-0}, on with GRAFIDA_DEBUG=1: ${on:-0}"
+record "$( [ "${off:-0}" -ge 1 ] && [ "${on:-0}" -ge 1 ] && [ "${inspect_off:-1}" = 0 ] && [ "${inspect_on:-0}" -ge 1 ] && echo PASS || echo FAIL)" \
+    "DevTools only with GRAFIDA_DEBUG=1: the WebView2 setting, and Inspect in the real right-click menu" \
+    "launches with devtools off: ${off:-0}, on: ${on:-0}; menus offering Inspect without GRAFIDA_DEBUG: ${inspect_off:-?}, with it: ${inspect_on:-0}"
 
 # Every console window that appeared on the desktop during the whole run.
 shown=$("$W" watch-stop "$VM" | tr -d '\r')
@@ -317,6 +557,7 @@ record "$( [ -z "$shown" ] && echo PASS || echo FAIL)" \
     "$( [ -z "$shown" ] && echo none || tr '\n' ';' <<<"$shown" | cut -c1-300)"
 
 echo
+echo "Screenshots: $EVIDENCE"
 echo "| Result | Check | Evidence |"
 echo "|---|---|---|"
 for row in "${RESULTS[@]}"; do

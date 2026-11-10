@@ -209,6 +209,8 @@ COMMAND VM`, with VM `windows-11` (port 22220, ssh host `winvm`) or `windows-10`
 | `stop-run` | kills that program and everything it started |
 | `watch-start` / `watch-stop` | records every console window (conhost's, Windows Terminal's) shown on the desktop until stopped (`winvm/watch.ps1`, a WinEvent hook); `watch-stop` prints them, nothing if none |
 | `ps SCRIPT` | runs one PowerShell script in the guest, as `-EncodedCommand` |
+| `desktop SCRIPT [ARG…]` | runs a PowerShell script **in the desktop session** (through the headless console host) and prints its output; the helpers in `winvm/desk/`: `screen` (the whole desktop as a PNG), `dialog` (drives a native file dialog through UI Automation), `clipboard` (HTML + text, as another program leaves it), `theme` (Windows' light/dark mode), `explorer` (File Explorer at a file, and where that file is on screen), `windows` (a class's windows, optionally closed), `cursor` (samples the pointer's shape), `close` (clicks a window's X). Arguments are positional |
+| `get GUEST HOST` | copies a file out of the guest |
 | `tunnel [APP_ID]` | forwards the shell's automation channel to this host and prints a directory: `XDG_RUNTIME_DIR=<it> SHELL_AUTOMATION_REMOTE=1 scripts/dev/automation.py …` then drives the guest's window |
 
 The snapshots: **`clean`** is updated Windows and nothing else (every installer test starts from
@@ -251,6 +253,32 @@ Gotchas, each one hit:
   automation channel's `key` shares the foreground window's input queue for the switch
   (`AttachThreadInput`) and, if Windows still refuses, sends nothing, rather than typing into whatever
   program is in front.
+- **Real input is SendInput in the desktop session**, which is where the shell runs: the automation
+  channel's `type` (one Unicode key press per character), `key`, `mouse` (a real left or right
+  click, modifiers held) and `drag` (from a screen point, such as a file in Explorer, to the page).
+  ⚠️ **Unicode injection does not wake the spell checker**: text typed as `VK_PACKET`s stays
+  unchecked until a real key is pressed after it, so a spelling check types, then presses `space`.
+  TinyMCE keeps a plain right click for its own menu; WebView2's (the spelling suggestions) is
+  **Ctrl+right-click**.
+- ⚠️ **Virtual keys go through the guest's keyboard layout**: `key t` types `τ` on the Greek guest.
+  Text that must come out exactly is sent with `type`.
+- ⚠️ **WebView2 spell-checks the user's primary language only** (the profile's
+  `spellcheck.dictionaries` is `["el"]` on the Greek guest, with US English checking installed and in
+  the Windows language list). ⚠️ **After a cold boot the first text typed into the editor can stay
+  unmarked indefinitely** (twice in two cold boots on Windows 10, once in two on Windows 11; over 80 s),
+  while text typed into an `<input>` first, or **any further typing**, gets everything checked within
+  15–25 s, earlier words included. Once it has started it stays started for the boot, across app
+  restarts and fresh profiles, which is why it never shows on a warm guest. The parity rows type
+  misspellings in the guest's language and keep typing until they are marked.
+- **File Explorer's large-icon view** (Windows 10's default here) starts a rubber-band selection when
+  a drag begins on a tile's blank thumbnail; `explorer.ps1` reports a point on the file's name.
+- ⚠️ **Windows hands a dead process's pid to a new process quickly** (seen on Windows 10): `run`
+  and `stop-run` take the recorded pid as ours only if that process started before the pid file
+  was written. A bare pid check refused a restart, and `stop-run` would have killed the stranger's tree.
+- **A Greek guest's console output is code page 737/1253**: `winvm.sh` sets PowerShell's output to
+  UTF-8 for every script, and logs are read with `-Encoding UTF8`.
+- **The guest reaches the host at `10.0.2.2`** (QEMU's user-mode network), which is how a test
+  server on the host (`scripts/dev/macguest/test-server.py`, the local AI model) is reached.
 - **Nothing in the SSH session can see the desktop's windows** (`MainWindowHandle` is 0 there, and
   `PostMessage` reaches nothing); anything that must touch a window runs in the desktop session.
 - **`Set-Content -NoNewline <path> <value>` with positional arguments writes nothing** (and says so

@@ -240,9 +240,20 @@ scheduled task), never directly over SSH; the automation channel reaches the hos
   accelerator offered to the host) and `SHELL_WINDOWS_MENU_LOG=1` (the context menu's item names).
 - **The Windows context menu is an allowlist** of WebView2 item names (editing, spelling, emoji,
   copying a link or image; Inspect only with devtools), so an item a future runtime adds never
-  appears. A **browser-process** exit is fatal (a native alert, then quit: nothing else would ever
-  repaint the window); a **renderer** exit or hang reloads the page.
-- **`scripts/dev/parity-windows.sh` runs on the host and drives a guest** (`winvm.sh`): the shell in the
+  appears. ⚠️ A spelling suggestion is named **`spellcheck`, all lower case** (runtime 157), with an
+  empty label; the match ignores case, and `parity-windows.sh` checks the suggestions really appear
+  (a case-sensitive `spellCheck` had removed every one). WebView2 checks the user's **primary
+  language only** (`spellcheck.dictionaries` holds one entry, whatever else Windows has installed),
+  and there is no WebView2 API to add another. After a cold boot the first text typed into a
+  subframe (TinyMCE's iframe) can stay unchecked until the next edit, which then checks it all. Debug builds: `SHELL_WINDOWS_LANGUAGE=<tag>|none`
+  overrides the language the shell passes to WebView2. A **browser-process** exit is fatal (a native
+  alert, then quit: nothing else would ever repaint the window); a **renderer** exit or hang reloads
+  the page.
+- **`scripts/dev/parity-windows.sh` runs on the host and drives a guest** (`winvm.sh`), and **nothing in
+  it is left to a human**: real keys, clicks and drags through SendInput (the channel's `type`, `key`,
+  `mouse`, `drag`), native dialogs, Explorer, the clipboard, the cursor and the colour mode through
+  desktop-session helpers (`scripts/dev/winvm/desk/`, UI Automation), AI streaming through a host test
+  server at `10.0.2.2`. It runs the shell in the
   guest's desktop session with `APPDATA`/`LOCALAPPDATA`/`TEMP` in `C:\winvm\run`, the channel tunnelled
   here (`SHELL_AUTOMATION_REMOTE=1`, so paths are the guest's). Its last row is the **console-window
   watcher** (`winvm.sh watch-start`/`watch-stop`, a WinEvent hook in the desktop session): any
