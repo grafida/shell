@@ -16,6 +16,7 @@ shell 0.3.0 (unreleased)
 ~ The automation channel's `key` (Windows) brings the window forward first, and sends nothing if it cannot
 + Windows debug builds: `SHELL_WINDOWS_LANGUAGE` overrides the language passed to WebView2
 ~ `winvm.sh run`/`stop-run` no longer take a reused pid for the program they started; guest output is UTF-8
+~ The Windows release smoke test's clean-up waits for WebView2 to let go of its profile instead of failing a passing run
 ~ The idle-CPU measurements count only real children of the shell (`ParentProcessId` is never updated when a parent exits)
 + Windows automation: real input (`type`, `mouse` left/right with modifiers, `drag`), `window` (title, frame, DPI, dark title bar) and `record off|on`
 + `winvm.sh desktop`: PowerShell helpers in the guest's desktop session (screenshots, native dialogs, clipboard, colour mode, Explorer, cursor, close button); `winvm.sh get`

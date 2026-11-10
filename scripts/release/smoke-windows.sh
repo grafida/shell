@@ -22,7 +22,14 @@ set -euo pipefail
 SHELL_BIN="$(cd "$(dirname "$1")" && pwd)/$(basename "$1")"
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
 WORK="$(mktemp -d)"
-trap 'rm -rf "$WORK"' EXIT
+# WebView2's browser process can hold its profile for a moment after the shell has exited: retry the
+# clean-up for a few seconds, and never let it change the result (it once failed a passing run).
+cleanup() {
+    local code=$?
+    for _ in $(seq 1 20); do rm -rf "$WORK" 2>/dev/null && break; sleep 0.5; done
+    exit "$code"
+}
+trap cleanup EXIT
 APP="$WORK/Smoke"
 LOG="$APP/logs/shell.log"
 PYTHON=$(command -v python || command -v python3)
