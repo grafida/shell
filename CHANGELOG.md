@@ -1,3 +1,10 @@
+shell 0.4.0 (unreleased)
+================================================================================
++ `parity-windows.sh`: Ctrl+A/C/X/V and Ctrl+Z after a paste, AI over HTTPS, the open-folder child, the menus' items, process names and icons (packaged)
++ `parity-windows.sh`: NOTE rows, reported in the record but not counted (Ctrl+Z after Ctrl+X, an editor bug on Chromium)
++ `winvm.sh put`, and a desktop helper that reads the clipboard back
+~ `scripts/dev/macguest/test-server.py --tls CERT KEY` serves HTTPS
+
 shell 0.3.0
 ================================================================================
 + Windows (x86_64, 10 22H2 or later): apps run in a WebView2 the shell creates itself, on a real `boson://` scheme; dev mode for now

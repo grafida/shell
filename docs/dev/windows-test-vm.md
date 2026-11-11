@@ -209,8 +209,8 @@ COMMAND VM`, with VM `windows-11` (port 22220, ssh host `winvm`) or `windows-10`
 | `stop-run` | kills that program and everything it started |
 | `watch-start` / `watch-stop` | records every console window (conhost's, Windows Terminal's) shown on the desktop until stopped (`winvm/watch.ps1`, a WinEvent hook); `watch-stop` prints them, nothing if none |
 | `ps SCRIPT` | runs one PowerShell script in the guest, as `-EncodedCommand` |
-| `desktop SCRIPT [ARG…]` | runs a PowerShell script **in the desktop session** (through the headless console host) and prints its output; the helpers in `winvm/desk/`: `screen` (the whole desktop as a PNG), `dialog` (drives a native file dialog through UI Automation), `clipboard` (HTML + text, as another program leaves it), `theme` (Windows' light/dark mode), `explorer` (File Explorer at a file, and where that file is on screen), `windows` (a class's windows, optionally closed), `cursor` (samples the pointer's shape), `close` (clicks a window's X). Arguments are positional |
-| `get GUEST HOST` | copies a file out of the guest |
+| `desktop SCRIPT [ARG…]` | runs a PowerShell script **in the desktop session** (through the headless console host) and prints its output; the helpers in `winvm/desk/`: `screen` (the whole desktop as a PNG), `dialog` (drives a native file dialog through UI Automation), `clipboard` (HTML + text, as another program leaves it), `clipboard-read` (its text, as JSON), `theme` (Windows' light/dark mode), `explorer` (File Explorer at a file, and where that file is on screen), `windows` (a class's windows, optionally closed), `cursor` (samples the pointer's shape), `close` (clicks a window's X). Arguments are positional |
+| `get GUEST HOST` / `put HOST GUEST` | copies a file out of the guest, or into it |
 | `tunnel [APP_ID]` | forwards the shell's automation channel to this host and prints a directory: `XDG_RUNTIME_DIR=<it> SHELL_AUTOMATION_REMOTE=1 scripts/dev/automation.py …` then drives the guest's window |
 
 The snapshots: **`clean`** is updated Windows and nothing else (every installer test starts from
@@ -277,6 +277,9 @@ Gotchas, each one hit:
   was written. A bare pid check refused a restart, and `stop-run` would have killed the stranger's tree.
 - **A Greek guest's console output is code page 737/1253**: `winvm.sh` sets PowerShell's output to
   UTF-8 for every script, and logs are read with `-Encoding UTF8`.
+- **HTTPS from the host**: `parity-windows.sh` makes a throwaway CA and a certificate for
+  `10.0.2.2`, puts the CA in the guest's **machine** root store for the one row (the SSH session is
+  elevated; the user store would show a confirmation dialog) and removes it afterwards.
 - **The guest reaches the host at `10.0.2.2`** (QEMU's user-mode network), which is how a test
   server on the host (`scripts/dev/macguest/test-server.py`, the local AI model) is reached.
 - **Nothing in the SSH session can see the desktop's windows** (`MainWindowHandle` is 0 there, and

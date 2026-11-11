@@ -193,6 +193,64 @@ breaks today.
 limitation for a `Blob`/`File` body or a `FormData` with a file part, rather than letting it go out
 empty. No conversion.
 
+## The Windows port (Phase 5, grafida/grafida#91)
+
+**The shell owns WebView2 through webview2-com 0.39 / windows-rs 0.62, and wry is not used on
+Windows either**, as on macOS. The spike above proved the scheme registration through wry's
+`with_environment`; reading wry 0.57.1's WebView2 backend for the port showed how much of it the
+shell would have had to work around:
+
+- custom schemes only through the `http(s)://<scheme>.localhost` rewrite, and `with_environment`
+  skips wry's whole environment setup (browser arguments, language, data folder);
+- the request body read **synchronously on the UI thread**, 1 KiB at a time, inside the
+  `WebResourceRequested` callback, so a 50 MiB upload freezes the window;
+- always-on handlers whose tokens are discarded: every popup silently blocked, Edge's download UI
+  hidden, `WindowCloseRequested` destroying only its container;
+- a file-drop handler replacing Chromium's `IDropTarget` on every child window, which costs the
+  page HTML5 drag and drop;
+- nested `wait_with_pump` loops for the environment, the controller and every init script, which
+  swallow `WM_QUIT`; no handlers for accelerators, the context menu, focus, process failure or DPI.
+
+What the port took from wry instead: the browser arguments
+`--disable-features=msWebOOUI,msPdfOOUI,msSmartScreenProtection`; `SetBounds` on resize,
+`MoveFocus` on focus, `NotifyParentWindowPositionChanged` on move; the request filter with every
+source kind (`ICoreWebView2_22`); deferrals completed on the UI thread; repeated headers one line
+per value; the UI language passed to the environment.
+
+### Results (Windows, Phase 5)
+
+Dev-mode parity, `scripts/dev/parity-windows.sh` driven from the Linux host: **31/31 on Windows 11
+Pro 26H2 (build 26300.9711) and on Windows 10 Pro 22H2 (build 19045.6456, Greek)**, WebView2
+157.0.4341.42, recorded on grafida/grafida#91. Nothing in it is by hand: real keys, clicks and drags
+go through `SendInput`, native dialogs and Explorer through UI Automation, and AI streaming through
+a server on the host.
+
+| | Windows 11 | Windows 10 (Greek) |
+|---|---|---|
+| `location.origin`, bodies 0 B → 50 MiB, 413 past the limit | `boson://app`, 50 MiB in 624 ms | `boson://app`, 50 MiB in 789 ms |
+| Worker under the shell's Job Object; the shell killed outright | the worker gone within 1.7 s | gone within 1.5–1.6 s |
+| Close through the window's X → worker stopped | 0.06 s | 0.19 s |
+| Console windows over the whole run (WinEvent hook) | none | none |
+| Idle CPU, release shell, Grafida on Articles with a site, whole tree | 0.26 % of one core | 0.13 % |
+
+Findings that shaped the code:
+
+- **Every key reaches the page.** With `AreBrowserAcceleratorKeysEnabled = false` the browser acts
+  on none of its own shortcuts, and with no menu bar nothing takes Ctrl+Shift+V.
+- **A spelling suggestion's context-menu item is named `spellcheck`** (lower case, with an empty
+  label), not `spellCheck`; a case-sensitive allowlist had removed every suggestion.
+- **WebView2 checks the user's primary language only**, and after a cold boot the first text typed
+  into a subframe can stay unmarked until the next edit.
+- **The worker is phpmicro's GUI SFX**, started suspended, put in the Job Object, then resumed
+  (stable Rust has no `raw_attribute`, `main_thread_handle` or `startupinfo_force_feedback`, so the
+  one thread is found with a Toolhelp32 snapshot). It needed two fork fixes, `CREATE_NO_WINDOW` for
+  its own children and the sibling `.phar` through the file's final path, and shell-php 0.2.1's
+  blocking stdin (PHP polls a pipe it did not open as blocking).
+- **Static CRT, and the application manifest linked from a `.res` that `build.rs` writes**, because
+  `embed-manifest` needs `mt.exe`, which `lld-link` under cargo-xwin lacks.
+- A **release** build drops the `WEBVIEW2_*` variables that change the browser, so no debugging
+  port can be injected.
+
 ## Decision
 
 ### 1. Stack: **Rust + wry / tao / rfd / muda**
@@ -218,7 +276,8 @@ only the extension points wry already exposes. Beyond that:
   CORS-enabled. Offer the reader fix upstream to wry; do not depend on it. macOS is decided in
   Phase 4: wry's `WKURLSchemeHandler` path is acceptable if it passes the same tests. **Decided
   (grafida/grafida#88): the shell owns the macOS webview through objc2**, and wry is not used on
-  macOS either; see "The macOS question".
+  macOS either; see "The macOS question". **Decided (grafida/grafida#91): the shell owns WebView2
+  through webview2-com on Windows too**; see "The Windows port".
 - **Turn the WebKitGTK sandbox on** (`WebContext::set_sandbox_enabled`) unless it breaks the file
   dialogs. The editor renders article HTML fetched from sites, and saucer/WebKitGTK 6 already
   sandboxes by default, so we should not regress below that.
@@ -244,6 +303,10 @@ configure time. Together these outweigh the one advantage the Windows result abo
 - **Windows:** 10 1809+ with the WebView2 **Evergreen** runtime. The custom-scheme registration
   needs `ICoreWebView2EnvironmentOptions4`, which every current Evergreen runtime has. The NSIS
   installer runs the Evergreen bootstrapper when the runtime is missing.
+  **Amended in Phase 5 (grafida/grafida#91): Windows 10 22H2 or later**, the oldest release still
+  tested (Windows 10's last), x86_64 only. **No bootstrapper**: the runtime ships with Windows 11 and
+  comes through Windows Update on Windows 10; without it the installer warns and offers the
+  download page, and the shell shows an alert at launch.
 
 ### 3. Architectures: **per-arch**, as today
 

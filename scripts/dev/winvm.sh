@@ -15,6 +15,7 @@
 #   versions VM              what a clean-machine record notes: Windows, Edge, WebView2, Defender,
 #                            Smart App Control, locale
 #   get VM GUEST HOST        copy a file out of the guest
+#   put VM HOST GUEST        copy a file into the guest
 #   desktop VM SCRIPT [ARG…] run a PowerShell script in the logged-on user's desktop session (the
 #                            SSH session sees no window) and print its output; scripts/dev/winvm/desk/
 #   clean-up VM              remove C:\winvm and its scheduled tasks (before a `clean` snapshot)
@@ -222,6 +223,11 @@ for (\$i = 0; \$i -lt 1800 -and -not (Test-Path C:\\winvm\\desk\\$name.done); \$
 schtasks /Delete /TN winvm-desk-$name /F | Out-Null
 if (Test-Path C:\\winvm\\desk\\$name.out) { Get-Content C:\\winvm\\desk\\$name.out }
 if (-not (Test-Path C:\\winvm\\desk\\$name.done)) { throw 'the desktop script did not finish within 3 minutes' }"
+        ;;
+    put)
+        # A host file into the guest.
+        from=${1:?host path}; guest=${2:?guest path}
+        scp -q "$from" "$(host "$vm"):${guest//\\//}"
         ;;
     get)
         # A guest file to the host (a screenshot a desktop helper wrote).

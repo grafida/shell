@@ -114,7 +114,7 @@ RED
 
 ok_field() { python3 -I -c 'import json,sys; a=json.load(sys.stdin); r=a.get("result") or {}; print("yes" if a.get("ok") and (r.get("ok", True) is True) and not r.get("failures") else "no: " + json.dumps(r.get("failures", a))[:300])'; }
 
-trap 'close_tunnel; [ -n "${AI_SERVER:-}" ] && kill "$AI_SERVER" 2>/dev/null; "$W" stop-run "$VM" >/dev/null 2>&1' EXIT
+trap 'close_tunnel; kill ${AI_SERVER:-} ${AI_TLS_SERVER:-} 2>/dev/null; "$W" stop-run "$VM" >/dev/null 2>&1' EXIT
 
 [ -f "$BIN" ] || { echo "No shell binary at $BIN" >&2; exit 1; }
 "$W" wait "$VM" || exit 1
@@ -448,6 +448,39 @@ record "$( [ "$dark" = dark/True ] && [ "$light" = light/False ] && [ "$auto_dar
     "Theme: dark and light, and auto following a Windows mode switch; the title bar follows the page" \
     "page/dark title bar — dark $dark; light $light; auto with Windows dark $auto_dark, then light $auto_light"
 
+# The editing keys a user reaches for: Ctrl+A, Ctrl+C, Ctrl+X and Ctrl+V of our own copy in the
+# editor and the title (the clipboard read back from the desktop), and Ctrl+Z after a paste from
+# another program.
+$CLIENT eval 'return __fresh("<p>alpha beta</p>")' >/dev/null
+$CLIENT key ctrl+a >/dev/null; $CLIENT key ctrl+c >/dev/null; sleep 0.5
+copied=$(desk clipboard-read)
+$CLIENT key ctrl+x >/dev/null; sleep 0.5; cut=$(content)
+$CLIENT key ctrl+v >/dev/null; sleep 1; pasted=$(content)
+read -r tx ty < <($CLIENT eval 'const i = document.getElementById("editor-title-input"); i.value = ""; const r = i.getBoundingClientRect(); return [Math.round(r.left + r.width / 2), Math.round(r.top + r.height / 2)]' | python3 -I -c 'import json,sys; print(*json.load(sys.stdin)["result"])')
+$CLIENT mouse "$tx" "$ty" >/dev/null
+$CLIENT type 'Title words' >/dev/null
+$CLIENT key ctrl+a >/dev/null; $CLIENT key ctrl+x >/dev/null; sleep 0.3
+title_cut=$($CLIENT eval 'return document.getElementById("editor-title-input").value' | python3 -I -c 'import json,sys; print(json.load(sys.stdin).get("result"))')
+title_clip=$(desk clipboard-read)
+$CLIENT key ctrl+v >/dev/null; sleep 0.3
+title_back=$($CLIENT eval 'return document.getElementById("editor-title-input").value' | python3 -I -c 'import json,sys; print(json.load(sys.stdin).get("result"))')
+desk clipboard 'Pasted <strong>bold</strong> text' 'Pasted bold text' >/dev/null
+$CLIENT eval 'const ed = State.tinyMCEEditor; ed.setContent("<p>start</p>"); ed.undoManager.clear(); ed.undoManager.add(); ed.focus(); ed.selection.select(ed.getBody(), true); ed.selection.collapse(false); return true' >/dev/null
+$CLIENT key ctrl+v >/dev/null; sleep 1; other=$(content)
+$CLIENT key ctrl+z >/dev/null; sleep 0.5; unpasted=$(content)
+record "$( [ "$copied" = '"alpha beta"' ] && ! grep -q alpha <<<"$cut" && grep -q 'alpha beta' <<<"$pasted" && [ -z "$title_cut" ] && [ "$title_clip" = '"Title words"' ] && [ "$title_back" = 'Title words' ] && grep -q '<strong>bold</strong>' <<<"$other" && [ "$unpasted" = '<p>start</p>' ] && echo PASS || echo FAIL)" \
+    "Real keys: Ctrl+A/C/X/V in the editor and the title; Ctrl+Z after a paste from another program" \
+    "copied $copied; after Ctrl+X '$cut'; Ctrl+V $pasted; title cut to '$title_cut', clipboard $title_clip, pasted back '$title_back'; pasted $other, Ctrl+Z $unpasted"
+
+# ⚠️ Known, and not the shell's: Ctrl+Z after a Ctrl+X records no undo level, so the cut text cannot
+# be brought back. It reproduces in plain Chromium 156 against the same SPA (grafida/grafida#91),
+# so it is the editor on Chromium, Boson's WebView2 included. Reported, not counted.
+$CLIENT eval 'return __fresh("<p>alpha beta</p>")' >/dev/null
+$CLIENT key ctrl+a >/dev/null; $CLIENT key ctrl+x >/dev/null; sleep 0.7
+$CLIENT key ctrl+z >/dev/null; sleep 0.7; after_cut=$(content)
+record NOTE "Ctrl+Z after Ctrl+X brings the cut text back (a known editor bug on Chromium, not counted)" \
+    "$( [ "$after_cut" = '<p>alpha beta</p>' ] && echo "now it does: $after_cut" || echo "still not: '$after_cut'")"
+
 # AI streaming from a local model: test-server.py on the host, which the guest reaches at QEMU's
 # 10.0.2.2, over plain HTTP. The panel's direct fetch must stream (many partial renders), not fall
 # back to the PHP proxy.
@@ -470,7 +503,61 @@ record "$(python3 -I -c 'import json,sys; r=json.load(sys.stdin)["result"]; ok =
     "$(python3 -I -c 'import json,sys; r=json.load(sys.stdin)["result"]; print("%d partial renders; %s; requests %s" % (r["partials"], r["text"][:90], r["fetches"]))' <<<"$answer" 2>/dev/null || tr -d '\n' <<<"$answer" | cut -c1-200)"
 $CLIENT eval 'GrafidaAIPanel.onEditorLeave && GrafidaAIPanel.onEditorLeave(); return true' >/dev/null
 
-$CLIENT eval 'State.tinyMCEEditor.setDirty(false); showScreen("articles"); document.activeElement && document.activeElement.blur(); return true' >/dev/null
+# AI over HTTPS: the same host server with TLS, its throwaway CA trusted by the guest for the row
+# (the machine store; the SSH session is elevated, and the user store would prompt).
+CA_DIR=$(mktemp -d)
+openssl req -x509 -newkey rsa:2048 -nodes -keyout "$CA_DIR/ca.key" -out "$CA_DIR/ca.crt" -days 2 -subj '/CN=parity-windows test CA' \
+    -addext 'basicConstraints=critical,CA:TRUE' -addext 'keyUsage=critical,keyCertSign,cRLSign' 2>/dev/null
+openssl req -newkey rsa:2048 -nodes -keyout "$CA_DIR/server.key" -out "$CA_DIR/server.csr" -subj '/CN=10.0.2.2' 2>/dev/null
+printf 'subjectAltName=IP:10.0.2.2\nextendedKeyUsage=serverAuth\n' > "$CA_DIR/ext"
+openssl x509 -req -in "$CA_DIR/server.csr" -CA "$CA_DIR/ca.crt" -CAkey "$CA_DIR/ca.key" -CAcreateserial -out "$CA_DIR/server.crt" -days 2 -extfile "$CA_DIR/ext" 2>/dev/null
+"$W" put "$VM" "$CA_DIR/ca.crt" 'C:\winvm\files\parity-ca.crt'
+thumb=$(gps "(Import-Certificate -FilePath C:\\winvm\\files\\parity-ca.crt -CertStoreLocation Cert:\\LocalMachine\\Root).Thumbprint")
+python3 -I "$SHELL_DIR/scripts/dev/macguest/test-server.py" 8766 --tls "$CA_DIR/server.crt" "$CA_DIR/server.key" >"$EVIDENCE/ai-https-server.log" 2>&1 &
+AI_TLS_SERVER=$!
+sleep 1
+$CLIENT eval 'const b = {name: "Parity AI over HTTPS", provider: "custom", endpoint: "https://10.0.2.2:8766/v1", model: "fake-model", params: {stream: true}, key: "parity-key"}; await createAiServiceWithInsecureFallback(b); const s = await api.listAiServices(); await fetch("/api/ai/services/" + s[s.length - 1].id + "/default", {method: "POST"}); State.tinyMCEEditor.setDirty(false); location.reload(); return true' >/dev/null 2>&1
+sleep 2
+$CLIENT wait 'return !!document.querySelector("#sidebar") && State.sites && State.sites.length > 0 && State.aiDefaultServiceId' 30 >/dev/null
+$CLIENT eval 'openNewArticle(); for (let i = 0; i < 100 && !(State.tinyMCEEditor && State.tinyMCEEditor.initialized); i++) await new Promise(r => setTimeout(r, 100)); State.tinyMCEEditor.setContent("<p>An article.</p>"); window.__fetches = []; const of = window.fetch; window.fetch = function (u, o) { const url = String(u && u.url || u); const p = of.apply(this, arguments); p.then(r => __fetches.push(url + " " + r.status), e => __fetches.push(url + " " + e)); return p; }; GrafidaAIPanel.toggle(); return true' >/dev/null
+sleep 1
+read -r ax ay < <($CLIENT eval 'const r = document.getElementById("ai-input").getBoundingClientRect(); return [Math.round(r.left + r.width / 2), Math.round(r.top + r.height / 2)]' | python3 -I -c 'import json,sys; print(*json.load(sys.stdin)["result"])')
+$CLIENT mouse "$ax" "$ay" >/dev/null
+$CLIENT type 'Say hello' >/dev/null
+$CLIENT key ctrl+enter >/dev/null
+answer=$($CLIENT eval 'const seen = new Set(); const t0 = Date.now(); let text = ""; while (Date.now() - t0 < 25000) { const b = [...document.querySelectorAll("#ai-conversation .ai-bubble-assistant")].pop(); text = b ? b.textContent.trim() : ""; seen.add(text.length); if (text.includes("stream.") && !document.querySelector(".ai-bubble-streaming")) break; await new Promise(r => setTimeout(r, 100)); } return {partials: seen.size, text: text.slice(0, 160), fetches: __fetches.filter(f => !f.includes("/api/ai/render"))}')
+kill "$AI_TLS_SERVER" 2>/dev/null
+[ -n "$thumb" ] && gps "Remove-Item Cert:\\LocalMachine\\Root\\$thumb; Remove-Item C:\\winvm\\files\\parity-ca.crt" >/dev/null
+rm -rf "$CA_DIR"
+record "$(python3 -I -c 'import json,sys; r=json.load(sys.stdin)["result"]; ok = "streamed from 10.0.2.2:8766" in r["text"] and r["partials"] >= 5 and any("https://10.0.2.2:8766/v1/chat/completions 200" in f for f in r["fetches"]) and not any("/api/ai/proxy" in f for f in r["fetches"]); print("PASS" if ok else "FAIL")' <<<"$answer" 2>/dev/null || echo FAIL)" \
+    "AI over HTTPS: a reply streams into the panel straight from the server (its CA trusted by Windows, not by us)" \
+    "$(python3 -I -c 'import json,sys; r=json.load(sys.stdin)["result"]; print("%d partial renders; requests %s" % (r["partials"], r["fetches"]))' <<<"$answer" 2>/dev/null || tr -d '\n' <<<"$answer" | cut -c1-200); CA ${thumb:-not imported}, removed afterwards"
+$CLIENT eval 'GrafidaAIPanel.onEditorLeave && GrafidaAIPanel.onEditorLeave(); return true' >/dev/null
+
+# Settings ▸ Storage ▸ open folder: PHP starts explorer.exe; an Explorer window on the data folder,
+# and (the watcher, at the end) no console window for that child.
+$CLIENT eval 'State.tinyMCEEditor && State.tinyMCEEditor.setDirty(false); showScreen("articles"); return (await fetch("/api/settings/storage/open", {method: "POST"})).status' >/dev/null
+sleep 3
+folder=$(desk windows CabinetWClass close | tr '\n' ';')
+record "$(grep -qE '(^|;)Grafida( - [^|;]*)? \|' <<<"$folder" && echo PASS || echo FAIL)" \
+    "Settings ▸ Storage ▸ open folder → File Explorer on the data folder (a child the worker starts)" "Explorer windows: ${folder:-none}"
+
+# Every context menu WebView2 offered during the run kept no item that navigates or leaves the app.
+navigating=$(gps "Get-Content -Encoding UTF8 '$LOG' | Select-String 'kept: ' | % { (\$_.Line -split 'kept: ')[1] -split ' \\| ' } | % { (\$_ -split '=')[0] } | Sort-Object -Unique" | tr '\n' ' ')
+record "$( ! grep -qwE 'back|forward|reload|saveAs|print|share|webCapture|createQrCode|openLinkInNewWindow|openLinkInNewTab|saveImageAs|saveLinkAs' <<<"$navigating" && [ -n "$navigating" ] && echo PASS || echo FAIL)" \
+    "The context menus offered nothing that navigates or leaves the app (every menu of the run)" "items kept across the run: $navigating"
+
+# The packaged build only: what Task Manager names the processes, and the icons Windows shows. The
+# shell's are read from the installed Grafida.exe (this run's copy has the debug shell in its place);
+# the worker's from its running process.
+if [ -n "$PACKAGED" ]; then
+    names=$(gps "\$w = Get-CimInstance Win32_Process -Filter 'ParentProcessId=$SHELL_PID' | ? Name -eq 'grafida-worker.exe' | Select -First 1; '{0}|{1}' -f (Get-Item '$PACKAGED\\Grafida.exe').VersionInfo.FileDescription, (Get-Process -Id \$w.ProcessId).Description")
+    icons=$(gps "Add-Type -AssemblyName System.Drawing; \$h = { param(\$b) \$m = New-Object IO.MemoryStream; \$b.Save(\$m, [System.Drawing.Imaging.ImageFormat]::Png); [BitConverter]::ToString([Security.Cryptography.SHA256]::Create().ComputeHash(\$m.ToArray())).Substring(0, 11) }; \$ico = & \$h ([System.Drawing.Icon]::new('$PACKAGED\\Grafida.ico', 32, 32).ToBitmap()); foreach (\$f in 'Grafida.exe', 'grafida-worker.exe') { '{0}={1}' -f \$f, ((& \$h ([System.Drawing.Icon]::ExtractAssociatedIcon('$PACKAGED\\' + \$f).ToBitmap())) -eq \$ico) }" | tr '\n' ' ')
+    record "$( [ "$names" = 'Grafida|Grafida worker' ] && ! grep -q '=False' <<<"$icons" && echo PASS || echo FAIL)" \
+        "Task Manager's names (FileDescription) and the executables' icons, from the installed build" "names ${names}; the .ico's 32 px image is each exe's: $icons"
+fi
+
+$CLIENT eval 'State.tinyMCEEditor && State.tinyMCEEditor.setDirty(false); showScreen("articles"); document.activeElement && document.activeElement.blur(); return true' >/dev/null
 
 # Idle CPU of the whole tree, on the Articles screen with a site, the focus out of the editor.
 settle=60 sample=60

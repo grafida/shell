@@ -3,7 +3,7 @@
 #
 # Copyright (c) 2026 Nicholas K. Dionysopoulos. MIT; see LICENSE.
 #
-#   test-server.py PORT [DMG]
+#   test-server.py PORT [DMG] [--tls CERT KEY]
 #
 # Run on the host (the guests reach it at their gateway, 192.168.64.1) or in a guest:
 #   GET  /<basename of DMG> or /Grafida.dmg  the disk image, as a download (a browser in the guest
@@ -14,10 +14,15 @@
 #                                            "stream": true (the AI panel's path)
 #   OPTIONS                                  a CORS preflight; every answer carries CORS headers,
 #                                            as a local AI server configured for the app would
-# It listens on IPv6 and IPv4 alike: a .local name may resolve to IPv6 only.
+# It listens on IPv6 and IPv4 alike: a .local name may resolve to IPv6 only. With --tls it serves
+# HTTPS with that certificate (the Windows guests trust a throwaway CA for it, grafida/grafida#91).
 import http.server, json, os, sys
 
-PORT = int(sys.argv[1]); DMG = sys.argv[2] if len(sys.argv) > 2 else None
+ARGS = sys.argv[1:]
+TLS = None
+if "--tls" in ARGS:
+    i = ARGS.index("--tls"); TLS = (ARGS[i + 1], ARGS[i + 2]); del ARGS[i:i + 3]
+PORT = int(ARGS[0]); DMG = ARGS[1] if len(ARGS) > 1 else None
 
 class H(http.server.BaseHTTPRequestHandler):
     def cors(self):
@@ -77,4 +82,10 @@ class DualStack(http.server.ThreadingHTTPServer):
         self.socket.setsockopt(socket.IPPROTO_IPV6, socket.IPV6_V6ONLY, 0)
         super().server_bind()
 
-DualStack(("::", PORT), H).serve_forever()
+server = DualStack(("::", PORT), H)
+if TLS:
+    import ssl
+    context = ssl.SSLContext(ssl.PROTOCOL_TLS_SERVER)
+    context.load_cert_chain(*TLS)
+    server.socket = context.wrap_socket(server.socket, server_side=True)
+server.serve_forever()
