@@ -160,6 +160,16 @@ SHELL_ARCH=$(lipo -archs "$BIN")
 if [ "$SHELL_ARCH" = x86_64 ] && [ "$(uname -m)" = arm64 ] && ! arch -x86_64 /usr/bin/true 2>/dev/null; then
     echo "$BIN is x86_64 and this Mac has no Rosetta 2 (a macos-*-rosetta guest has)" >&2; exit 1
 fi
+# What a shell under Rosetta 2 starts inherits its architecture: the test apps' fake worker would run
+# the x86_64 slice of /usr/bin/python3, whose xcrun shim needs a libxcrun that macOS 27's Command
+# Line Tools ship arm64 only ("missing compatible architecture"; 12's has both, grafida/grafida#92).
+# The fake worker is not under test, so it stays native, like the parity client.
+if [ "$SHELL_ARCH" = x86_64 ] && [ "$(uname -m)" = arm64 ]; then
+    mkdir -p "$WORK/native-bin"
+    printf '#!/bin/sh\nexec /usr/bin/arch -arm64 /usr/bin/python3 "$@"\n' >"$WORK/native-bin/python3"
+    chmod +x "$WORK/native-bin/python3"
+    export PATH="$WORK/native-bin:$PATH"
+fi
 mkdir -p "$WORK/home" "$WORK/exports"
 printf 'PNG' >"$WORK/pick.png"
 printf '# Hello\n' >"$WORK/note.md"

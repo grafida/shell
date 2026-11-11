@@ -194,4 +194,13 @@ reads the architecture from `SHELL_BIN`, refuses an x86_64 one on a Mac without 
 first row proves what runs: `_native/info`'s `arch` (fixed at compile time, so `x86_64` from a shell
 on an arm64 Mac is Rosetta 2) and every executable in the packaged bundle (shell and worker stub),
 which must all be x86_64. Python, the parity client and the fake worker stay arm64; only the app is
-translated.
+translated. The fake worker only because the script makes it: a process started by a translated one
+inherits x86_64, so the test apps' `python3` would run the x86_64 slice of `/usr/bin/python3`, whose
+xcrun shim needs a `libxcrun` that macOS 27's Command Line Tools ship arm64 only (12's have both). The
+script puts a `python3` that runs `arch -arm64 /usr/bin/python3` first on the PATH.
+
+Run on 2026-11-11 with shell `0.4.0`'s `debug-automation-macos-x86_64` (sha256 `3206739145fa…`) swapped
+into Grafida 0.4's x86_64 bundle: 26/26 on both clones, idle CPU 0.03 % (12.7.6) and 0.07 % (27.2.1)
+of one core. macOS 27 also shows a notification for any x86_64 app: "App Update Required — This
+version of “Grafida” will not open in macOS 28, the next major release. An Apple silicon update may
+be available on the developer's website."
