@@ -262,6 +262,7 @@ if (-not (Test-Path C:\\winvm\\desk\\$name.done)) { throw 'the desktop script di
     put)
         # A host file into the guest.
         from=${1:?host path}; guest=${2:?guest path}
+        rps "$vm" "New-Item -ItemType Directory -Force (Split-Path -Parent '$guest') | Out-Null"
         scp -q "$from" "$(host "$vm"):${guest//\\//}"
         ;;
     get)
