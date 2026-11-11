@@ -181,6 +181,11 @@ clean guest holds for its clone. ⚠️ **Installing Rosetta 2 accepts Apple's l
 is required, and the operator is asked before it is passed. The base `-clean` guest never gets Rosetta,
 so the arm64 runs stay on a Mac that cannot run Intel code by accident.
 
+Made on 2026-11-11: `macos-12-rosetta-clean` (12.7.6 21H1320, Rosetta 2 package
+`1.0.0.0.1.1721215246`) and `macos-27-rosetta-clean` (27.2.1 26B131, `1.0.0.0.1.1793943009`). On 12,
+`softwareupdate` prints "Package Authoring Error: … RosettaUpdateAuto is missing installKBytes
+attribute" before installing it: Apple's catalogue, harmless.
+
 From then on `macos-12-rosetta` is a guest like the others (`fresh`, `run`, `wait`, `ssh`, `stop`); it
 counts towards the two-guest limit. A run follows section 2 with the x86_64 artefacts: the
 `-macos-amd64` DMG, installed and first launched through Gatekeeper on the untouched clone, then
