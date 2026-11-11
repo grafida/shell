@@ -1,3 +1,8 @@
+shell 0.3.2 (unreleased)
+================================================================================
++ `ui.ps1 set`: puts a value in a field (UI Automation's value pattern), as a search box needs
+- `winvm.sh stop-run` left a program running when its pid file was written a fraction of a millisecond before Windows recorded the start
+
 shell 0.3.1
 ================================================================================
 + `parity-windows.sh`: the window's own icons (packaged), from the installed release shell

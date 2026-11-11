@@ -13,13 +13,16 @@
 #                                  else a real mouse click on its centre.
 #   click  TARGET NAME [TIMEOUT]   the same, always with the real mouse.
 #   wait   TARGET NAME [TIMEOUT]   waits for the control and prints it, pressing nothing.
+#   set    TARGET NAME TIMEOUT VALUE   puts VALUE in the field named NAME (its value pattern), as
+#                                  typing it would leave it.
 #
 # TARGET: a process name without .exe (msedge, smartscreen, an installer's file name), a pid, or *.
 param(
-    [Parameter(Mandatory)] [ValidateSet('dump', 'invoke', 'click', 'wait')] [string] $Mode,
+    [Parameter(Mandatory)] [ValidateSet('dump', 'invoke', 'click', 'wait', 'set')] [string] $Mode,
     [Parameter(Mandatory)] [string] $Target,
     [string] $Name = '',
-    [int] $Limit = 0
+    [int] $Limit = 0,
+    [string] $Value = ''
 )
 $ErrorActionPreference = 'Stop'
 Add-Type -AssemblyName UIAutomationClient, UIAutomationTypes
@@ -126,6 +129,11 @@ if (-not $hit) { "no enabled control named '$Name' in $Target within $timeout s"
 $w, $e = $hit
 "found: " + (Describe $e)
 if ($Mode -eq 'wait') { exit 0 }
+if ($Mode -eq 'set') {
+    $pattern = $null
+    if (-not $e.TryGetCurrentPattern([System.Windows.Automation.ValuePattern]::Pattern, [ref]$pattern)) { "no value pattern"; exit 1 }
+    $e.SetFocus(); $pattern.SetValue($Value); "set to '$Value'"; exit 0
+}
 if ($Mode -eq 'click') { MouseClick $w $e; exit 0 }
 
 $c = $e.Current

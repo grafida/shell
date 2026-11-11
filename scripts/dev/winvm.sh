@@ -72,7 +72,9 @@ rssh() { local vm=$1; shift; ssh -o ConnectTimeout=10 "$(host "$vm")" "$@"; }
 # started before the pid file was written. ⚠️ Windows hands a dead process's pid to a new one quickly
 # (seen on Windows 10), and a bare pid check then calls an unrelated process ours: `run` refused to
 # start, and `stop-run` would have killed that process's tree.
-OURS='function Ours { if (-not (Test-Path C:\winvm\run\pid)) { return $null }; $f = Get-Item C:\winvm\run\pid; $p = Get-Process -Id ([int](Get-Content $f).Trim()) -ErrorAction SilentlyContinue; if ($p -and $p.StartTime -le $f.LastWriteTime) { $p } else { $null } }'
+# ⚠️ With 2 s of slack: the pid file can be written a fraction of a millisecond before Windows
+# records the process's start time (seen on Windows 10), and a reused pid starts far later anyway.
+OURS='function Ours { if (-not (Test-Path C:\winvm\run\pid)) { return $null }; $f = Get-Item C:\winvm\run\pid; $p = Get-Process -Id ([int](Get-Content $f).Trim()) -ErrorAction SilentlyContinue; if ($p -and $p.StartTime -le $f.LastWriteTime.AddSeconds(2)) { $p } else { $null } }'
 
 rps() {
     local vm=$1 script=$2 encoded
