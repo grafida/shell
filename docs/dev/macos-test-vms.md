@@ -148,6 +148,22 @@ The order matters, because some steps change the guest:
    hands off and the screen the checklist names (a focused editor's caret alone costs ~1.5 %; a
    real click on the sidebar takes the focus out of it).
 
+Gotchas found on the way:
+
+- **The guest's screen can freeze** while the system runs on: the pointer stops moving in the VM
+  window, `WindowServer` sits in state `U` (an uninterruptible wait in the kernel, likely the
+  virtual graphics device), and `screencapture` hangs. SSH still answers. Only a restart helps
+  (`sudo shutdown -r now`); nothing on disk is lost. Seen once on macOS 12, with nothing of ours
+  running.
+- **Scripts run in the guests under bash 3.2**: no associative arrays, `${a[@]+"${a[@]}"}` for a
+  possibly empty array under `set -u`, and no `case` inside `$( … )` (move it into a function).
+- **A `.local` name may resolve to IPv6 only** over the virtual network (macOS 27 publishes the
+  guest's and the host's that way), and a test server listening on IPv4 alone then never answers
+  it; `test-server.py` listens on both. Grafida's PHP resolver sees no address for such a name
+  (`gethostbynamel()` is IPv4, `dns_get_record()` never asks Bonjour), and the webview's own
+  fetch to it hung on 27 where `curl` succeeded: the `.local` row of the ATS matrix is not
+  testable in this setup.
+
 ## 3. x86_64 under Rosetta 2 (grafida/grafida#92)
 
 Intel Macs are tested nowhere else: there is no Intel hardware and no Intel guest. Each clean guest
@@ -174,19 +190,3 @@ first row proves what runs: `_native/info`'s `arch` (fixed at compile time, so `
 on an arm64 Mac is Rosetta 2) and every executable in the packaged bundle (shell and worker stub),
 which must all be x86_64. Python, the parity client and the fake worker stay arm64; only the app is
 translated.
-
-Gotchas found on the way:
-
-- **The guest's screen can freeze** while the system runs on: the pointer stops moving in the VM
-  window, `WindowServer` sits in state `U` (an uninterruptible wait in the kernel, likely the
-  virtual graphics device), and `screencapture` hangs. SSH still answers. Only a restart helps
-  (`sudo shutdown -r now`); nothing on disk is lost. Seen once on macOS 12, with nothing of ours
-  running.
-- **Scripts run in the guests under bash 3.2**: no associative arrays, `${a[@]+"${a[@]}"}` for a
-  possibly empty array under `set -u`, and no `case` inside `$( … )` (move it into a function).
-- **A `.local` name may resolve to IPv6 only** over the virtual network (macOS 27 publishes the
-  guest's and the host's that way), and a test server listening on IPv4 alone then never answers
-  it; `test-server.py` listens on both. Grafida's PHP resolver sees no address for such a name
-  (`gethostbynamel()` is IPv4, `dns_get_record()` never asks Bonjour), and the webview's own
-  fetch to it hung on 27 where `curl` succeeded: the `.local` row of the ATS matrix is not
-  testable in this setup.

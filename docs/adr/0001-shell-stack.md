@@ -1,6 +1,6 @@
 # ADR 0001 — Shell stack, deployment floors, architectures, licence
 
-- **Status:** Accepted. Verified at runtime on Linux, Windows and macOS (Phase 4: the macOS webview path, on arm64; Phase 6: x86_64 under Rosetta 2).
+- **Status:** Accepted. Verified at runtime on Linux, Windows and macOS (Phase 4: the macOS webview path, and arm64 only).
 - **Date:** 2026-11-09
 - **Context issue:** [grafida/grafida#82](https://github.com/grafida/grafida/issues/82), Phase 0
 
