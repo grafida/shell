@@ -1,8 +1,14 @@
-shell 0.4.0 (unreleased)
+shell 0.3.1
 ================================================================================
++ `parity-windows.sh`: the window's own icons (packaged), from the installed release shell
++ Desktop helpers for the clean-machine run: `ui.ps1` (read and press any window's controls, through UI Automation, in the guest's language), `keys.ps1`, `window-icon.ps1`
 + `parity-windows.sh`: Ctrl+A/C/X/V and Ctrl+Z after a paste, AI over HTTPS, the open-folder child, the menus' items, process names and icons (packaged)
 + `parity-windows.sh`: NOTE rows, reported in the record but not counted (Ctrl+Z after Ctrl+X, an editor bug on Chromium)
 + `winvm.sh put`, and a desktop helper that reads the clipboard back
+- Windows 10: every launch showed the "working in background" pointer for about 5 s; the worker is started with `CreateProcessW` and `STARTF_FORCEOFFFEEDBACK`
+- Windows: the window's title bar and Alt+Tab showed the generic icon instead of the app's (the executable's first icon)
+- `winvm.sh`: `start` held a pipe open for as long as the VM ran; an update pass killed by Windows finishing an update with a second restart waited 2 hours; `watch-start` and `idle` failed on a guest without `C:\winvm`
+~ Windows: the worker inherits only its three pipes, and its main thread comes back from `CreateProcessW` (no Toolhelp snapshot)
 ~ `scripts/dev/macguest/test-server.py --tls CERT KEY` serves HTTPS
 
 shell 0.3.0

@@ -637,6 +637,19 @@ record "$( [ "${off:-0}" -ge 1 ] && [ "${on:-0}" -ge 1 ] && [ "${inspect_off:-1}
     "DevTools only with GRAFIDA_DEBUG=1: the WebView2 setting, and Inspect in the real right-click menu" \
     "launches with devtools off: ${off:-0}, on: ${on:-0}; menus offering Inspect without GRAFIDA_DEBUG: ${inspect_off:-?}, with it: ${inspect_on:-0}"
 
+# The packaged build only: the window's own icons (title bar, Alt+Tab). Taskbar and Task Manager
+# read the executable, but a window shows the generic icon until the shell sets it; this copy runs
+# the debug shell, which has no icon resource, so the installed release shell is started for it.
+if [ -n "$PACKAGED" ]; then
+    "$W" stop-run "$VM" >/dev/null 2>&1
+    release=$("$W" run "$VM" "$PACKAGED\\Grafida.exe" | tr -d '\r' | tail -1)
+    wicon=$( [ -n "$release" ] && desk window-icon "$release" "$PACKAGED\\Grafida.ico" | tail -1)
+    shot window-icon
+    "$W" stop-run "$VM" >/dev/null 2>&1
+    record "$(grep -q '^big=True small=yes' <<<"$wicon" && echo PASS || echo FAIL)" \
+        "The window's own icons (title bar, Alt+Tab) are the app's, from the installed release shell" "${wicon:-no answer}"
+fi
+
 # Every console window that appeared on the desktop during the whole run.
 shown=$("$W" watch-stop "$VM" | tr -d '\r')
 record "$( [ -z "$shown" ] && echo PASS || echo FAIL)" \

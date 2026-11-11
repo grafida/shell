@@ -241,9 +241,13 @@ Findings that shaped the code:
   label), not `spellCheck`; a case-sensitive allowlist had removed every suggestion.
 - **WebView2 checks the user's primary language only**, and after a cold boot the first text typed
   into a subframe can stay unmarked until the next edit.
-- **The worker is phpmicro's GUI SFX**, started suspended, put in the Job Object, then resumed
-  (stable Rust has no `raw_attribute`, `main_thread_handle` or `startupinfo_force_feedback`, so the
-  one thread is found with a Toolhelp32 snapshot). It needed two fork fixes, `CREATE_NO_WINDOW` for
+- **The worker is phpmicro's GUI SFX**, started suspended, put in the Job Object, then resumed.
+  Stable Rust has no `raw_attribute`, `main_thread_handle` or `startupinfo_force_feedback`; the one
+  thread was first found with a Toolhelp32 snapshot, and the shell now calls `CreateProcessW` itself
+  (amended in grafida/grafida#91, the clean-machine run): without `STARTF_FORCEOFFFEEDBACK`, Windows
+  10 22H2 showed the busy pointer for 4.5–5.3 s on every launch, because a GUI program that never
+  shows a window keeps it until it times out (0.1 s with the flag, and with the worker flipped to the
+  console subsystem; Windows 11 26H2: 0.4 s either way). It needed two fork fixes, `CREATE_NO_WINDOW` for
   its own children and the sibling `.phar` through the file's final path, and shell-php 0.2.1's
   blocking stdin (PHP polls a pipe it did not open as blocking).
 - **Static CRT, and the application manifest linked from a `.res` that `build.rs` writes**, because

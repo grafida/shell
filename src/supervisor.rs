@@ -16,7 +16,7 @@ use std::{
     ffi::OsString,
     io::{self, BufRead, BufReader, Read, Write},
     path::PathBuf,
-    process::{Child, ChildStdin, Command, ExitStatus, Stdio},
+    process::ExitStatus,
     sync::{
         Arc, Mutex,
         mpsc::{self, Receiver, RecvTimeoutError, Sender},
@@ -28,6 +28,7 @@ use std::{
 use crate::{
     http::{Request, Response},
     protocol::{self, Frame, Header, PROTOCOL_VERSION},
+    spawn::{self as worker_process, SpawnError, WorkerChild, WorkerStdin},
 };
 
 /// Called exactly once with the answer to a submitted request, on the supervisor thread. The
@@ -173,8 +174,8 @@ impl Drop for Supervisor {
 }
 
 struct Running {
-    child: Child,
-    stdin: Option<ChildStdin>,
+    child: WorkerChild,
+    stdin: Option<WorkerStdin>,
     ready: bool,
     deadline: Instant,
 }
@@ -260,41 +261,36 @@ impl State {
         let generation = self.generation;
         let command = &self.config.command;
 
-        let mut cmd = Command::new(&command.program);
-        cmd.args(&command.args)
-            .current_dir(&command.cwd)
-            .envs(command.env.iter().map(|(k, v)| (k, v)))
-            .env(
-                "SHELL_MAX_BODY_BYTES",
-                self.config.max_body_bytes.to_string(),
-            )
-            .stdin(Stdio::piped())
-            .stdout(Stdio::piped())
-            .stderr(Stdio::piped());
-        tie_to_parent(&mut cmd);
-
-        let mut child = match cmd.spawn() {
-            Ok(child) => child,
-            Err(e) => {
-                let program = command.program.to_string_lossy().into_owned();
-                // Nothing to wait for: report it straight away, through the normal crash path.
-                self.worker = None;
-                self.crashed(format!("cannot start the worker `{program}`: {e}"));
-                return;
-            }
-        };
-        if let Err(e) = adopt(&child) {
-            let _ = child.kill();
-            let _ = child.wait();
-            self.worker = None;
-            self.crashed(format!("cannot tie the worker to the shell: {e}"));
-            return;
-        }
+        let mut env = command.env.clone();
+        env.push((
+            "SHELL_MAX_BODY_BYTES".into(),
+            self.config.max_body_bytes.to_string().into(),
+        ));
+        let spawned =
+            match worker_process::spawn(&command.program, &command.args, &command.cwd, &env) {
+                Ok(spawned) => spawned,
+                Err(SpawnError::Start(e)) => {
+                    let program = command.program.to_string_lossy().into_owned();
+                    // Nothing to wait for: report it straight away, through the normal crash path.
+                    self.worker = None;
+                    self.crashed(format!("cannot start the worker `{program}`: {e}"));
+                    return;
+                }
+                Err(SpawnError::Tie(e)) => {
+                    self.worker = None;
+                    self.crashed(format!("cannot tie the worker to the shell: {e}"));
+                    return;
+                }
+            };
+        let worker_process::Spawned {
+            child,
+            stdin,
+            stdout,
+            stderr,
+        } = spawned;
 
         (self.log)("shell", &format!("worker started, pid {}", child.id()));
 
-        let stdout = child.stdout.take().expect("piped stdout");
-        let stderr = child.stderr.take().expect("piped stderr");
         let events = self.events.clone();
         let max_body = self.config.max_body_bytes;
         thread::Builder::new()
@@ -310,7 +306,7 @@ impl State {
             .expect("spawn the stderr reader");
 
         self.worker = Some(Running {
-            stdin: child.stdin.take(),
+            stdin: Some(stdin),
             child,
             ready: false,
             deadline: Instant::now() + self.config.ready_timeout,
@@ -620,164 +616,4 @@ fn push_line(ring: &Mutex<VecDeque<String>>, line: String) {
         ring.pop_front();
     }
     ring.push_back(line);
-}
-
-/// The worker must never outlive the shell.
-#[cfg(target_os = "linux")]
-fn tie_to_parent(cmd: &mut Command) {
-    use std::os::unix::process::CommandExt;
-
-    // SAFETY: getpid is async-signal-safe and called before the fork.
-    let parent = unsafe { libc::getpid() };
-    // SAFETY: the closure runs between fork and exec and calls only async-signal-safe functions
-    // (prctl, getppid, raise).
-    unsafe {
-        cmd.pre_exec(move || {
-            if libc::prctl(libc::PR_SET_PDEATHSIG, libc::SIGTERM) != 0 {
-                return Err(io::Error::last_os_error());
-            }
-            // The shell died between fork and prctl: the signal will never come, so act now.
-            if libc::getppid() != parent {
-                libc::raise(libc::SIGTERM);
-            }
-            Ok(())
-        });
-    }
-}
-
-#[cfg(target_os = "macos")]
-fn tie_to_parent(_cmd: &mut Command) {
-    // macOS: EOF on stdin only (grafida/grafida#88): an idle worker exits when the shell dies, a
-    // busy one when its request ends.
-}
-
-/// Windows: the worker starts suspended and without a console window; [`adopt`] puts it in the
-/// shell's Job Object before it runs a single instruction.
-///
-/// `CREATE_NO_WINDOW` gives a console program (the dev worker, `php.exe`) a console with no window,
-/// which its own console children then inherit, so nothing flashes; for the GUI-subsystem SFX it
-/// is a no-op (that worker's PHP adds the flag to its children itself: grafida/grafida#91).
-#[cfg(windows)]
-fn tie_to_parent(cmd: &mut Command) {
-    use std::os::windows::process::CommandExt;
-    cmd.creation_flags(job::CREATE_NO_WINDOW | job::CREATE_SUSPENDED);
-}
-
-#[cfg(not(any(target_os = "linux", target_os = "macos", windows)))]
-fn tie_to_parent(_cmd: &mut Command) {}
-
-/// After the spawn: Windows assigns the suspended worker to the Job Object and resumes it.
-#[cfg(windows)]
-fn adopt(child: &std::process::Child) -> io::Result<()> {
-    job::adopt(child)
-}
-
-#[cfg(not(windows))]
-fn adopt(_child: &std::process::Child) -> io::Result<()> {
-    Ok(())
-}
-
-/// The worker's Job Object (grafida/grafida#91). One per shell, created on first use and never
-/// closed: the system closes it when the shell's process ends, however it ends, and
-/// `JOB_OBJECT_LIMIT_KILL_ON_JOB_CLOSE` then kills the worker and every process it started.
-///
-/// The shell itself is deliberately **not** in the job: a browser `ShellExecute` starts for
-/// `_native/open-url` would be in it too, and die with the app.
-///
-/// std cannot put a child in a job at creation (`PROC_THREAD_ATTRIBUTE_JOB_LIST`) or hand back its
-/// main thread on stable Rust, so the worker is created suspended, assigned, and its one thread is
-/// found with a Toolhelp snapshot and resumed: no instruction of it runs outside the job.
-#[cfg(windows)]
-mod job {
-    use std::{io, os::windows::io::AsRawHandle, process::Child, sync::OnceLock};
-
-    use windows::Win32::{
-        Foundation::{CloseHandle, HANDLE},
-        System::{
-            Diagnostics::ToolHelp::{
-                CreateToolhelp32Snapshot, TH32CS_SNAPTHREAD, THREADENTRY32, Thread32First,
-                Thread32Next,
-            },
-            JobObjects::{
-                AssignProcessToJobObject, CreateJobObjectW, JOB_OBJECT_LIMIT_KILL_ON_JOB_CLOSE,
-                JOBOBJECT_EXTENDED_LIMIT_INFORMATION, JobObjectExtendedLimitInformation,
-                SetInformationJobObject,
-            },
-            Threading::{OpenThread, ResumeThread, THREAD_SUSPEND_RESUME},
-        },
-    };
-
-    pub const CREATE_NO_WINDOW: u32 = 0x0800_0000;
-    pub const CREATE_SUSPENDED: u32 = 0x0000_0004;
-
-    struct Job(HANDLE);
-    // SAFETY: a job handle is a kernel object handle, usable from any thread.
-    unsafe impl Send for Job {}
-    unsafe impl Sync for Job {}
-
-    static JOB: OnceLock<Result<Job, String>> = OnceLock::new();
-
-    fn job() -> io::Result<HANDLE> {
-        let job = JOB.get_or_init(|| {
-            // SAFETY: plain Win32 calls; the limit structure outlives the call that reads it.
-            unsafe {
-                let h = CreateJobObjectW(None, None).map_err(|e| e.message())?;
-                let mut limits = JOBOBJECT_EXTENDED_LIMIT_INFORMATION::default();
-                limits.BasicLimitInformation.LimitFlags = JOB_OBJECT_LIMIT_KILL_ON_JOB_CLOSE;
-                SetInformationJobObject(
-                    h,
-                    JobObjectExtendedLimitInformation,
-                    (&raw const limits).cast(),
-                    size_of::<JOBOBJECT_EXTENDED_LIMIT_INFORMATION>() as u32,
-                )
-                .map_err(|e| e.message())?;
-                Ok(Job(h))
-            }
-        });
-        match job {
-            Ok(j) => Ok(j.0),
-            Err(e) => Err(io::Error::other(e.clone())),
-        }
-    }
-
-    pub fn adopt(child: &Child) -> io::Result<()> {
-        let job = job()?;
-        // SAFETY: the child's process handle is live for as long as `child` is.
-        unsafe { AssignProcessToJobObject(job, HANDLE(child.as_raw_handle())) }
-            .map_err(|e| io::Error::other(format!("AssignProcessToJobObject: {}", e.message())))?;
-        resume(child.id())
-    }
-
-    /// Resumes every thread of a process created suspended (it has exactly one).
-    fn resume(pid: u32) -> io::Result<()> {
-        // SAFETY: plain Win32 calls; every handle opened here is closed here.
-        unsafe {
-            let snapshot = CreateToolhelp32Snapshot(TH32CS_SNAPTHREAD, 0)
-                .map_err(|e| io::Error::other(e.message()))?;
-            let mut entry = THREADENTRY32 {
-                dwSize: size_of::<THREADENTRY32>() as u32,
-                ..Default::default()
-            };
-            let mut resumed = 0;
-            let mut more = Thread32First(snapshot, &mut entry).is_ok();
-            while more {
-                if entry.th32OwnerProcessID == pid
-                    && let Ok(thread) = OpenThread(THREAD_SUSPEND_RESUME, false, entry.th32ThreadID)
-                {
-                    if ResumeThread(thread) != u32::MAX {
-                        resumed += 1;
-                    }
-                    let _ = CloseHandle(thread);
-                }
-                more = Thread32Next(snapshot, &mut entry).is_ok();
-            }
-            let _ = CloseHandle(snapshot);
-            if resumed == 0 {
-                return Err(io::Error::other(
-                    "the suspended worker has no thread to resume",
-                ));
-            }
-        }
-        Ok(())
-    }
 }

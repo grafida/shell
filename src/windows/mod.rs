@@ -39,7 +39,7 @@ use webview2_com::{
 };
 use windows::{
     Win32::{
-        Foundation::{HGLOBAL, HWND, RECT},
+        Foundation::{HGLOBAL, HWND, LPARAM, RECT, WPARAM},
         System::{
             Com::CoTaskMemFree,
             DataExchange::{
@@ -120,6 +120,50 @@ thread_local! {
 /// URLs the automation channel records instead of opening; `None` = open them.
 static RECORDED_OPENS: Mutex<Option<Vec<String>>> = Mutex::new(None);
 
+/// The window's own icon (title bar, Alt+Tab) from the executable's first icon, which
+/// shell-packager writes into the app's shell: the taskbar and Task Manager read the file, but a
+/// window has the generic one until it is given its own (grafida/grafida#91). The bare shell has
+/// no icon resource and keeps the generic one.
+fn set_window_icon(hwnd: HWND) {
+    use std::os::windows::ffi::OsStrExt;
+    use windows::Win32::UI::{
+        Shell::ExtractIconExW,
+        WindowsAndMessaging::{HICON, ICON_BIG, ICON_SMALL, SendMessageW, WM_SETICON},
+    };
+    let Ok(exe) = std::env::current_exe() else {
+        return;
+    };
+    let path: Vec<u16> = exe.as_os_str().encode_wide().chain([0]).collect();
+    let (mut big, mut small) = (HICON::default(), HICON::default());
+    // SAFETY: the path is NUL-terminated and outlives the call; one icon of each size is asked
+    // for. The icons live as long as the window (the process), so they are never destroyed.
+    let found = unsafe {
+        ExtractIconExW(
+            PCWSTR(path.as_ptr()),
+            0,
+            Some(&mut big),
+            Some(&mut small),
+            1,
+        )
+    };
+    if found == 0 {
+        return;
+    }
+    for (kind, icon) in [(ICON_BIG, big), (ICON_SMALL, small)] {
+        if !icon.is_invalid() {
+            // SAFETY: a live window of this thread and a live icon.
+            unsafe {
+                SendMessageW(
+                    hwnd,
+                    WM_SETICON,
+                    Some(WPARAM(kind as usize)),
+                    Some(LPARAM(icon.0 as isize)),
+                )
+            };
+        }
+    }
+}
+
 /// The installed WebView2 runtime's version, or why there is none.
 pub fn runtime_version() -> Result<String, String> {
     let mut version = PWSTR::null();
@@ -183,6 +227,7 @@ pub fn run(launch: Launch, log: Arc<Log>) -> i32 {
         }
     };
     let hwnd = HWND(window.hwnd() as _);
+    set_window_icon(hwnd);
 
     // ── The worker ──────────────────────────────────────────────────────────────────────────
     let supervisor = {

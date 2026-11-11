@@ -262,11 +262,18 @@ scheduled task), never directly over SSH; the automation channel reaches the hos
   scheduled task still flashes a window under Windows Terminal. Worker timings come from the shell's
   log ("stopping", then "worker stopped"), never from SSH round trips, and nothing that needs a
   window handle runs in the SSH session (its window station sees none of the desktop's).
-- **The worker's Job Object** (`supervisor.rs`, Windows): the worker is spawned with
-  `CREATE_SUSPENDED | CREATE_NO_WINDOW`, assigned to one `KILL_ON_JOB_CLOSE` job the shell never
-  closes, and resumed (its one thread found by a Toolhelp snapshot: std cannot hand it back on
-  stable). The shell is deliberately not in the job: a browser `ShellExecute` starts would die with
-  the app. `CREATE_NO_WINDOW` matters for the dev worker (`php.exe`, a console program, whose
+- **The worker's Job Object and its spawn** (`spawn.rs`, Windows): the shell calls `CreateProcessW`
+  itself, not std's `Command`, with `CREATE_SUSPENDED | CREATE_NO_WINDOW`, assigns the worker to one
+  `KILL_ON_JOB_CLOSE` job the shell never closes, and resumes the thread `CreateProcessW` hands back.
+  ⚠️ **`STARTF_FORCEOFFFEEDBACK` is the reason it is not std's**: Windows 10 shows the "working in
+  background" pointer for a new GUI program until it shows a window, and the packaged worker is a
+  GUI-subsystem SFX that never does, so every launch had a 5 s busy pointer (0.1 s with the flag;
+  Windows 11 showed 0.4 s either way). std has the flag, the job list and the thread handle only
+  behind unstable features. Only the three pipe ends are inherited
+  (`PROC_THREAD_ATTRIBUTE_HANDLE_LIST`): a leaked write end of the worker's stdout would hide its
+  death from the supervisor. A bare program name (the dev worker's `php`) is looked up on the
+  worker's PATH, never in the current directory. Unix keeps std's `Command`. The shell is
+  deliberately not in the job: a browser `ShellExecute` starts would die with the app. `CREATE_NO_WINDOW` matters for the dev worker (`php.exe`, a console program, whose
   children inherit its hidden console); the GUI-subsystem SFX's PHP adds the flag to its own children.
 - **A release Windows shell removes `WEBVIEW2_ADDITIONAL_BROWSER_ARGUMENTS` and the other
   browser-changing `WEBVIEW2_*` variables** before it creates the environment

@@ -209,7 +209,7 @@ COMMAND VM`, with VM `windows-11` (port 22220, ssh host `winvm`) or `windows-10`
 | `stop-run` | kills that program and everything it started |
 | `watch-start` / `watch-stop` | records every console window (conhost's, Windows Terminal's) shown on the desktop until stopped (`winvm/watch.ps1`, a WinEvent hook); `watch-stop` prints them, nothing if none |
 | `ps SCRIPT` | runs one PowerShell script in the guest, as `-EncodedCommand` |
-| `desktop SCRIPT [ARG…]` | runs a PowerShell script **in the desktop session** (through the headless console host) and prints its output; the helpers in `winvm/desk/`: `screen` (the whole desktop as a PNG), `dialog` (drives a native file dialog through UI Automation), `clipboard` (HTML + text, as another program leaves it), `clipboard-read` (its text, as JSON), `theme` (Windows' light/dark mode), `explorer` (File Explorer at a file, and where that file is on screen), `windows` (a class's windows, optionally closed), `cursor` (samples the pointer's shape), `close` (clicks a window's X). Arguments are positional |
+| `desktop SCRIPT [ARG…]` | runs a PowerShell script **in the desktop session** (through the headless console host) and prints its output; the helpers in `winvm/desk/`: `screen` (the whole desktop as a PNG), `dialog` (drives a native file dialog through UI Automation), `clipboard` (HTML + text, as another program leaves it), `clipboard-read` (its text, as JSON), `theme` (Windows' light/dark mode), `explorer` (File Explorer at a file, and where that file is on screen), `windows` (a class's windows, optionally closed), `cursor` (samples the pointer's shape), `close` (clicks a window's X), `ui` (any window through UI Automation: `dump TARGET [page] [DEPTH]` prints its controls' exact names, page content included with `page`; `invoke`/`click`/`wait TARGET NAME` presses one as a user would, so a screen nobody scripted for, Edge's or Settings', is read first and then acted on in whatever language the guest speaks), `keys` (SendKeys to a process's window), `window-icon` (the icons a window shows, against an `.ico`). Arguments are positional |
 | `get GUEST HOST` / `put HOST GUEST` | copies a file out of the guest, or into it |
 | `tunnel [APP_ID]` | forwards the shell's automation channel to this host and prints a directory: `XDG_RUNTIME_DIR=<it> SHELL_AUTOMATION_REMOTE=1 scripts/dev/automation.py …` then drives the guest's window |
 
@@ -288,12 +288,33 @@ Gotchas, each one hit:
   on stderr only); name them: `-Path … -Value …`.
 - `pgrep -f`/`pkill -f` with a pattern that also appears in the calling command line match the
   caller; `stop-run` kills by the pid the guest recorded.
+- ⚠️ **A cumulative update installs over two boots**: the first answers SSH, then Windows restarts by
+  itself to finish. `reboot` and every update pass therefore wait until the boot time has stayed the
+  same for 2 minutes, and a pass that sees the boot time change under it runs again (one started in
+  between died with the second boot, and its host used to wait 2 hours for a result).
+- ⚠️ **QEMU keeps quickemu's stderr open for as long as the VM runs**: `start` writes both streams to
+  `<vm>/start.log`; piping it anywhere used to wait for the VM to shut down.
+- **A refreshed `clean` has no `C:\winvm`** (`clean-up` removes it): every command that copies a
+  helper creates it first.
+- **Edge's first run** shows its welcome pages on top of everything the first time it opens, the
+  download it was given carrying on behind them; answer them with `ui invoke msedge 'Start without
+  your data'` and the pages after it (their names come from `ui dump msedge page`). Edge will not
+  open an `edge://` address passed on its command line (it opens a new tab instead); its download
+  record, and Edge's verdict on the file, are in the `downloads` table of `%LOCALAPPDATA%\Microsoft\
+  Edge\User Data\Default\History` (copy it out: Edge holds it open).
 
 ## Facts about this guest worth knowing
 
 - Windows 11 Pro build 26300 came with WebView2 Evergreen 157 preinstalled. Read the version with
   `(Get-ItemProperty 'HKLM:\SOFTWARE\WOW6432Node\Microsoft\EdgeUpdate\Clients\{F3017226-FE2A-4295-8BDF-00C3A9A7E4C5}').pv`.
-- **The `clean` snapshots of 2026-11-10** (`versions`, after `update`): `windows-11` is Windows 11
+- **The `clean` snapshots of 2026-11-11** (`versions`, after `update`): `windows-11` is Windows 11
+  Pro 26H2, build 26300.9974, en-GB, Smart App Control in evaluation mode, Defender signatures
+  1.463.236.0; `windows-10` is Windows 10 Pro 22H2, build 19045.6466, el-GR, no Smart App Control,
+  signatures 1.463.236.0. Both have WebView2 and Edge 157.0.4341.46. A missing runtime is shown by
+  renaming its registration away (the `EdgeUpdate\Clients` and `ClientState` keys of
+  `{F3017226-FE2A-4295-8BDF-00C3A9A7E4C5}`, under `HKLM\…\WOW6432Node` and `HKCU`, elevated, and
+  back afterwards): the installer and WebView2's loader both read it.
+- The snapshots before them, of 2026-11-10 (`versions`, after `update`): `windows-11` is Windows 11
   Pro 26H2, build 26300.9711, en-GB, Smart App Control in evaluation mode, Defender signatures
   1.463.226.0; `windows-10` is Windows 10 Pro 22H2, build 19045.6456 (installed at 19045.2965),
   el-GR, no Smart App Control, signatures 1.463.227.0. Both have WebView2 and Edge 157.0.4341.42:

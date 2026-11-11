@@ -23,6 +23,7 @@ pub mod menu;
 pub mod native;
 pub mod navigation;
 pub mod protocol;
+pub mod spawn;
 pub mod supervisor;
 pub mod tokens;
 #[cfg(windows)]

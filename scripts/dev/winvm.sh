@@ -108,9 +108,29 @@ reboot() {
     for i in $(seq 1 120); do
         sleep 5
         now=$(boot_time "$vm") || true
-        [ -n "$now" ] && [ "$now" != "$before" ] && return 0
+        [ -n "$now" ] && [ "$now" != "$before" ] && { settle "$vm"; return 0; }
     done
     die "$vm: did not come back from a restart within 10 minutes"
+}
+
+# ⚠️ A cumulative update installs over two boots: the first one answers SSH, then Windows restarts by
+# itself to finish. Back means the same boot time for 2 minutes (a pass started in between died with
+# the second boot, and its host waited 2 hours for a result that never came).
+settle() {
+    local vm=$1 last now same=0 i
+    last=$(boot_time "$vm") || true
+    for i in $(seq 1 120); do
+        sleep 10
+        now=$(boot_time "$vm") || true
+        if [ -n "$now" ] && [ "$now" = "$last" ]; then
+            same=$((same + 1))
+            [ $same -ge 12 ] && return 0
+        else
+            same=0
+            [ -n "$now" ] && last=$now
+        fi
+    done
+    die "$vm: kept restarting for 20 minutes"
 }
 
 wait_off() {
@@ -124,12 +144,22 @@ wait_off() {
 
 # One update pass as SYSTEM (the Windows Update Agent refuses a network logon), then its JSON status.
 update_pass() {
-    local vm=$1 i
+    local vm=$1 i boot
+    settle "$vm"
+    boot=$(boot_time "$vm")
     rssh "$vm" 'New-Item -ItemType Directory -Force C:\winvm | Out-Null'
     scp -q "$HERE/winvm/update.ps1" "$(host "$vm"):C:/winvm/update.ps1"
     rps "$vm" 'schtasks /Create /TN winvm-update /RU SYSTEM /SC ONCE /ST 23:59 /RL HIGHEST /F /TR "powershell.exe -NoProfile -ExecutionPolicy Bypass -File C:\winvm\update.ps1" | Out-Null; schtasks /Run /TN winvm-update | Out-Null' >&2
     for i in $(seq 1 720); do
         sleep 10
+        # Restarted under the pass (Windows finishing an update by itself): the pass is gone, so run
+        # it again rather than wait for its result.
+        now=$(boot_time "$vm") || true
+        if [ -n "$now" ] && [ "$now" != "$boot" ]; then
+            echo "== the guest restarted during the pass; running it again" >&2
+            update_pass "$vm"
+            return
+        fi
         if rssh "$vm" 'Test-Path C:\winvm\update.json' 2>/dev/null | grep -q True; then
             rssh "$vm" 'Get-Content C:\winvm\update.json -Raw'
             return 0
@@ -159,7 +189,10 @@ port "$vm" >/dev/null
 case $cmd in
     start)
         running "$vm" && die "$vm is already running"
-        (cd "$VMS" && quickemu --vm "$vm.conf" --ssh-port "$(port "$vm")" >/dev/null)
+        # Both streams to a file: QEMU keeps quickemu's stderr open for as long as the VM runs, so
+        # `winvm.sh start VM | tail` used to wait for the VM to shut down.
+        log="$VMS/$vm/start.log"
+        (cd "$VMS" && quickemu --vm "$vm.conf" --ssh-port "$(port "$vm")" >"$log" 2>&1) || { cat "$log" >&2; die "quickemu failed"; }
         wait_ssh "$vm"
         ;;
     wait) wait_ssh "$vm" ;;
@@ -285,6 +318,7 @@ if (-not (Test-Path C:\winvm\run\pid)) { throw "the program did not start" }
         ;;
     ps) rps "$vm" "${1:?script}" ;;
     idle)
+        rssh "$vm" 'New-Item -ItemType Directory -Force C:\winvm | Out-Null'
         scp -q "$HERE/winvm/idle-cpu.ps1" "$(host "$vm"):C:/winvm/idle-cpu.ps1"
         rssh "$vm" "powershell -NoProfile -ExecutionPolicy Bypass -File C:\\winvm\\idle-cpu.ps1 -ProcessId ${1:?pid} -Settle ${2:-60} -Sample ${3:-60}"
         ;;
@@ -294,6 +328,7 @@ if (-not (Test-Path C:\winvm\run\pid)) { throw "the program did not start" }
 $p = Ours; if ($p) { taskkill /T /F /PID $p.Id 2>&1 | Out-Null; for ($i = 0; $i -lt 100 -and (Ours); $i++) { Start-Sleep -Milliseconds 100 } }; "stopped"'
         ;;
     watch-start)
+        rssh "$vm" 'New-Item -ItemType Directory -Force C:\winvm | Out-Null'
         scp -q "$HERE/winvm/watch.ps1" "$(host "$vm"):C:/winvm/watch.ps1"
         rps "$vm" 'Remove-Item C:\winvm\watch.log -ErrorAction SilentlyContinue
 schtasks /Create /TN winvm-watch /TR "conhost.exe --headless powershell.exe -NoProfile -ExecutionPolicy Bypass -File C:\winvm\watch.ps1" /SC ONCE /ST 23:59 /IT /RU $env:USERNAME /F | Out-Null
