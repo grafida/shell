@@ -48,6 +48,8 @@ jobs:
       - uses: dtolnay/rust-toolchain@stable
         with:
           components: rustfmt, clippy
+          # Intel Macs (grafida/grafida#92): linted and guarded here, cross-compiled from arm64.
+          targets: x86_64-apple-darwin
       - run: cargo fmt --check
       - run: cargo clippy --workspace --all-targets -- -D warnings
       - run: cargo clippy --workspace --all-targets --features automation -- -D warnings
@@ -59,6 +61,20 @@ jobs:
           cargo build --locked
           minos=$(otool -l target/debug/grafida-shell | awk '/LC_BUILD_VERSION/ { seen = 1 } seen && $1 == "minos" { print $2; exit }')
           echo "minos: $minos"
+          test "$minos" = "12.0"
+      # x86_64: the same gate, cross-compiled (the tests run on arm64 only; the release workflow
+      # smoke-tests the x86_64 binary on an Intel runner).
+      - run: cargo clippy --workspace --all-targets --target x86_64-apple-darwin -- -D warnings
+      - run: cargo clippy --workspace --all-targets --target x86_64-apple-darwin --features automation -- -D warnings
+      - name: Automation never compiles into a release build (x86_64)
+        run: "! cargo check --release --target x86_64-apple-darwin --features automation 2>/dev/null"
+      - name: Linked for macOS 12 (x86_64)
+        run: |
+          cargo build --locked --target x86_64-apple-darwin
+          bin=target/x86_64-apple-darwin/debug/grafida-shell
+          minos=$(otool -l "$bin" | awk '/LC_BUILD_VERSION/ { seen = 1 } seen && $1 == "minos" { print $2; exit }')
+          echo "$(lipo -archs "$bin"), minos: $minos"
+          test "$(lipo -archs "$bin")" = x86_64
           test "$minos" = "12.0"
 
   shell-windows:

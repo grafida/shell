@@ -13,7 +13,8 @@ Setup Assistant.
 | `macos-27` | 27.2 (26B123) | 27.2.1 (26B131), Safari 27.2 | the current release |
 
 Guests can only be arm64 macOS (Virtualization.framework runs no Intel guest and no macOS older than
-12), and Apple's licence allows **two macOS guests at a time**.
+12), and Apple's licence allows **two macOS guests at a time**. An x86_64 app is therefore tested
+under Rosetta 2, in a Rosetta clone of each clean guest (section 3; grafida/grafida#92).
 
 Every VM has the user `tester`, password `grafida-vm`, passwordless sudo, Remote Login (SSH) on,
 automatic login, and no sleep, screen saver, screen lock or automatic updates, so there is always an
@@ -140,12 +141,39 @@ The order matters, because some steps change the guest:
 5. **The automated checks**, in the desktop session (`sudo launchctl asuser $(id -u) sudo -u tester
    …`) with `TMPDIR=$(getconf DARWIN_USER_TEMP_DIR)`: `scripts/dev/parity-macos.sh` with
    `GRAFIDA_PACKAGED=/Applications/<App>.app SHELL_BIN=<the release workflow's
-   debug-automation-macos-arm64 artifact>`, then `scripts/dev/macguest/ats-matrix.sh`. Copy in the
+   debug-automation-macos-arm64 artifact; x86_64: section 3>`, then `scripts/dev/macguest/ats-matrix.sh`. Copy in the
    shell repo's `scripts/dev` and `tests/apps`, `tests/workers` (`git archive`). Keep off the VM:
    the key rows activate the app.
 6. **By hand**, then **`scripts/dev/macguest/idle-cpu.sh`** on the release app, with the user's
    hands off and the screen the checklist names (a focused editor's caret alone costs ~1.5 %; a
    real click on the sidebar takes the focus out of it).
+
+## 3. x86_64 under Rosetta 2 (grafida/grafida#92)
+
+Intel Macs are tested nowhere else: there is no Intel hardware and no Intel guest. Each clean guest
+gets one Rosetta 2 clone, made once and kept like the others:
+
+```sh
+scripts/dev/macvm.sh rosetta macos-12 --agree-to-license   # macos-12-clean + Rosetta 2 → macos-12-rosetta-clean
+scripts/dev/macvm.sh rosetta macos-27 --agree-to-license
+```
+
+`rosetta` clones `NAME-clean`, boots the clone headless, checks that it cannot run x86_64 code yet,
+runs `softwareupdate --install-rosetta --agree-to-license`, proves `arch -x86_64` works, shuts it down
+and seals it as `NAME-rosetta-clean`. Nothing else is added, so everything section 1 says about the
+clean guest holds for its clone. ⚠️ **Installing Rosetta 2 accepts Apple's licence for it**: the flag
+is required, and the operator is asked before it is passed. The base `-clean` guest never gets Rosetta,
+so the arm64 runs stay on a Mac that cannot run Intel code by accident.
+
+From then on `macos-12-rosetta` is a guest like the others (`fresh`, `run`, `wait`, `ssh`, `stop`); it
+counts towards the two-guest limit. A run follows section 2 with the x86_64 artefacts: the
+`-macos-amd64` DMG, installed and first launched through Gatekeeper on the untouched clone, then
+`parity-macos.sh` with `SHELL_BIN=<the debug-automation-macos-x86_64 artifact>`. The parity script
+reads the architecture from `SHELL_BIN`, refuses an x86_64 one on a Mac without Rosetta 2, and its
+first row proves what runs: `_native/info`'s `arch` (fixed at compile time, so `x86_64` from a shell
+on an arm64 Mac is Rosetta 2) and every executable in the packaged bundle (shell and worker stub),
+which must all be x86_64. Python, the parity client and the fake worker stay arm64; only the app is
+translated.
 
 Gotchas found on the way:
 

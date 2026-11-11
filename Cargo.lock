@@ -759,14 +759,14 @@ dependencies = [
 
 [[package]]
 name = "grafida-launcher"
-version = "0.3.1"
+version = "0.4.0"
 dependencies = [
  "serde_json",
 ]
 
 [[package]]
 name = "grafida-shell"
-version = "0.3.1"
+version = "0.4.0"
 dependencies = [
  "base64",
  "block2",

@@ -1,8 +1,12 @@
-shell 0.3.2 (unreleased)
+shell 0.4.0
 ================================================================================
++ macOS x86_64 (Intel, 12 or later): releases include `grafida-shell-macos-x86_64`, checked and smoke-tested on an Intel runner
++ `macvm.sh rosetta`: a Rosetta 2 clone of each clean macOS guest, where x86_64 apps are tested
++ `parity-macos.sh`: runs an x86_64 shell under Rosetta 2, and proves which architecture the shell and the bundle run as
 + `ui.ps1 set`: puts a value in a field (UI Automation's value pattern), as a search box needs
 - `winvm.sh put` failed on a freshly re-taken `clean` guest (no `C:\winvm`)
 - `winvm.sh stop-run` left a program running when its pid file was written a fraction of a millisecond before Windows recorded the start
+~ CI: the macOS gate also lints `x86_64-apple-darwin` (clippy with and without automation, the release guard)
 
 shell 0.3.1
 ================================================================================

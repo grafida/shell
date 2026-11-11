@@ -1,8 +1,8 @@
 #!/usr/bin/env bash
 #
-# Checks the macOS release shell before it is published (grafida/grafida#88, ADR 0001):
+# Checks a macOS release shell before it is published (grafida/grafida#88, #92, ADR 0001):
 #
-#   a thin Mach-O of EXPECT_ARCH (arm64: no x86_64 build is made or supported);
+#   a thin Mach-O of EXPECT_ARCH (arm64, the default, or x86_64 for Intel Macs);
 #   LC_BUILD_VERSION minos at most MACOS_MIN (12.0, the floor), read from the binary rather than
 #     assumed, because the SDK decides it when nobody sets MACOSX_DEPLOYMENT_TARGET (Grafida gh-58);
 #   only the system's own libraries and frameworks linked (/usr/lib, /System/Library): a clean Mac

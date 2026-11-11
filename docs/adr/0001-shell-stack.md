@@ -1,6 +1,6 @@
 # ADR 0001 — Shell stack, deployment floors, architectures, licence
 
-- **Status:** Accepted. Verified at runtime on Linux, Windows and macOS (Phase 4: the macOS webview path, and arm64 only).
+- **Status:** Accepted. Verified at runtime on Linux, Windows and macOS (Phase 4: the macOS webview path, on arm64; Phase 6: x86_64 under Rosetta 2).
 - **Date:** 2026-11-09
 - **Context issue:** [grafida/grafida#82](https://github.com/grafida/grafida/issues/82), Phase 0
 
@@ -317,8 +317,16 @@ configure time. Together these outweigh the one advantage the Windows result abo
 `linux-{x86_64,aarch64}`, `macos-{arm64,x86_64}`, `windows-x86_64`. The worker SFX is per-arch
 anyway, so a universal2 macOS shell buys nothing.
 
-**Amended in Phase 4 (grafida/grafida#88): macOS is arm64 only.** No x86_64 shell build, release
-asset or test: Intel Mac support ends next year, and anyone who needs it can build their own.
+~~**Amended in Phase 4 (grafida/grafida#88): macOS is arm64 only.** No x86_64 shell build, release
+asset or test: Intel Mac support ends next year, and anyone who needs it can build their own.~~
+
+**Amended in Phase 6 (grafida/grafida#92): macOS arm64 and x86_64.** Intel Macs keep a shell,
+`grafida-shell-macos-x86_64`, built like the arm64 one (`MACOSX_DEPLOYMENT_TARGET=12.0`) on an Intel
+runner, which checks it and smoke-tests it natively. Beyond CI it is tested **only under Rosetta 2**,
+in Rosetta clones of the Apple Silicon guests (`scripts/dev/macvm.sh rosetta`): there is no Intel
+hardware or Intel guest. Lifecycle: macOS 27 is the last macOS for Intel Macs; when macOS 28 drops
+Intel and Rosetta 2, the x86_64 shell is deprecated, and when macOS 29 lands it is discontinued.
+Still no universal2 binary: the worker SFX is per-arch, so an app ships one bundle per architecture.
 
 ### 4. Licence of `grafida/shell`, `grafida/shell-php`, `grafida/shell-packager`: **MIT**
 

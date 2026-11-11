@@ -10,6 +10,12 @@
 #   macos-12   the floor (ADR 0001): restored from 12.6, updated in the guest to the last 12.x
 #   macos-27   the current release
 #
+# And a Rosetta 2 clone of each (grafida/grafida#92), where an x86_64 app runs translated: Intel Macs
+# are tested nowhere else. `rosetta NAME` makes NAME-rosetta-clean from NAME-clean (Apple's Rosetta 2
+# and nothing else added); from then on NAME-rosetta is a guest like the others (fresh, run, ssh, …).
+#
+#   macos-12-rosetta, macos-27-rosetta
+#
 # Usage: scripts/dev/macvm.sh COMMAND [NAME] [ARGS…]
 #   fetch NAME              download the IPSW into $IPSW_DIR and check its SHA-256 (pinned below)
 #   create NAME             restore a new VM NAME from its IPSW (then do Setup Assistant by hand)
@@ -23,10 +29,15 @@
 #   stop NAME               shut it down (tart stop)
 #   seal NAME               NAME (stopped) becomes NAME-clean: the clean state every run starts from
 #   fresh NAME              throw away NAME and clone it again from NAME-clean
+#   rosetta NAME --agree-to-license
+#                           NAME-clean + Rosetta 2 becomes NAME-rosetta-clean. Installing Rosetta 2
+#                           accepts Apple's licence for it, so the flag is required, and the operator
+#                           is asked before it is passed
 #   list                    tart list
 #
 # The VMs live in $TART_HOME and the IPSWs in $IPSW_DIR, both set in scripts/dev/macvm.conf, which is
-# git-ignored (copy macvm.conf.sample). Apple's licence allows two macOS guests at a time.
+# git-ignored (copy macvm.conf.sample). Apple's licence allows two macOS guests at a time; a Rosetta
+# clone counts as one.
 
 set -euo pipefail
 
@@ -51,9 +62,15 @@ ipsw() {
     case $1 in
         macos-12) echo "https://updates.cdn-apple.com/2022FallFCS/fullrestores/012-40537/0EC7C669-13E9-49FB-BD64-9EECC1D174B2/UniversalMac_12.6_21G115_Restore.ipsw 5113f8d3c77fd725ea6357ced5764bc57183d2d388492c58c46ff2729d0658e5" ;;
         macos-27) echo "https://updates.cdn-apple.com/2026FallFCS/c9671975-52db-4fb5-9af2-00217169ba8d/UniversalMac_27.2_26B123_Restore.ipsw 6613b34e8589db2202a01ec37a2648afb141ece13428175183f8f3e38438534f" ;;
-        *) die "unknown guest '$1' (macos-12, macos-27)" ;;
+        *) die "unknown guest '$1' (macos-12, macos-27, macos-12-rosetta, macos-27-rosetta)" ;;
     esac
 }
+
+# A Rosetta clone's base guest: macos-12-rosetta → macos-12.
+base_of() { echo "${1%-rosetta}"; }
+is_rosetta() { [ "$1" != "$(base_of "$1")" ]; }
+exists() { tart list | awk -v n="$1" '$2 == n { found = 1 } END { exit !found }'; }
+is_running() { tart list | awk -v n="$1" '$2 == n && $NF == "running" { found = 1 } END { exit !found }'; }
 
 ipsw_file() { local url; read -r url _ <<<"$(ipsw "$1")"; echo "$IPSW_DIR/$(basename "$url")"; }
 
@@ -98,8 +115,12 @@ case $command in
     '' | -h | --help) sed -n '2,/^$/p' "$0" | sed 's/^# \{0,1\}//'; exit 0 ;;
 esac
 
-name=${1:?guest name (macos-12, macos-27)}; shift
-ipsw "$name" >/dev/null
+name=${1:?guest name (macos-12, macos-27, macos-12-rosetta, macos-27-rosetta)}; shift
+ipsw "$(base_of "$name")" >/dev/null
+case $command in
+    fetch | create | update | rosetta)
+        ! is_rosetta "$name" || die "$command works on a base guest ($(base_of "$name")); a Rosetta clone is made from its -clean VM by \`rosetta\`" ;;
+esac
 
 case $command in
     fetch) fetch "$name" ;;
@@ -224,6 +245,38 @@ GUEST
         tart delete "$name" >/dev/null 2>&1 || true
         tart clone "$name-clean" "$name"
         echo "$name is a fresh clone of $name-clean"
+        ;;
+    rosetta)
+        # NAME-clean, plus Apple's Rosetta 2 and nothing else, sealed as NAME-rosetta-clean
+        # (grafida/grafida#92). softwareupdate --install-rosetta accepts Apple's licence for it, so
+        # the caller must say so: the operator is asked first.
+        [ "${1:-}" = --agree-to-license ] \
+            || die "installing Rosetta 2 accepts Apple's licence; ask the operator, then pass --agree-to-license"
+        clone=$name-rosetta
+        exists "$name-clean" || die "no $name-clean; seal it first"
+        ! exists "$clone-clean" || die "$clone-clean exists; delete it (tart delete $clone-clean) to remake it"
+        if is_running "$name"; then die "stop $name first: the Rosetta clone boots its own copy, and two guests is the limit"; fi
+        tart stop "$clone" >/dev/null 2>&1 || true
+        tart delete "$clone" >/dev/null 2>&1 || true
+        tart clone "$name-clean" "$clone"
+        "$0" run "$clone" --no-graphics
+        ip=$(wait_ssh "$clone")
+        # shellcheck disable=SC2046
+        ssh $(ssh_opts) "tester@$ip" 'sh -s' <<'GUEST'
+            set -e
+            if arch -x86_64 /usr/bin/true 2>/dev/null; then
+                echo "Rosetta 2 is already installed: the -clean guest was not clean" >&2; exit 1
+            fi
+            sudo softwareupdate --install-rosetta --agree-to-license
+            arch -x86_64 /usr/bin/true || { echo "Rosetta 2 did not install" >&2; exit 1; }
+            echo "x86_64 runs: $(arch -x86_64 /usr/bin/uname -m) under Rosetta 2"
+            pkgutil --pkg-info com.apple.pkg.RosettaUpdateAuto 2>/dev/null | sed -n 's/^version: /Rosetta 2 package /p'
+            sw_vers
+            sudo shutdown -h now >/dev/null 2>&1 &
+GUEST
+        for _ in $(seq 1 60); do is_running "$clone" || break; sleep 2; done
+        is_running "$clone" && tart stop "$clone"
+        "$0" seal "$clone"
         ;;
     *) die "unknown command '$command' (see --help)" ;;
 esac

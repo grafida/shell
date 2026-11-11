@@ -21,6 +21,10 @@
 # runtime and the original's entitlements (the worker keeps the packager's signature); the original
 # is never modified, and the release binary never carries the channel.
 #
+# An x86_64 SHELL_BIN on Apple Silicon runs under Rosetta 2 (grafida/grafida#92: the guests'
+# macos-*-rosetta clones, with the debug-automation-macos-x86_64 artifact and an x86_64 bundle); the
+# first row then proves the shell, and a packaged bundle's worker, really run as x86_64.
+#
 # Over SSH, run it inside the desktop session (`sudo launchctl asuser $(id -u) sudo -u $USER …`):
 # that strips TMPDIR, so the script sets it for the shell and the client alike.
 #
@@ -151,6 +155,11 @@ if [ -n "$PACKAGED" ]; then
     echo "packaged: $PACKAGED, shell swapped for $BIN (hardened runtime, entitlements kept; worker untouched)"
     GRAFIDA_DIR=$WORK/packaged.app/Contents/Resources
 fi
+# The architecture under test: the shell's, and in a packaged bundle every executable's.
+SHELL_ARCH=$(lipo -archs "$BIN")
+if [ "$SHELL_ARCH" = x86_64 ] && [ "$(uname -m)" = arm64 ] && ! arch -x86_64 /usr/bin/true 2>/dev/null; then
+    echo "$BIN is x86_64 and this Mac has no Rosetta 2 (a macos-*-rosetta guest has)" >&2; exit 1
+fi
 mkdir -p "$WORK/home" "$WORK/exports"
 printf 'PNG' >"$WORK/pick.png"
 printf '# Hello\n' >"$WORK/note.md"
@@ -167,6 +176,23 @@ answer=$(js "$ECHO/bridge.js")
 record "$( [ "$(ok_field <<<"$answer")" = yes ] && echo PASS || echo FAIL)" \
     "Origin, methods, bodies 0 B → 50 MiB, repeated headers, no-store, 413" \
     "$(python3 -I -c 'import json,sys; r=json.load(sys.stdin)["result"]; print("origin %s; 50 MiB in %s ms; x-multi=%r; /api no-store=%r; over limit %s; %s; failures %s" % (r["origin"], r["bodies"][-1]["ms"], r["multi"], r["apiCacheControl"], r["overLimit"], r["info"]["webview"], r["failures"]))' <<<"$answer")"
+
+# Rust's ARCH is fixed at compile time, so an x86_64 answer from a shell on an arm64 Mac is Rosetta 2.
+running=$($CLIENT eval 'return (await (await fetch("/_native/info")).json()).arch' | python3 -I -c 'import json,sys; print(json.load(sys.stdin).get("result"))')
+expected=$([ "$SHELL_ARCH" = arm64 ] && echo aarch64 || echo "$SHELL_ARCH")
+translated=$([ "$running" = x86_64 ] && [ "$(uname -m)" = arm64 ] && echo ", under Rosetta 2 on $(uname -m)" || :)
+bundle_archs=
+bundle_ok=yes
+if [ -n "$PACKAGED" ]; then
+    for exe in "$WORK/packaged.app/Contents/MacOS/"*; do
+        a=$(lipo -archs "$exe" 2>/dev/null || echo none)
+        bundle_archs="$bundle_archs $(basename "$exe")=$a"
+        [ "$a" = "$SHELL_ARCH" ] || bundle_ok=no
+    done
+fi
+record "$( [ "$running" = "$expected" ] && [ "$bundle_ok" = yes ] && echo PASS || echo FAIL)" \
+    "The shell (and a packaged bundle's executables) run as the architecture under test" \
+    "binary $SHELL_ARCH; _native/info arch $running$translated${bundle_archs:+; bundle:$bundle_archs}"
 
 answer=$(js "$ECHO/blob.js")
 record "$( [ "$(ok_field <<<"$answer")" = yes ] && echo PASS || echo FAIL)" \
@@ -452,5 +478,5 @@ else
 fi
 webkit=$(grep -ho 'on WebKit [0-9.]*' "$WORK"/home/Library/Logs/grafida/shell.log 2>/dev/null | tail -1)
 safari=$(defaults read /Applications/Safari.app/Contents/Info CFBundleShortVersionString 2>/dev/null)
-echo "shell $(cd "$SHELL_DIR" && git rev-parse --short HEAD 2>/dev/null)$( (cd "$SHELL_DIR" && git diff --quiet 2>/dev/null) || echo '+dirty'), grafida $grafida_rev, ${webkit#on } (Safari ${safari:-?}), macOS $(sw_vers -productVersion) ($(sw_vers -buildVersion)), $(uname -m), $(date -u +%Y-%m-%dT%H:%MZ)"
+echo "shell $(cd "$SHELL_DIR" && git rev-parse --short HEAD 2>/dev/null)$( (cd "$SHELL_DIR" && git diff --quiet 2>/dev/null) || echo '+dirty'), grafida $grafida_rev, ${webkit#on } (Safari ${safari:-?}), macOS $(sw_vers -productVersion) ($(sw_vers -buildVersion)), $(uname -m), shell $SHELL_ARCH, $(date -u +%Y-%m-%dT%H:%MZ)"
 grep -q '^FAIL' <(printf '%s\n' "${RESULTS[@]}") && exit 1 || exit 0

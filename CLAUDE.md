@@ -191,20 +191,26 @@ scheduled task), never directly over SSH; the automation channel reaches the hos
   `libwebkit2gtk-4.1-0` + `libgtk-3-0`'s dependency closure, no automation marker, a static
   launcher) and smoke-tests (`scripts/release/smoke-linux.sh`: the launcher → the shell → the fake
   worker's `page` mode, which POSTs, reports to the log and quits; no automation channel) on
-  `ubuntu-22.04` and `ubuntu-22.04-arm`; and on `macos-15` (grafida/grafida#88) checks
-  (`check-macos-binaries.sh`: thin arm64, `LC_BUILD_VERSION` minos ≤ 12.0, only `/usr/lib` and
-  `/System/Library` linked, no automation marker) and smoke-tests (`smoke-macos.sh`: the shell in a
-  bundle layout, manifest in `Contents/Resources`, worker beside the shell, the fake worker's `page`
-  mode) the macOS shell; and on `windows-2022` (grafida/grafida#91) checks
+  `ubuntu-22.04` and `ubuntu-22.04-arm`; and on `macos-15` (arm64, grafida/grafida#88) and
+  `macos-15-intel` (x86_64, grafida/grafida#92) checks (`check-macos-binaries.sh` with `EXPECT_ARCH`:
+  one thin architecture, `LC_BUILD_VERSION` minos ≤ 12.0, only `/usr/lib` and `/System/Library`
+  linked, no automation marker) and smoke-tests natively (`smoke-macos.sh`: the shell in a bundle
+  layout, manifest in `Contents/Resources`, worker beside the shell, the fake worker's `page` mode)
+  each macOS shell, built with an explicit `--target`; and on `windows-2022` (grafida/grafida#91) checks
   (`check-windows-binaries.sh`: PE32+ AMD64, the GUI subsystem, only DLLs that ship with Windows, so
   no VC++ runtime and no `WebView2Loader.dll`, the manifest, no automation marker) and smoke-tests
   (`smoke-windows.sh`: the packaged layout, a `.cmd` running the fake worker's `page` mode) the
   Windows shell. A tag `X.Y.Z` equal to **both** crates' versions publishes
-  `grafida-{shell,launcher}-linux-{x86_64,aarch64}`, `grafida-shell-macos-arm64` and
+  `grafida-{shell,launcher}-linux-{x86_64,aarch64}`, `grafida-shell-macos-{arm64,x86_64}` and
   `grafida-shell-windows-x86_64.exe`, each with a
   `.sha256`, once; consumers pin tag + hashes. The macOS asset is only linker-signed (ad hoc): the
   app's packager signs it inside the bundle. Both platforms also upload a debug automation build as
-  a workflow artifact (`debug-automation-{linux-*,macos-arm64}`), never a release asset.
+  a workflow artifact (`debug-automation-{linux-*,macos-arm64,macos-x86_64,windows-x86_64}`), never
+  a release asset. ⚠️ **x86_64 macOS is tested only under Rosetta 2** (ADR 0001, amended in #92): CI
+  lints it by cross-compiling from arm64 (`--target x86_64-apple-darwin`, with and without
+  `automation`, plus the release guard) and the release workflow runs it on an Intel runner, but the
+  packaged app is verified in the guests' Rosetta clones (`macvm.sh rosetta`, which needs
+  `--agree-to-license`: installing Rosetta 2 accepts Apple's licence, so ask the operator first).
 - **Menu accelerators fire before the webview sees the key.** Never bind a chord the manifest
   reserves (Grafida: `CmdOrCtrl+Shift+V`).
 - **In packaged mode the worker is resolved beside the shell's real path** (`cli.rs`), not beside the
