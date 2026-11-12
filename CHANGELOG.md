@@ -1,4 +1,4 @@
-shell 0.4.1 (unreleased)
+shell 0.4.1
 ================================================================================
 - Linux, KDE Plasma: the title bar stayed light in a dark app; KWin is now told the colour scheme (Wayland and X11)
 - `linuxvm.sh start` failed while a Windows guest was running (both wanted SSH port 22221)
