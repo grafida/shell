@@ -308,5 +308,9 @@ scheduled task), never directly over SSH; the automation channel reaches the hos
 
 - `cargo fmt`, `cargo clippy --all-targets -- -D warnings`, `cargo test` must pass.
 - `spikes/` is frozen Phase 0 evidence; it is excluded from the workspace and not maintained.
-- Keep a terse `CHANGELOG.md` entry per change (Grafida's `!` `+` `-` `~` `# [HIGH|MEDIUM|LOW]` style).
+- Keep a terse `CHANGELOG.md` entry per change that ships: the shell, the launcher, the protocol,
+  the schema, release assets, the README (Grafida's `!` `+` `-` `~` `# [HIGH|MEDIUM|LOW]` style).
+  **Development tooling gets none**: `scripts/dev/` (the VM, parity and automation scripts), tests
+  and CI (decided, grafida/grafida#92). Released sections keep the tooling entries they already
+  have, as history.
 - Commit directly on `main`.
