@@ -9,12 +9,13 @@ alerts. Grafida is consumer #1 (umbrella issue grafida/grafida#82); nothing Graf
 hard-coded — everything comes from the manifest (`shell.json`).
 
 Read `docs/adr/0001-shell-stack.md` before changing the webview glue. To test a packaged app on clean
-Linux machines, use `scripts/dev/linuxvm.sh` (`docs/dev/linux-test-vms.md`); on clean macOS 12 and 27
-guests, `scripts/dev/macvm.sh` (`docs/dev/macos-test-vms.md`). To run anything on Windows,
-use the test VMs in `docs/dev/windows-test-vm.md` through `scripts/dev/winvm.sh` (`ssh winvm`,
-`winvm10`). A GUI program must be started in the desktop session (`winvm.sh run`, an interactive
-scheduled task), never directly over SSH; the automation channel reaches the host through
-`winvm.sh tunnel`.
+Linux machines, use `scripts/dev/linuxvm.sh` (`docs/dev/linux-test-vms.md`), which also drives the
+guests' real pointer (QMP, absolute: `move`/`click`/`drag`) for what the automation channel only
+fakes; on clean macOS 12 and 27 guests, `scripts/dev/macvm.sh` (`docs/dev/macos-test-vms.md`). To
+run anything on Windows, use the test VMs in `docs/dev/windows-test-vm.md` through
+`scripts/dev/winvm.sh` (`ssh winvm`, `winvm10`). A GUI program must be started in the desktop
+session (`winvm.sh run`, an interactive scheduled task), never directly over SSH; the automation
+channel reaches the host through `winvm.sh tunnel`.
 
 ## Rules that are not guessable from the code
 

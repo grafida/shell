@@ -84,3 +84,55 @@ the shell repository's `scripts/` and `tests/` and the release workflow's
 `GRAFIDA_PACKAGED=~/grafida SHELL_BIN=~/grafida-shell-debug scripts/dev/parity-linux.sh` through
 `session`. It needs only `python3` on the VM. The release binary never has the automation
 channel, so this is the only way in.
+
+## 4. Real input: pointer, keys and screendumps from the host
+
+The automation channel's `eval` and `click` run inside the page. A scripted `el.click()` or a
+synthetic event never goes through the compositor, the toolkit or WebKit's input handling, so it
+cannot show what a person's input does: where the **keyboard focus** goes, `:hover`, **drags**,
+modifier clicks, context menus, and anything the compositor decides (focus on map, the Overview).
+For those, drive the VM's own input devices from the host. The release binary needs no automation
+channel for it; use `eval` only to read state afterwards.
+
+```sh
+scripts/dev/linuxvm.sh key fedora-43 esc                     # leave the GNOME Overview (below)
+scripts/dev/linuxvm.sh screen fedora-43                      # 1280x800
+scripts/dev/linuxvm.sh screendump fedora-43 /tmp/screen.png  # .png, or .ppm
+scripts/dev/linuxvm.sh move fedora-43 110 412
+scripts/dev/linuxvm.sh click fedora-43 110 412               # left; or `right`, `middle`
+scripts/dev/linuxvm.sh click fedora-43 700 669 right ctrl-shift
+scripts/dev/linuxvm.sh drag fedora-43 700 669 900 719
+```
+
+- **Every `start` opens a QMP socket**, `~/VMs/<distro>/<distro>-qmp.socket`, beside the HMP monitor
+  socket quickemu makes. `key` goes through HMP `sendkey`; `move`, `click`, `drag`, `screen` and
+  `screendump` go through QMP (`scripts/dev/linuxvm/qmp.py`). A VM started before this existed has no
+  QMP socket: stop it and start it again.
+- **The pointer is absolute.** `move` sends QMP `input-send-event` absolute axes, which reach the guest
+  as quickemu's USB tablet and land on the exact pixel (checked against the page's `clientX`/`clientY`
+  on all three VMs). HMP `mouse_move` is the trap: it sends *relative* motion, which arrives as the PS/2
+  mouse and goes through the desktop's pointer acceleration, so it ends up near the target, not on it.
+- **Coordinates are screen pixels, as a screendump shows them**, origin top left. The absolute range is
+  0…32767 across the whole screen whatever its size, so every command first reads the screen's current
+  size from a screendump (the size of QEMU's display surface, which is the area the tablet's range
+  covers) and aims at the centre of the pixel. A resolution change in the guest (`kscreen-doctor
+  output.Virtual-1.mode.13` on Plasma) is picked up by the next command.
+- **From a point in the page to the screen:** screen = window's webview origin + CSS point ×
+  `devicePixelRatio`. Wayland tells no client where its window is, so find the origin from a
+  screendump. One way is to match the automation channel's `screenshot` of the page inside it, with
+  tolerance: the webview's snapshot and the compositor anti-alias a few rounded edges differently.
+  Then confirm it with one move: the page's `mousemove` `clientX`/`clientY` must be the point you
+  aimed at.
+- **`click` comes from two pixels away first**, so the client sees a motion onto the target and its
+  hover state is there before the press, even when the pointer was already on it. Modifiers are
+  QMP key events held around the button. They go through a different device from the tablet, and
+  on Ubuntu 22.04 a press sent 30–60 ms after them sometimes arrived without them, so the command waits
+  0.2 s after the modifiers before pressing. `drag` presses, moves in 10–60 small steps (a toolkit
+  starts a drag only past its threshold, and a drop target only learns of the pointer from motion
+  over it), and releases at the end.
+- **GNOME logs in to the Overview** (Ubuntu 22.04 and Fedora 43). Until `key <distro> esc` closes it, a
+  new window does not get the keyboard focus, so keys go nowhere and anything that needs a focused
+  window fails. Plasma lands on the desktop.
+- **A screendump shows the pointer only if the guest draws it into the framebuffer.** Fedora's GNOME
+  does; Ubuntu 22.04's does not. So prove a move by its
+  effect, a `:hover` style in the screendump or the page's own event, not by looking for the arrow.

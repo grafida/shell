@@ -12,15 +12,29 @@
 #
 # Usage: scripts/dev/linuxvm.sh COMMAND DISTRO [ARGS…]
 #   install DISTRO          install from the ISO (headless, serial console logged to install.log)
-#   start DISTRO [--headless]  boot it with quickemu (a window, unless --headless)
+#   start DISTRO [--headless]  boot it with quickemu (a window, unless --headless); always with a QMP
+#                           socket, $LINUXVM_DIR/DISTRO/DISTRO-qmp.socket, for the input commands below
 #   wait DISTRO             wait until SSH answers
 #   ssh DISTRO [CMD…]       a shell or a command, as user `tester`
 #   session DISTRO CMD…     a command in the logged-in desktop session (WAYLAND_DISPLAY, D-Bus, …)
 #   prepare DISTRO          update, and switch off screen locking and blanking, then power off
 #   key DISTRO KEY          press a key on the VM's keyboard (QEMU sendkey), e.g. `key fedora-43 esc`
 #                           to leave the GNOME Overview a login lands in, so new windows get focus
+#   move DISTRO X Y         real pointer input (QMP, the USB tablet), at the screen pixel X,Y
+#   click DISTRO X Y [left|right|middle] [MODS]   a click there; MODS = ctrl, shift, alt, altgr,
+#                           super, joined by - (`click arch 640 400 right ctrl-shift`)
+#   drag DISTRO X1 Y1 X2 Y2 [left|right|middle] [MODS]   press at X1,Y1, move there in steps, release
+#   screen DISTRO           the guest's screen size now, WxH
+#   screendump DISTRO OUT.png|OUT.ppm   the guest's screen; the pointer is in it only when the guest
+#                           draws it there (Fedora's GNOME does, Ubuntu 22.04's does not)
 #   stop DISTRO             power off
 #   snapshot DISTRO create|apply|list [NAME]   internal qcow2 snapshots (the VM must be off)
+#
+# Pointer coordinates are pixels of the guest's screen as a screendump shows them (physical pixels,
+# origin top left). The events are absolute, 0…32767 across the screen, so each command first reads
+# the screen's current size from a screendump and scales to it; a resolution change in the guest is
+# picked up on the next command. Real input is for what the automation channel only fakes (focus,
+# hover, drags, the compositor); see docs/dev/linux-test-vms.md.
 #
 # The VMs live in $LINUXVM_DIR (default ~/VMs), next to the Windows one. The ISOs are fetched with
 # quickget (`quickget ubuntu-server 22.04`, `quickget archlinux latest`) and, for Fedora, from the
@@ -152,7 +166,7 @@ eval "$(printf "%s\n" "$env" | sed "s/^/export /")"
 : "${DBUS_SESSION_BUS_ADDRESS:=unix:path=$XDG_RUNTIME_DIR/bus}"; export DBUS_SESSION_BUS_ADDRESS'
 
 cmd=${1:-}; distro=${2:-}
-[ -n "$cmd" ] && [ -n "$distro" ] || { sed -n '9,25p' "$0"; exit 64; }
+[ -n "$cmd" ] && [ -n "$distro" ] || { sed -n '9,/^$/p' "$0"; exit 64; }
 port "$distro" >/dev/null
 shift 2
 
@@ -165,7 +179,14 @@ case $cmd in
         # ⚠️ quickemu adds an SSH forward of its own on the first free port from 22220 up. With a
         # Windows guest on 22220 that is 22221, the forward ubuntu-22.04.conf already has, and QEMU
         # refuses the duplicate ("Could not set up host forwarding rule"). Name one nothing uses.
-        (cd "$VMS" && quickemu --vm "$distro.conf" --ssh-port "$(($(port "$distro") + 10))" "${display[@]}")
+        # The QMP socket is always opened, beside the HMP monitor socket quickemu makes: it gives no
+        # more than that monitor already does, and a VM started without it would have to be
+        # restarted, losing what was under test, before it could take real pointer input. quickemu
+        # (4.9) has no -qmp of its own. The path is relative to $VMS, QEMU's working directory, since
+        # quickemu splits --extra_args on spaces; the leading space keeps it apart from any
+        # extra_args the .conf has, which quickemu appends it to.
+        (cd "$VMS" && quickemu --vm "$distro.conf" --ssh-port "$(($(port "$distro") + 10))" "${display[@]}" \
+            --extra_args " -qmp unix:$distro/$distro-qmp.socket,server=on,wait=off")
         ;;
     wait) wait_ssh "$distro" ;;
     ssh) exec ssh $(ssh_opts "$distro") tester@localhost "$@" ;;
@@ -194,6 +215,11 @@ fi'
         ;;
     stop) ssh $(ssh_opts "$distro") tester@localhost 'sudo systemctl poweroff' || true ;;
     key) printf 'sendkey %s\n' "${1:?key}" | socat - "unix-connect:$VMS/$distro/$distro-monitor.socket" >/dev/null ;;
+    move | click | drag | screen) python3 -I "$HERE/linuxvm/qmp.py" "$VMS/$distro/$distro-qmp.socket" "$cmd" "$@" ;;
+    screendump) # QEMU writes the file itself, from its own working directory: hand it an absolute path
+        out=$(realpath -m -- "${1:?OUT.png or OUT.ppm}")
+        python3 -I "$HERE/linuxvm/qmp.py" "$VMS/$distro/$distro-qmp.socket" screendump "$out"
+        ;;
     snapshot)
         disk=$VMS/$distro/disk.qcow2
         case ${1:-} in
