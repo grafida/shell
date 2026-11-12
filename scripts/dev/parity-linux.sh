@@ -215,7 +215,10 @@ PY
     record "$(grep -q 'boson://app/api/media/' <<<"$dropped" && echo PASS || echo FAIL)" \
         "Grafida: an image file dropped on the editor is inserted as offline media (delivered as in a real drop)" \
         "$(tr -d '\n ' <<<"$dropped" | cut -c1-120)"
-    $CLIENT eval 'State.tinyMCEEditor.setDirty(false); showScreen("sites"); return true' >/dev/null
+    # Leaving by script keeps the keyboard focus in the hidden editor's iframe, whose caret then
+    # blinks unseen: 0.85-1.13 % of a core between the shell and the web process (grafida/grafida#92),
+    # as parity-macos.sh measured on macOS. A real click on the sidebar moves the focus out, so do that.
+    $CLIENT eval 'State.tinyMCEEditor.setDirty(false); showScreen("sites"); document.activeElement.blur(); window.focus(); return true' >/dev/null
 
     # Idle CPU of the whole tree on a quiet screen.
     settle=60 sample=60
@@ -223,24 +226,29 @@ PY
     $CLIENT eval 'document.querySelector("#main-nav [data-screen=\"sites\"]").click(); return true' >/dev/null
     sleep "$settle"
     pids=$(tree "$SHELL_PID" | tr '\n' ' ')
-    cpu=$(python3 -I - "$sample" $pids <<'PY'
+    # One line: the total, then each process's share (so a failure names where the time went).
+    idle=$(python3 -I - "$sample" $pids <<'PY'
 import os, sys, time
 sample, pids = float(sys.argv[1]), sys.argv[2:]
 def ticks():
-    total = 0
+    out = {}
     for pid in pids:
         try:
-            fields = open(f"/proc/{pid}/stat").read().rsplit(")", 1)[1].split()
-            total += int(fields[11]) + int(fields[12])
+            head, tail = open(f"/proc/{pid}/stat").read().rsplit(")", 1)
+            fields = tail.split()
+            out[pid] = (head.split("(", 1)[1], int(fields[11]) + int(fields[12]))
         except OSError:
             pass
-    return total
+    return out
 a = ticks(); time.sleep(sample); b = ticks()
-print(f"{(b - a) / os.sysconf('SC_CLK_TCK') / sample * 100:.2f}")
+hz = os.sysconf('SC_CLK_TCK')
+share = {pid: (b[pid][1] - a[pid][1]) / hz / sample * 100 for pid in a if pid in b}
+print(f"{sum(share.values()):.2f}", "; ".join(f"{a[pid][0]} {v:.2f}" for pid, v in share.items()))
 PY
 )
+    cpu=${idle%% *} shares=${idle#* }
     record "$(python3 -I -c "print('PASS' if $cpu < 1 else 'FAIL')")" \
-        "Idle CPU < 1% (whole process tree, ${sample} s after ${settle} s)" "$cpu % of one core over $(wc -w <<<"$pids") processes"
+        "Idle CPU < 1% (whole process tree, ${sample} s after ${settle} s)" "$cpu % of one core over $(wc -w <<<"$pids") processes: $shares"
 
     # Close → the worker exits within 3 s, nothing is orphaned, the WAL does not grow.
     worker=$(grep -o "worker started, pid [0-9]*" "$LOG" | tail -1 | grep -o "[0-9]*$")
