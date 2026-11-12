@@ -26,6 +26,7 @@ import socket
 import sys
 import tempfile
 import time
+from contextlib import contextmanager
 
 ABS_MAX = 0x7FFF
 BUTTONS = ("left", "right", "middle")
@@ -124,15 +125,42 @@ class Pointer:
     def button(self, name, down):
         self.qmp.events({"type": "btn", "data": {"button": name, "down": down}})
 
-    def modifiers(self, qcodes, down):
-        for qcode in (qcodes if down else reversed(qcodes)):
-            self.qmp.events({"type": "key", "data": {"down": down, "key": {"type": "qcode", "data": qcode}}})
-            time.sleep(0.03)
-        if qcodes and down:
-            # The keyboard (PS/2) and the tablet (USB) are separate devices: a press sent 30–60 ms
-            # after the modifiers sometimes reached the page without them on Ubuntu 22.04, the first after
-            # a pause most often. 0.1 s per key never failed; settle before the button goes down.
-            time.sleep(0.2)
+    def key(self, qcode, down):
+        self.qmp.events({"type": "key", "data": {"down": down, "key": {"type": "qcode", "data": qcode}}})
+
+    @contextmanager
+    def held(self, button, qcodes):
+        """The modifiers, then the button, down for the body; both released on the way out."""
+        keys, pressed = [], False
+        try:
+            for qcode in qcodes:
+                keys.append(qcode)  # before the call: a key that failed half-way may still be down
+                self.key(qcode, True)
+                time.sleep(0.03)
+            if keys:
+                # The keyboard (PS/2) and the tablet (USB) are separate devices: a press sent 30–60 ms
+                # after the modifiers sometimes reached the page without them on Ubuntu 22.04, the first
+                # after a pause most often. 0.1 s per key never failed; settle before the button goes down.
+                time.sleep(0.2)
+            pressed = True
+            self.button(button, True)
+            yield
+        finally:
+            # Release whatever may have gone down, even when a step failed half-way (an error from
+            # QEMU exits through here): a modifier or button left pressed in the guest turns every
+            # later key and click of the round into a different one, and nothing would say so.
+            # Best effort, each on its own, so one failed release does not keep the others down.
+            if pressed:
+                self.release(lambda: self.button(button, False))
+            for qcode in reversed(keys):
+                self.release(lambda qcode=qcode: self.key(qcode, False))
+                time.sleep(0.03)
+
+    def release(self, send):
+        try:
+            send()
+        except (SystemExit, OSError):
+            pass
 
 
 def options(args):
@@ -176,11 +204,8 @@ def main(argv):
         p = Pointer(qmp)
         p.check(x, y)
         p.approach(x, y)
-        p.modifiers(mods, True)
-        p.button(button, True)
-        time.sleep(0.08)
-        p.button(button, False)
-        p.modifiers(mods, False)
+        with p.held(button, mods):
+            time.sleep(0.08)
     elif cmd == "drag" and 4 <= len(args) <= 6:
         x1, y1, x2, y2 = numbers(args, 4)
         button, mods = options(args[4:])
@@ -188,18 +213,15 @@ def main(argv):
         p.check(x1, y1)
         p.check(x2, y2)
         p.approach(x1, y1)
-        p.modifiers(mods, True)
-        p.button(button, True)
-        time.sleep(0.15)
-        # Many small motions, as a hand makes: a toolkit starts a drag only past its threshold, and
-        # a drop target only learns of the pointer from motion over it.
-        steps = max(10, min(60, int(max(abs(x2 - x1), abs(y2 - y1)) / 10)))
-        for i in range(1, steps + 1):
-            p.move(round(x1 + (x2 - x1) * i / steps), round(y1 + (y2 - y1) * i / steps))
-            time.sleep(0.015)
-        time.sleep(0.2)
-        p.button(button, False)
-        p.modifiers(mods, False)
+        with p.held(button, mods):
+            time.sleep(0.15)
+            # Many small motions, as a hand makes: a toolkit starts a drag only past its threshold,
+            # and a drop target only learns of the pointer from motion over it.
+            steps = max(10, min(60, int(max(abs(x2 - x1), abs(y2 - y1)) / 10)))
+            for i in range(1, steps + 1):
+                p.move(round(x1 + (x2 - x1) * i / steps), round(y1 + (y2 - y1) * i / steps))
+                time.sleep(0.015)
+            time.sleep(0.2)
     else:
         sys.exit(f"qmp: bad command line: {' '.join(argv[2:])}")
 
