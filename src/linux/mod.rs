@@ -7,6 +7,7 @@
 //! context (data dirs, sandbox, spelling, scheme, security manager) → webview → load.
 
 mod alert;
+mod decoration;
 pub mod environment;
 mod scheme;
 
@@ -290,6 +291,12 @@ pub fn run(launch: Launch, log: Arc<Log>) -> i32 {
     let title = manifest.title.clone();
     let exit = Rc::new(std::cell::Cell::new(0));
     let fatal_proxy = proxy.clone();
+    let mut decoration = decoration::Decoration::default();
+    if manifest.window.theme != Theme::System
+        && let Some(line) = decoration.apply(window.gtk_window(), manifest.window.theme)
+    {
+        log.line("shell", &line);
+    }
 
     event_loop.run(move |event, _, control_flow| {
         *control_flow = ControlFlow::Wait;
@@ -332,6 +339,10 @@ pub fn run(launch: Launch, log: Arc<Log>) -> i32 {
             Event::UserEvent(UserEvent::SetTitle(t)) => window.set_title(&t),
             Event::UserEvent(UserEvent::SetTheme(theme)) => {
                 window.set_theme(tao_theme(theme));
+                // GTK's dark preference reaches only a title bar GTK draws; KWin draws its own.
+                if let Some(line) = decoration.apply(window.gtk_window(), theme) {
+                    log.line("shell", &line);
+                }
             }
             Event::UserEvent(UserEvent::Dialog(request)) => {
                 dialog::answer(&window, &picks, request)

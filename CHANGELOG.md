@@ -1,5 +1,6 @@
 shell 0.4.1 (unreleased)
 ================================================================================
+- Linux, KDE Plasma: the title bar stayed light in a dark app; KWin is now told the colour scheme (Wayland and X11)
 - `linuxvm.sh start` failed while a Windows guest was running (both wanted SSH port 22221)
 ~ Linux: the launcher's alert asks the user to read the app's documentation for its minimum requirements
 ~ README: the shell's system requirements on Windows, macOS and Linux, for apps to copy into their docs

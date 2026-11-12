@@ -70,3 +70,9 @@ javascriptcore-rs = { version = "1.1.2", optional = true }
 gtk = "0.18"
 soup3 = "0.5"
 webkit2gtk = { version = "2.0.2", features = ["v2_40"] }
+# KWin's per-window decoration colours (src/linux/decoration.rs): the wl_display and wl_surface
+# come from GDK, and the backend must be libwayland's own to share them (rfd links it already).
+gdkwayland-sys = "0.18"
+wayland-backend = { version = "0.3.17", features = ["client_system"] }
+wayland-client = "0.31.15"
+wayland-protocols-plasma = { version = "0.3.12", features = ["client"] }

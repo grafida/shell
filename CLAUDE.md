@@ -179,6 +179,14 @@ scheduled task), never directly over SSH; the automation channel reaches the hos
   copy). Only undefined symbols *the shell itself* needs count (it is `-z now`; a library's
   own unresolved references bind lazily), and output it does not recognise **fails open**.
   `launcher/tests/loader.rs` breaks real C programs' libraries to pin the loader's formats.
+- **On KDE Plasma the title bar is KWin's, so the window theme is told to KWin too**
+  (`src/linux/decoration.rs`). tao's `set_theme` only sets GTK's `gtk-application-prefer-dark-theme`,
+  which reaches a title bar GTK draws (GNOME's) and not one KWin draws: on Plasma it stayed light in a
+  dark app (grafida/grafida#92). Each theme change also sends Breeze's light or dark colour scheme
+  (an absolute path found in the XDG data dirs; `system` = the empty name, the user's own) through
+  `org_kde_kwin_server_decoration_palette` over GDK's own `wl_display`/`wl_surface` (a foreign-display
+  wayland-client backend, so no new library), or as `_KDE_NET_WM_COLOR_SCHEME` (`STRING`) on X11,
+  only when `XDG_CURRENT_DESKTOP` has `KDE`. Without the global (GNOME, wlroots) nothing is sent.
 - **Process-wide settings go in `linux::environment::prepare()`, called from `main()` before any
   thread exists** (it sets environment variables): the program name = the manifest `id` (GTK's
   Wayland `app_id` and X11 `WM_CLASS`, so a packaged app's desktop entry must be named
