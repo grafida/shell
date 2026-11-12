@@ -162,7 +162,10 @@ case $cmd in
     start)
         display=()
         [ "${1:-}" = --headless ] && display=(--display none)
-        (cd "$VMS" && quickemu --vm "$distro.conf" "${display[@]}")
+        # ⚠️ quickemu adds an SSH forward of its own on the first free port from 22220 up. With a
+        # Windows guest on 22220 that is 22221, the forward ubuntu-22.04.conf already has, and QEMU
+        # refuses the duplicate ("Could not set up host forwarding rule"). Name one nothing uses.
+        (cd "$VMS" && quickemu --vm "$distro.conf" --ssh-port "$(($(port "$distro") + 10))" "${display[@]}")
         ;;
     wait) wait_ssh "$distro" ;;
     ssh) exec ssh $(ssh_opts "$distro") tester@localhost "$@" ;;

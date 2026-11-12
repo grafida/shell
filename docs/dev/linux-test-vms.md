@@ -61,6 +61,10 @@ Gotchas:
   host's loopback (port 18800), which QEMU's user network presents to the guest as `10.0.2.2`.
 - GNOME's first-login tour is skipped (`~/.config/gnome-initial-setup-done`). Without that, it
   would sit over the session every time.
+- **quickemu adds an SSH forward of its own**, on the first free port from 22220 up. Beside a running
+  Windows guest (22220) that was 22221, which `ubuntu-22.04.conf` already forwards, and QEMU refused
+  to start ("Could not set up host forwarding rule"). `start` therefore names quickemu's port
+  itself: 22231–22233, unused; the VMs are still reached on 22221–22223.
 
 ## 3. Testing a packaged app
 
