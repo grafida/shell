@@ -6,7 +6,8 @@
 //! links nothing but std. It asks the system loader whether the shell beside it would load (what
 //! `ldd -r` does: `LD_TRACE_LOADED_OBJECTS` + `LD_BIND_NOW` + `LD_WARN`, which prints the libraries
 //! and the unresolved names without running the program), and either execs the shell with the same
-//! arguments or shows an alert that says what to install.
+//! arguments or shows an alert that says what to install, and asks the user to read the app's
+//! documentation for its minimum requirements.
 //!
 //! The check **fails open**: output it does not recognise lets the shell start, because refusing to
 //! start on a system we merely could not read is worse than the crash we are trying to explain.
@@ -226,6 +227,12 @@ pub fn explain(title: &str, problems: &Problems, family: Family) -> (String, Str
         detail.push(format!("Not found: {}", missing_names.join(", ")));
     }
 
+    // The launcher knows the shell's floors, not the app's: an app may need more (Grafida needs
+    // `secret-tool`), so the last word is always its own documentation.
+    detail.push(format!(
+        "Please read {title}'s documentation for its minimum system requirements."
+    ));
+
     (message, detail.join("\n\n"))
 }
 
@@ -421,6 +428,31 @@ mod tests {
         );
         let (_, detail) = explain("Grafida", &p, Family::Other);
         assert!(!detail.contains("sudo"), "{detail}");
+    }
+
+    #[test]
+    fn every_alert_ends_by_pointing_at_the_apps_documentation() {
+        let ask = "Please read Grafida's documentation for its minimum system requirements.";
+        let cases = [
+            Problems {
+                missing: vec!["libgtk-3.so.0".into()],
+                ..Problems::default()
+            },
+            Problems {
+                versions: vec!["GLIBC_2.35".into()],
+                ..Problems::default()
+            },
+            Problems {
+                symbols: vec!["webkit_uri_scheme_request_get_http_body".into()],
+                ..Problems::default()
+            },
+        ];
+        for p in cases {
+            for family in [Family::Debian, Family::Other] {
+                let (_, detail) = explain("Grafida", &p, family);
+                assert!(detail.ends_with(ask), "{detail}");
+            }
+        }
     }
 
     #[test]

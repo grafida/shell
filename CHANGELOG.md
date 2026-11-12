@@ -1,3 +1,9 @@
+shell 0.4.1 (unreleased)
+================================================================================
+- `linuxvm.sh start` failed while a Windows guest was running (both wanted SSH port 22221)
+~ Linux: the launcher's alert asks the user to read the app's documentation for its minimum requirements
+~ README: the shell's system requirements on Windows, macOS and Linux, for apps to copy into their docs
+
 shell 0.4.0
 ================================================================================
 + macOS x86_64 (Intel, 12 or later): `grafida-shell-macos-x86_64` in releases, checked and smoke-tested on Intel

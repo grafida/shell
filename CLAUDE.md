@@ -174,7 +174,9 @@ scheduled task), never directly over SSH; the automation channel reaches the hos
   the system loader whether the shell beside it would load (`LD_TRACE_LOADED_OBJECTS` +
   `LD_BIND_NOW` + `LD_WARN`, i.e. `ldd -r`, ~30 ms) and either `exec`s it with the same arguments
   or alerts (zenity → kdialog → notify-send → xmessage → stderr) with the packages to install per
-  distro family. Only undefined symbols *the shell itself* needs count (it is `-z now`; a library's
+  distro family, always ending by asking the user to read the app's documentation for its minimum
+  requirements (the shell's floors are not the app's; README "System requirements" is the text apps
+  copy). Only undefined symbols *the shell itself* needs count (it is `-z now`; a library's
   own unresolved references bind lazily), and output it does not recognise **fails open**.
   `launcher/tests/loader.rs` breaks real C programs' libraries to pin the loader's formats.
 - **Process-wide settings go in `linux::environment::prepare()`, called from `main()` before any
