@@ -260,6 +260,33 @@ pub fn safe_title(title: &str) -> String {
     }
 }
 
+/// `&`, `<` and `>` as entities, for a tool that renders markup (a notification body).
+fn escape_markup(text: &str) -> String {
+    text.replace('&', "&amp;")
+        .replace('<', "&lt;")
+        .replace('>', "&gt;")
+}
+
+/// kdialog's text with its first line (up to the first `\n`) unable to look like rich text.
+///
+/// kdialog shows the text in a `QLabel` with `Qt::AutoText` and external links allowed
+/// (`KMessageBox::createKMessageBox`, kwidgetsaddons, called with `AllowLink` from kdialog's
+/// `kdialog.cpp`). `Qt::mightBeRichText` (qtbase, `qtextdocument.cpp`) looks only at the text before
+/// the first `<` or `\n`, says "rich" on `&lt;` on the way, and otherwise if that `<` opens a known
+/// tag. So only the first line, which starts with the manifest's title, can switch rich text (and
+/// links) on; later lines are always plain and are left alone. Escaping would show `&lt;` literally
+/// in plain mode, so instead `<` becomes `U+2039` and `&lt;` is broken with a word joiner.
+fn neutralise_first_line(text: &str) -> String {
+    let (first, rest) = match text.find('\n') {
+        Some(i) => text.split_at(i),
+        None => (text, ""),
+    };
+    let first = first
+        .replace('<', "\u{2039}")
+        .replace("&lt;", "&\u{2060}lt;");
+    format!("{first}{rest}")
+}
+
 /// The alert tools tried in order, and the arguments each takes. Each is spawned and must have run
 /// (exit 0 or 1, i.e. dismissed); a tool that is absent or cannot start itself (127, a signal)
 /// falls through to the next. stderr always gets the text first.
@@ -287,7 +314,12 @@ pub fn alert_commands(
         ),
         (
             "kdialog",
-            vec![os("--title"), os(title), os("--error"), os(&text)],
+            vec![
+                os("--title"),
+                os(title),
+                os("--error"),
+                os(&neutralise_first_line(&text)),
+            ],
         ),
         (
             "notify-send",
@@ -296,7 +328,8 @@ pub fn alert_commands(
                 os(&format!("--app-name={title}")),
                 os("--"),
                 os(message),
-                os(detail),
+                // The summary is plain text (Desktop Notifications spec); the body may be markup.
+                os(&escape_markup(detail)),
             ],
         ),
         ("xmessage", vec![os("-center"), os(&text)]),
@@ -536,5 +569,65 @@ mod tests {
         assert_eq!(safe_title("--Grafida"), "Grafida");
         assert_eq!(safe_title("Grafida"), "Grafida");
         assert_eq!(safe_title("My-App"), "My-App");
+    }
+
+    #[test]
+    fn the_notification_body_is_escaped_but_not_its_summary_or_other_tools() {
+        let title = "A <b>&</b>";
+        let message = "<a href=\"https://example.com\">click</a> & go";
+        let detail = "Not found:\n  <i>libx.so</i> & more";
+        let commands = alert_commands(title, message, detail);
+        let find = |name: &str| commands.iter().find(|c| c.0 == name).unwrap().1.clone();
+
+        let ns = find("notify-send");
+        let n = ns.len();
+        // The summary is plain text per the Desktop Notifications spec: untouched.
+        assert_eq!(ns[n - 2], message);
+        // The body may carry markup: `&`, `<` and `>` are escaped, line breaks stay.
+        assert_eq!(
+            ns[n - 1],
+            "Not found:\n  &lt;i&gt;libx.so&lt;/i&gt; &amp; more"
+        );
+
+        // zenity is told `--no-markup`, xmessage shows plain text: both get the raw text.
+        let text = format!("{message}\n\n{detail}");
+        assert!(find("zenity").contains(&OsString::from(format!("--text={text}"))));
+        assert_eq!(find("xmessage").last().unwrap(), &OsString::from(&text));
+    }
+
+    /// A port of the part of Qt's `Qt::mightBeRichText` (qtbase, `qtextdocument.cpp`) that matters
+    /// here: only the text before the first `<` or `\n` is examined, `&lt;` on the way says rich
+    /// text, and a `<` that opens a known tag says rich text. Anything with a `<` or `&lt;` in the
+    /// first line is treated as "might be".
+    fn might_be_rich_text(text: &str) -> bool {
+        let first = text.trim_start().split('\n').next().unwrap_or("");
+        first.contains('<') || first.contains("&lt;")
+    }
+
+    #[test]
+    fn kdialog_cannot_be_made_to_render_rich_text_by_the_title() {
+        let title = "<a href=\"https://example.com\">x</a> &lt;b&gt;";
+        let message = format!("{title} cannot start.");
+        let detail = "Not found:\n  <i>libx.so</i> & more";
+        let commands = alert_commands(title, &message, detail);
+        let kd = &commands.iter().find(|c| c.0 == "kdialog").unwrap().1;
+        let text = kd.last().unwrap().to_string_lossy().into_owned();
+
+        assert!(!might_be_rich_text(&text), "{text:?}");
+        let (first, rest) = text.split_once('\n').unwrap();
+        assert!(!first.contains('<') && !first.contains("&lt;"), "{first:?}");
+        // The detail is plain text for Qt (it is past the first line): shown raw, never escaped.
+        assert!(
+            rest.ends_with("Not found:\n  <i>libx.so</i> & more"),
+            "{rest:?}"
+        );
+
+        // A normal title is passed through byte for byte.
+        let plain = alert_commands("Grafida", "Grafida cannot start.", "Detail: a & b");
+        let kd = &plain.iter().find(|c| c.0 == "kdialog").unwrap().1;
+        assert_eq!(
+            kd.last().unwrap(),
+            &OsString::from("Grafida cannot start.\n\nDetail: a & b")
+        );
     }
 }

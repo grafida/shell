@@ -13,6 +13,7 @@ shell 0.4.2
 # [LOW] A percent-encoded path (`/%61pi/`) escaped `noStorePaths`, and `/%5Fnative/` went to the worker
 # [LOW] Linux launcher: if it could not find its own path it searched `PATH` for `grafida-shell`; now it refuses
 # [LOW] Linux launcher: a `shell.json` title starting with `-` could stop the failure alert from showing
+# [LOW] Linux launcher: markup in the app's title or a library name could show as a clickable link in the alert
 
 shell 0.4.1
 ================================================================================
