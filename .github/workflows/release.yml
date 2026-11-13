@@ -74,6 +74,18 @@ jobs:
       - name: Check the binaries
         run: scripts/release/check-linux-binaries.sh target/release/grafida-shell "target/$MUSL/release/grafida-launcher"
 
+      # The glibc floor check must fail, and say why, when objdump lists no GLIBC versions at all:
+      # an empty list would otherwise compare below any floor (security.md I8).
+      - name: The glibc check refuses a shell with no symbol versions
+        run: |
+          shim="$(mktemp -d)"
+          printf '#!/bin/sh\nexit 0\n' > "$shim/objdump"
+          chmod +x "$shim/objdump"
+          if out="$(PATH="$shim:$PATH" scripts/release/check-linux-binaries.sh target/release/grafida-shell "target/$MUSL/release/grafida-launcher" 2>&1)"; then
+            echo "$out"; echo "::error::the check passed with no GLIBC symbol versions"; exit 1
+          fi
+          grep -q 'no GLIBC symbol versions' <<<"$out" || { echo "$out"; echo "::error::the check failed for another reason"; exit 1; }
+
       - name: Smoke test (headless, through the launcher)
         run: scripts/release/smoke-linux.sh target/release/grafida-shell "target/$MUSL/release/grafida-launcher"
 
