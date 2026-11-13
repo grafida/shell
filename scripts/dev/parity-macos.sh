@@ -222,6 +222,11 @@ record "$( [ "$(ok_field <<<"$answer")" = yes ] && echo PASS || echo FAIL)" \
     "The app frames its own pages; a foreign frame cannot (frameGuard on)" \
     "$(python3 -I -c 'import json,sys; r=json.load(sys.stdin)["result"]; print("own %s; foreign %s; foreign, worker allows %s; csp %r; engine enforces frame-ancestors %s; failures %s" % (r["own"], r["foreign"], r["foreignAllowed"], r["csp"], r["headerEnforced"], r["failures"]))' <<<"$answer")"
 
+answer=$(js "$ECHO/keys.js")
+record "$( [ "$(ok_field <<<"$answer")" = yes ] && echo PASS || echo FAIL)" \
+    "Page script, in the app or a foreign frame, cannot post to the key reporter's handler" \
+    "$(python3 -I -c 'import json,sys; r=json.load(sys.stdin)["result"]; print("reachable %s; failures %s" % (r["reachable"], r["failures"]))' <<<"$answer")"
+
 $CLIENT pick "$WORK/pick.png" >/dev/null
 $CLIENT pick --cancel >/dev/null
 answer=$(js "$ECHO/dialogs.js")

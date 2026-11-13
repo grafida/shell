@@ -9,7 +9,7 @@ Moved from the root `CLAUDE.md`; same rules, loaded on demand.
   case must run from a `setTimeout` well past that; and while it is open the shell **records**
   external URLs instead of launching the browser (`opened`). `tests/apps/echo/` (the fake worker in
   echo mode, behind a 60 MiB limit) holds the in-webview checks: `bridge.js`, `navigation.js`,
-  `dialogs.js`, `framing.js` (a sandboxed `srcdoc` frame stands in for a foreign page: its origin
+  `dialogs.js`, `keys.js` (macOS: the key reporter's handler is out of page script's reach), `framing.js` (a sandboxed `srcdoc` frame stands in for a foreign page: its origin
   is opaque, and it needs no network; run it in the echo app and in `tests/apps/unguarded`, the
   same worker with `frameGuard: false`, which is the control that the foreign frame really reaches
   the app's page).

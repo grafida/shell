@@ -7,6 +7,7 @@ shell 0.4.2
 # [MEDIUM] Embedded foreign pages could send Origin-less GET requests to the worker
 # [LOW] A foreign page embedded in the app could show the app's own pages inside its frame
 # [LOW] Windows: a URL with a quote or a trailing backslash could break out of the browser's command line
+# [LOW] macOS: an embedded foreign page could block or misroute the Edit menu's shortcuts
 
 shell 0.4.1
 ================================================================================

@@ -222,11 +222,14 @@ pub fn run(launch: Launch, log: Arc<Log>) -> i32 {
             false,
         );
         config.userContentController().addUserScript(&guard);
-        let reporter = WKUserScript::initWithSource_injectionTime_forMainFrameOnly(
+        // In a content world of its own, with its handler: page script in any frame (an embed
+        // included) cannot post fake verdicts (security.md L4).
+        let reporter = WKUserScript::initWithSource_injectionTime_forMainFrameOnly_inContentWorld(
             WKUserScript::alloc(mtm),
             &NSString::from_str(keys::REPORTER),
             WKUserScriptInjectionTime::AtDocumentStart,
             false,
+            &keys::world(mtm),
         );
         config.userContentController().addUserScript(&reporter);
         if manifest.webview.frame_guard {

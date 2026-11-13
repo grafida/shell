@@ -49,7 +49,12 @@ Moved from the root `CLAUDE.md`; same rules, loaded on demand.
   without this no menu shortcut fires at all. **Edit shortcuts go to the page first** (undo, redo,
   cut, copy, paste, select all, Spelling): the key is parked, a document-start script in every frame
   reports `defaultPrevented` once the page's handlers have run, and only an uncancelled key goes to
-  the menu bar (after 1 s without a report it goes anyway). That is what lets TinyMCE's own undo
+  the menu bar (after 1 s without a report it goes anyway). The reporter and its `shellKey` handler
+  live in a **`WKContentWorld` of their own** (`keys::world`), never the page world: there, any
+  frame's script, an embed's included, could post fake verdicts (security.md L4). The event is the same
+  DOM object in every world, so the reporter still reads the page's `defaultPrevented`, and it reports
+  from child frames too (measured, macOS 27.2: main frame, `srcdoc` and a `document.write` frame);
+  `tests/apps/echo/keys.js` checks the handler is out of page script's reach. That is what lets TinyMCE's own undo
   history undo a paste, while a plain field still gets native undo; the webview's native Undo knows
   nothing of an edit made by script. **App and Window shortcuts go to the menu first** (a page must
   not block Cmd+Q). Anything the menu does not bind (Cmd+Shift+V, Cmd+B/I/K) goes to the page.

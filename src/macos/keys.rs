@@ -29,8 +29,10 @@ use objc2::{
     runtime::ProtocolObject,
 };
 use objc2_app_kit::{NSApplication, NSEvent, NSEventModifierFlags, NSMenu, NSMenuItem};
-use objc2_foundation::{NSNumber, NSObject, NSObjectProtocol};
-use objc2_web_kit::{WKScriptMessage, WKScriptMessageHandler, WKUserContentController};
+use objc2_foundation::{NSNumber, NSObject, NSObjectProtocol, NSString};
+use objc2_web_kit::{
+    WKContentWorld, WKScriptMessage, WKScriptMessageHandler, WKUserContentController,
+};
 use tao::event_loop::EventLoopProxy;
 
 use super::UserEvent;
@@ -41,6 +43,16 @@ pub const REPORT_TIMEOUT: Duration = Duration::from_secs(1);
 
 /// The script message handler's name.
 pub const HANDLER: &str = "shellKey";
+
+/// The content world the reporter and its handler live in. Page script, the app's or an embed's, runs
+/// in the page world and cannot see the handler there: before, any frame could post `true` to eat
+/// every parked Edit key, or `false` to make the menu act on keys the page cancelled (security.md
+/// L4). The reporter still sees the page's `defaultPrevented`: the event is the same DOM object in
+/// every world. macOS 11+, below the shell's floor of 12.
+pub fn world(mtm: MainThreadMarker) -> Retained<WKContentWorld> {
+    // SAFETY: a plain class method; the name is ours.
+    unsafe { WKContentWorld::worldWithName(&NSString::from_str("grafida-shell-keys"), mtm) }
+}
 
 /// The menu actions whose key equivalents the page gets first.
 const PAGE_FIRST: &[&str] = &[
@@ -216,11 +228,13 @@ impl KeyReporter {
         unsafe { msg_send![super(this), init] }
     }
 
+    /// Registers the handler in the reporter's own [`world`], never the page's.
     pub fn install(&self, controller: &WKUserContentController) {
         unsafe {
-            controller.addScriptMessageHandler_name(
+            controller.addScriptMessageHandler_contentWorld_name(
                 ProtocolObject::from_ref(self),
-                &objc2_foundation::NSString::from_str(HANDLER),
+                &world(self.mtm()),
+                &NSString::from_str(HANDLER),
             );
         }
     }
