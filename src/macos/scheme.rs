@@ -181,20 +181,15 @@ impl Scheme {
     /// and WKWebView adds no `Sec-Fetch-Site`, so [`Bridge`] cannot tell it from the app's own
     /// (security.md M1); the frame can. The public `WKURLSchemeTask` says nothing about who asked:
     /// this reads WebKit's private `_frame` (a `WKFrameInfo`, there since macOS 10.15) behind
-    /// `respondsToSelector:`. Should it ever go, every request is let through and the log says so
-    /// once, rather than the app going dark.
+    /// `respondsToSelector:`. Should the selector ever go, every request is let through and the log
+    /// says so once, rather than the app going dark. A task that *has* the selector but names no
+    /// frame is refused: every request measured so far named one (the main frame's first load
+    /// included), so a frameless request is not one the app's own page makes.
     fn frame_may_request(&self, task: &ProtocolObject<dyn WKURLSchemeTask>) -> bool {
         let object: &AnyObject = task.as_ref();
         // SAFETY: plain selector queries on a live task; `_frame` answers nil or a `WKFrameInfo`.
-        let frame: Option<Retained<WKFrameInfo>> = unsafe {
-            let responds: bool = msg_send![object, respondsToSelector: sel!(_frame)];
-            if responds {
-                msg_send![object, _frame]
-            } else {
-                None
-            }
-        };
-        let Some(frame) = frame else {
+        let responds: bool = unsafe { msg_send![object, respondsToSelector: sel!(_frame)] };
+        if !responds {
             if !self.frame_unknown_noted.replace(true) {
                 self.log.line(
                     "shell",
@@ -202,6 +197,11 @@ impl Scheme {
                 );
             }
             return true;
+        }
+        // SAFETY: the selector exists; `_frame` answers nil or a `WKFrameInfo`.
+        let frame: Option<Retained<WKFrameInfo>> = unsafe { msg_send![object, _frame] };
+        let Some(frame) = frame else {
+            return false;
         };
         // SAFETY: the frame info is ours, retained; its origin is a plain value object.
         let (is_main, protocol, host) = unsafe {

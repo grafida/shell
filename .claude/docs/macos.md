@@ -20,8 +20,9 @@ Moved from the root `CLAUDE.md`; same rules, loaded on demand.
   `no-cors` fetch reached the worker (measured with the echo app's `/stderr?lines=N`). So the **scheme
   handler** refuses a task whose frame is neither the main frame nor of the app's origin
   (`Scheme::frame_may_request`, `navigation::frame_may_request`), read from WebKit's private `_frame` on
-  `WKURLSchemeTask` (macOS 10.15+) behind `respondsToSelector:`; absent, every request is let through and
-  the log says so once (security.md M1). Measured values: the main frame's first load has origin `://` and
+  `WKURLSchemeTask` (macOS 10.15+) behind `respondsToSelector:`; the selector absent, every request is let
+  through and the log says so once; the selector present but answering nil, the request is refused
+  (security.md M1). Measured values: the main frame's first load has origin `://` and
   `isMainFrame`; the app's own iframe's first request already reports `shell://app`; a foreign frame's
   subresources report its `http://host`. The gesture comes from WebKit's private
   `_isUserInitiated` behind `respondsToSelector:` (absent = no gesture, the side that never opens a
