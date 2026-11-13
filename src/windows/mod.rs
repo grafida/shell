@@ -1169,8 +1169,7 @@ fn reveal(path: &Path) -> Result<(), String> {
 /// The clipboard's text (`CF_UNICODETEXT`), or `None` when it holds none or cannot be opened.
 /// Another program may hold the clipboard for a moment, so opening it is retried briefly.
 fn read_clipboard(owner: HWND) -> Option<String> {
-    // SAFETY: plain Win32 calls; the locked memory is read only while locked, and only within
-    // the allocation's `GlobalSize`, whether or not its owner terminated it (security.md L5).
+    // SAFETY: plain Win32 calls; the clipboard's global is read by `global_text`.
     unsafe {
         let mut opened = false;
         for _ in 0..10 {
@@ -1186,20 +1185,32 @@ fn read_clipboard(owner: HWND) -> Option<String> {
         let text = (|| {
             IsClipboardFormatAvailable(u32::from(CF_UNICODETEXT.0)).ok()?;
             let handle = GetClipboardData(u32::from(CF_UNICODETEXT.0)).ok()?;
-            let global = HGLOBAL(handle.0);
-            let ptr = GlobalLock(global) as *const u16;
-            if ptr.is_null() {
-                return None;
-            }
-            // 0 when it fails: an empty slice, so empty text.
-            let units = GlobalSize(global) / 2;
-            let text = utf16_until_nul(std::slice::from_raw_parts(ptr, units));
-            let _ = GlobalUnlock(global);
-            Some(text)
+            global_text(HGLOBAL(handle.0))
         })();
         let _ = CloseClipboard();
         // An empty clipboard is text too: the page tells "nothing to paste" from "unreadable".
         text.or_else(|| Some(String::new()))
+    }
+}
+
+/// The UTF-16 text in a global memory object, up to its first NUL, or `None` when it cannot be
+/// locked. Its owner may have left the terminator out, so the scan never goes past the
+/// allocation's `GlobalSize` (security.md L5).
+///
+/// # Safety
+/// `global` must be a valid global memory handle that nothing frees while this runs.
+unsafe fn global_text(global: HGLOBAL) -> Option<String> {
+    // SAFETY: the memory is read only while locked, and only within its `GlobalSize` (0 when
+    // that fails: an empty slice, so empty text).
+    unsafe {
+        let ptr = GlobalLock(global) as *const u16;
+        if ptr.is_null() {
+            return None;
+        }
+        let units = GlobalSize(global) / 2;
+        let text = utf16_until_nul(std::slice::from_raw_parts(ptr, units));
+        let _ = GlobalUnlock(global);
+        Some(text)
     }
 }
 
@@ -1301,5 +1312,31 @@ mod tests {
             assert!(!keep_menu_item(drop, false), "{drop}");
         }
         assert!(keep_menu_item("inspectElement", true));
+    }
+
+    #[test]
+    fn unterminated_clipboard_text_is_read_only_within_its_allocation() {
+        use windows::Win32::{
+            Foundation::GlobalFree,
+            System::Memory::{GMEM_MOVEABLE, GlobalAlloc},
+        };
+        // SAFETY: the global is ours, filled while locked and freed at the end.
+        unsafe {
+            let global = GlobalAlloc(GMEM_MOVEABLE, 64).unwrap();
+            // Windows may round the size up: fill all of it, so no byte of it is a NUL.
+            let size = GlobalSize(global);
+            assert!(size >= 64);
+            let ptr = GlobalLock(global) as *mut u8;
+            assert!(!ptr.is_null());
+            for i in 0..size {
+                *ptr.add(i) = b'A';
+            }
+            let _ = GlobalUnlock(global);
+
+            let text = global_text(global);
+            let _ = GlobalFree(Some(global));
+            // 'A','A' little-endian is U+4141, once per two bytes, and nothing beyond.
+            assert_eq!(text.unwrap(), "\u{4141}".repeat(size / 2));
+        }
     }
 }
