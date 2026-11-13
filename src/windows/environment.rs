@@ -10,7 +10,11 @@ use crate::manifest::Manifest;
 /// WebView2 runs: its command line (`--remote-debugging-port`), its executable, its profile and
 /// which channel it picks. A release shell removes them before it creates the environment, so a
 /// release build never opens a debugging port it was not built to open (grafida/grafida#91). The
-/// admin-only `Software\Policies\Microsoft\Edge\WebView2` policies are out of reach and out of scope.
+/// `Software\Policies\Microsoft\Edge\WebView2` registry values (`AdditionalBrowserArguments`,
+/// `BrowserExecutableFolder`, `UserDataFolder`, ...) are not cleared: WebView2 reads them from
+/// `HKLM` and then `HKCU` when no such variable is set, and Microsoft documents the `HKCU` ones as
+/// configuration a standard user can modify. A same-user process that can write them can still add
+/// a debugging port, as it could attach a debugger anyway; that is out of scope here.
 pub const BROWSER_VARIABLES: [&str; 5] = [
     "WEBVIEW2_ADDITIONAL_BROWSER_ARGUMENTS",
     "WEBVIEW2_BROWSER_EXECUTABLE_FOLDER",

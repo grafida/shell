@@ -62,7 +62,11 @@ Moved from the root `CLAUDE.md`; same rules, loaded on demand.
   browser-changing `WEBVIEW2_*` variables** before it creates the environment
   (`windows::environment::BROWSER_VARIABLES`), so no debugging port can be injected into a release
   build; a debug build keeps them. The automation channel's `eval` uses `CallDevToolsProtocolMethod`
-  in process: no port is opened in any build.
+  in process: no port is opened in any build. This closes the environment only: WebView2 also reads
+  `Software\Policies\Microsoft\Edge\WebView2` (`AdditionalBrowserArguments`, `BrowserExecutableFolder`,
+  `UserDataFolder`, ...) from `HKLM`, then `HKCU`, when no variable is set, and Microsoft treats the
+  `HKCU` ones as standard-user-modifiable. The shell neither reads nor clears them (a same-user process
+  could attach a debugger anyway; security L16).
 - **Packaged Windows paths**: `canonicalize()` answers verbatim `\\?\` paths; `cli::real_path`
   writes them plainly (the worker is started by that path, and phpmicro derives its sibling `.phar`
   from it). A `worker.binary` without an extension is `<name>.exe` on Windows.
