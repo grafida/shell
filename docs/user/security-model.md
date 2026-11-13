@@ -9,8 +9,8 @@ foreign content (an embedded video, an article's `<iframe>`) inside your app, or
 |---|---|---|
 | **You, the app's developer**: the manifest, the worker, the page | Yes | Nothing. The worker runs with the user's own rights and can do anything the user can. A user who installs your app trusts *you*, so the shell does not defend the user against your code. |
 | **Your page**: scripts running at `<scheme>://app` | Yes | It may call every native endpoint and every route of your worker. |
-| **Foreign content inside your page**: an `<iframe>` showing another site | No | It cannot call `/_native/*`, drive your worker's API, show your pages inside its own frame, or open the browser or a window without a click. See [Links and navigation](javascript.md#links-and-navigation). |
-| **Other user accounts on the same computer** | No | The webview's data and the log live in per-user directories, and on Linux and macOS the log is readable by its owner only. |
+| **Foreign content inside your page**: an `<iframe>` showing another site | No | It cannot use the native endpoints that do anything (they are all `POST`), call your worker's `POST` routes, show your pages inside its own frame, or open the browser or a window without a click. On some platforms it **can** still send `GET` requests to your app, which is why your `GET` handlers must change nothing. See [Links and navigation](javascript.md#links-and-navigation). |
+| **Other user accounts on the same computer** | No | The webview's data and the log are kept in the user's own directories (under their home folder or Windows profile), and on Linux and macOS the shell makes the log files readable by their owner only. |
 | **The user's administrator, or other software running as the user** | Out of scope | It can read the user's files, attach a debugger or change the webview's settings. No desktop app can defend against that. |
 
 The worker and the page are both your code, so the line the shell defends runs between them and *everything else*:
@@ -34,8 +34,8 @@ mainly foreign content embedded in the page.
 
 ## The shell's releases
 
-* **Ship only the release assets** (`grafida-shell-*` on the release page, with their `.sha256`), pinned by version and
-  by a SHA-256 you computed yourself (see [Packaging](packaging.md#finding-the-urls-and-hashes-to-pin)).
+* **Ship only the release assets** (`grafida-shell-*` and, on Linux, `grafida-launcher-*` from the release page), pinned
+  by version and by a SHA-256 you computed yourself (see [Packaging](packaging.md#finding-the-urls-and-hashes-to-pin)).
 * **Never ship a `debug-automation-*` build.** The shell's CI produces these debug builds for its own tests. They carry
   a remote-control channel: it is off unless the shell is started with `--automation`, it listens on `127.0.0.1` only,
   and every command needs a random token from a file only the user can read. They are never attached to a release,
