@@ -103,12 +103,17 @@ pub fn handle(bridge: &Bridge, request: Request, respond: Responder) {
         "open-url" => {
             let url = body.get("url").and_then(Value::as_str).unwrap_or("");
             let lower = url.to_ascii_lowercase();
-            if !(lower.starts_with("http://") || lower.starts_with("https://"))
-                || url.contains(char::is_whitespace)
-            {
+            // The prefix check keeps out what the parser would complete (`https:x`); the host is
+            // only ever handed the re-serialised form (security.md L3).
+            let url = if lower.starts_with("http://") || lower.starts_with("https://") {
+                crate::navigation::external_url(url)
+            } else {
+                None
+            };
+            let Some(url) = url else {
                 return respond(Response::error(400, "unsupported_url"));
-            }
-            match host.open_url(url) {
+            };
+            match host.open_url(&url) {
                 Ok(()) => respond(ok()),
                 Err(e) => respond(Response::json(
                     500,
@@ -374,6 +379,53 @@ mod tests {
             host.calls.lock().unwrap().as_slice(),
             ["open_url https://grafida.app/"]
         );
+    }
+
+    #[test]
+    fn the_host_is_handed_a_normalised_url() {
+        // `ShellExecuteW` substitutes the URL into the handler's `"%1"` (security.md L3).
+        let (b, host, _) = bridge();
+        for (url, handed) in [
+            (r#"https://x/a"b?q="c#"f"#, r"https://x/a%22b?q=%22c#%22f"),
+            (r"https://x/a\b?q=c\", r"https://x/a/b?q=c%5C"),
+            (r"https://x/?q=c\#f\", r"https://x/?q=c%5C#f%5C"),
+            ("https://x/%41?q=%22&r=100%", "https://x/%41?q=%22&r=100%"),
+            ("https://grafida.app", "https://grafida.app/"),
+            ("HTTPS://Grafida.App/Docs", "https://grafida.app/Docs"),
+        ] {
+            host.calls.lock().unwrap().clear();
+            let body = serde_json::json!({ "url": url }).to_string();
+            assert_eq!(
+                call(&b, "POST", "/_native/open-url", &[], &body).status,
+                200,
+                "{url}"
+            );
+            assert_eq!(
+                host.calls.lock().unwrap().as_slice(),
+                [format!("open_url {handed}")],
+                "{url}"
+            );
+        }
+        for url in [
+            "https://user:pw@x/",
+            "https://user@x/",
+            "http://",
+            "https://",
+            "https:x",
+            "https://a/\nb",
+            "https://a/\tb",
+            "https://a/\u{0}b",
+            "https://[::1/",
+        ] {
+            host.calls.lock().unwrap().clear();
+            let body = serde_json::json!({ "url": url }).to_string();
+            assert_eq!(
+                call(&b, "POST", "/_native/open-url", &[], &body).status,
+                400,
+                "{url:?}"
+            );
+            assert!(host.calls.lock().unwrap().is_empty(), "{url:?}");
+        }
     }
 
     #[test]

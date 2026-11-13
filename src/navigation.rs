@@ -50,12 +50,42 @@ pub fn classify(url: &str, origin: &str) -> Target {
     }
 }
 
+/// The form of an http(s) URL the OS browser is handed, or `None` when it must not be opened.
+///
+/// On Windows `ShellExecuteW` substitutes the URL into the registered handler's command line
+/// (`"%1"`), so what it gets must not be able to leave that argument (security.md L3): the URL is
+/// parsed and re-serialised, which percent-encodes `"`, spaces and controls and turns `\` into `/`
+/// in the path; a `\` the query or fragment keeps is encoded too, since a trailing one would escape
+/// the closing quote. Whitespace and controls are refused first rather than silently dropped by the
+/// parser, as are credentials (`https://bank.example@evil/`) and a missing host.
+pub fn external_url(url: &str) -> Option<String> {
+    if url.contains(|c: char| c.is_whitespace() || c.is_control()) {
+        return None;
+    }
+    let parsed = url::Url::parse(url).ok()?;
+    if !matches!(parsed.scheme(), "http" | "https")
+        || parsed.host_str().is_none_or(str::is_empty)
+        || !parsed.username().is_empty()
+        || parsed.password().is_some()
+    {
+        return None;
+    }
+    let normalised = parsed.as_str().replace('\\', "%5C");
+    debug_assert!(!normalised.contains(['"', ' ']));
+    Some(normalised)
+}
+
+/// Opening `url` in the OS browser, if [`external_url`] lets it go there at all.
+fn open_externally(url: &str) -> Decision {
+    external_url(url).map_or(Decision::Refuse, Decision::OpenExternally)
+}
+
 /// A navigation action in any frame. `user` is true for a link click, a form submission, or
 /// anything carrying a user gesture.
 pub fn for_navigation(url: &str, origin: &str, user: bool) -> Decision {
     match (classify(url, origin), user) {
         (Target::App | Target::Blank, _) => Decision::Allow,
-        (Target::Web, true) => Decision::OpenExternally(url.to_string()),
+        (Target::Web, true) => open_externally(url),
         (Target::Other, true) => Decision::Refuse,
         // Possibly a subframe loading its own content (an embed): let it through here; if it is
         // in fact the main frame, `for_main_frame_response` stops it before anything renders.
@@ -67,7 +97,7 @@ pub fn for_navigation(url: &str, origin: &str, user: bool) -> Decision {
 /// A request for a new window (`window.open`, `target=_blank`). The shell never opens one.
 pub fn for_new_window(url: &str, origin: &str, user: bool) -> Decision {
     match classify(url, origin) {
-        Target::Web if user => Decision::OpenExternally(url.to_string()),
+        Target::Web if user => open_externally(url),
         _ => Decision::Refuse,
     }
 }
@@ -78,7 +108,7 @@ pub fn for_new_window(url: &str, origin: &str, user: bool) -> Decision {
 pub fn for_main_frame_navigation(url: &str, origin: &str, user: bool) -> Decision {
     match (classify(url, origin), user) {
         (Target::App | Target::Blank, _) => Decision::Allow,
-        (Target::Web, true) => Decision::OpenExternally(url.to_string()),
+        (Target::Web, true) => open_externally(url),
         _ => Decision::Refuse,
     }
 }
@@ -266,6 +296,31 @@ mod tests {
         assert_eq!(
             for_navigation("shell://app/#help", O, true),
             Decision::Allow
+        );
+    }
+
+    #[test]
+    fn the_browser_is_handed_a_normalised_url() {
+        // `ShellExecuteW` substitutes the URL into the handler's `"%1"` (security.md L3): a quote
+        // must not survive, nor a backslash that would escape the closing one.
+        let opened = |url: &str| match for_navigation(url, O, true) {
+            Decision::OpenExternally(u) => Some(u),
+            _ => None,
+        };
+        assert_eq!(
+            opened(r#"https://x/a"b?q="c"#).as_deref(),
+            Some("https://x/a%22b?q=%22c")
+        );
+        assert_eq!(
+            opened(r"https://x/a\b?q=c\").as_deref(),
+            Some("https://x/a/b?q=c%5C")
+        );
+        // Credentials (`https://bank.example@evil/`) are not something a link should carry.
+        assert_eq!(opened("https://user:pw@x/"), None);
+        assert_eq!(for_new_window("https://u@x/", O, true), Decision::Refuse);
+        assert_eq!(
+            for_main_frame_navigation("https://x/\"", O, true),
+            Decision::OpenExternally("https://x/%22".into())
         );
     }
 

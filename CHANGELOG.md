@@ -6,6 +6,7 @@ shell 0.4.2
 ~ A request for the app's scheme with a host other than `app` is answered `404` and never reaches the worker
 # [MEDIUM] Embedded foreign pages could send Origin-less GET requests to the worker
 # [LOW] A foreign page embedded in the app could show the app's own pages inside its frame
+# [LOW] Windows: a URL with a quote or a trailing backslash could break out of the browser's command line
 
 shell 0.4.1
 ================================================================================

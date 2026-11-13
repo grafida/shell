@@ -154,7 +154,7 @@ text (empty if it holds none), replaces the header with `X-Shell-Clipboard: text
 
 | Call | What it does |
 |---|---|
-| `openUrl(url)` | Opens an `http://` or `https://` URL in the user's default browser. Any other scheme, or a URL containing whitespace, is refused with `unsupported_url`. |
+| `openUrl(url)` | Opens an `http://` or `https://` URL in the user's default browser, re-serialised as a browser would (`"` percent-encoded, `\` a `/` in the path and `%5C` elsewhere, the host lower-cased). Any other scheme, a URL containing whitespace or control characters, credentials (`user@`), or no host is refused with `unsupported_url`. |
 | `reveal(token)` | Shows a picked file or folder in the system file manager. |
 
 ### The window
