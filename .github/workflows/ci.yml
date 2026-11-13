@@ -15,9 +15,10 @@ jobs:
     runs-on: ubuntu-22.04
     steps:
       - uses: actions/checkout@v4
-      - uses: dtolnay/rust-toolchain@stable
-        with:
-          components: rustfmt, clippy
+      - name: Rust toolchain
+        run: |
+          rustup toolchain install --profile minimal --no-self-update
+          rustup component add rustfmt clippy
       - name: Linux build dependencies
         run: |
           sudo apt-get update
@@ -45,11 +46,12 @@ jobs:
       MACOSX_DEPLOYMENT_TARGET: "12.0"
     steps:
       - uses: actions/checkout@v4
-      - uses: dtolnay/rust-toolchain@stable
-        with:
-          components: rustfmt, clippy
+      - name: Rust toolchain
+        run: |
+          rustup toolchain install --profile minimal --no-self-update
+          rustup component add rustfmt clippy
           # Intel Macs (grafida/grafida#92): linted and guarded here, cross-compiled from arm64.
-          targets: x86_64-apple-darwin
+          rustup target add x86_64-apple-darwin
       - run: cargo fmt --check
       - run: cargo clippy --workspace --all-targets -- -D warnings
       - run: cargo clippy --workspace --all-targets --features automation -- -D warnings
@@ -85,9 +87,10 @@ jobs:
         shell: bash   # Git Bash
     steps:
       - uses: actions/checkout@v4
-      - uses: dtolnay/rust-toolchain@stable
-        with:
-          components: rustfmt, clippy
+      - name: Rust toolchain
+        run: |
+          rustup toolchain install --profile minimal --no-self-update
+          rustup component add rustfmt clippy
       - run: cargo fmt --check
       - run: cargo clippy --workspace --all-targets -- -D warnings
       - run: cargo clippy --workspace --all-targets --features automation -- -D warnings

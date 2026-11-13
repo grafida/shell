@@ -1,0 +1,5 @@
+# The exact toolchain every build uses, local and CI (security.md L11). Bump it deliberately.
+# Targets are not listed: the hosts differ, so each CI job adds its own with `rustup target add`.
+[toolchain]
+channel = "1.99.1"
+profile = "minimal"

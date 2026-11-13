@@ -46,9 +46,10 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      - uses: dtolnay/rust-toolchain@stable
-        with:
-          targets: ${{ matrix.arch }}-unknown-linux-musl
+      - name: Rust toolchain
+        run: |
+          rustup toolchain install --profile minimal --no-self-update
+          rustup target add ${{ matrix.arch }}-unknown-linux-musl
 
       - name: Build and smoke-test dependencies
         run: |
@@ -122,9 +123,10 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      - uses: dtolnay/rust-toolchain@stable
-        with:
-          targets: ${{ matrix.target }}
+      - name: Rust toolchain
+        run: |
+          rustup toolchain install --profile minimal --no-self-update
+          rustup target add ${{ matrix.target }}
 
       - name: The tag is the crates' version
         if: startsWith(github.ref, 'refs/tags/')
@@ -185,7 +187,9 @@ jobs:
         shell: bash   # Git Bash
     steps:
       - uses: actions/checkout@v4
-      - uses: dtolnay/rust-toolchain@stable
+      - name: Rust toolchain
+        run: |
+          rustup toolchain install --profile minimal --no-self-update
       - name: The tag is the crates' version
         if: startsWith(github.ref, 'refs/tags/')
         run: |
