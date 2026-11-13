@@ -71,6 +71,16 @@ pub type DialogDone = Box<dyn FnOnce(Picked) + Send>;
 /// The clipboard's text: `None` when it holds no text (or nothing at all).
 pub type ClipboardDone = Box<dyn FnOnce(Option<String>) + Send>;
 
+/// The text in a UTF-16 clipboard buffer (Windows' `CF_UNICODETEXT`): up to its first NUL, or all
+/// of it when there is none. The program that put it on the clipboard sized the buffer and may
+/// have left the terminator out, so the scan never goes past `units` (security.md L5). Lone
+/// surrogates become U+FFFD.
+#[cfg(any(windows, test))]
+pub fn utf16_until_nul(units: &[u16]) -> String {
+    let len = units.iter().position(|&u| u == 0).unwrap_or(units.len());
+    String::from_utf16_lossy(&units[..len])
+}
+
 /// What the platform provides to the native endpoints. Every method may be called on the UI thread
 /// and must return at once; a dialog reports back through `done`, from any thread.
 pub trait Host: Send + Sync {
@@ -779,6 +789,22 @@ pub(crate) mod tests {
         let seen = echo.seen.lock().unwrap();
         assert!(seen[1].body.is_empty());
         assert_eq!(seen[1].headers[CLIPBOARD_HEADER], vec!["text"]);
+    }
+
+    #[test]
+    fn clipboard_text_is_read_up_to_its_nul_and_never_past_its_buffer() {
+        let utf16 = |s: &str| s.encode_utf16().collect::<Vec<u16>>();
+        // Unterminated (security.md L5): all of it, nothing beyond.
+        assert_eq!(utf16_until_nul(&utf16("Καλημέρα")), "Καλημέρα");
+        assert_eq!(utf16_until_nul(&[]), "");
+        // Terminated: what follows the NUL is not text.
+        let mut units = utf16("first");
+        units.push(0);
+        units.extend(utf16("stale"));
+        assert_eq!(utf16_until_nul(&units), "first");
+        assert_eq!(utf16_until_nul(&[0, 0x41]), "");
+        // A lone surrogate is replaced, not an error.
+        assert_eq!(utf16_until_nul(&[0x41, 0xD800, 0x42, 0]), "A\u{FFFD}B");
     }
 
     #[test]

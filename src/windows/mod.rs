@@ -46,7 +46,7 @@ use windows::{
             DataExchange::{
                 CloseClipboard, GetClipboardData, IsClipboardFormatAvailable, OpenClipboard,
             },
-            Memory::{GlobalLock, GlobalUnlock},
+            Memory::{GlobalLock, GlobalSize, GlobalUnlock},
             Ole::CF_UNICODETEXT,
         },
         UI::{
@@ -58,7 +58,7 @@ use windows::{
 };
 
 use crate::{
-    bridge::{Bridge, ClipboardDone, DialogDone, FileFilter, Host},
+    bridge::{Bridge, ClipboardDone, DialogDone, FileFilter, Host, utf16_until_nul},
     cli::Launch,
     dialog::{self, DialogKind, DialogRequest, Picks},
     log::Log,
@@ -1169,7 +1169,8 @@ fn reveal(path: &Path) -> Result<(), String> {
 /// The clipboard's text (`CF_UNICODETEXT`), or `None` when it holds none or cannot be opened.
 /// Another program may hold the clipboard for a moment, so opening it is retried briefly.
 fn read_clipboard(owner: HWND) -> Option<String> {
-    // SAFETY: plain Win32 calls; the locked memory is read only while locked, up to its NUL.
+    // SAFETY: plain Win32 calls; the locked memory is read only while locked, and only within
+    // the allocation's `GlobalSize`, whether or not its owner terminated it (security.md L5).
     unsafe {
         let mut opened = false;
         for _ in 0..10 {
@@ -1190,11 +1191,9 @@ fn read_clipboard(owner: HWND) -> Option<String> {
             if ptr.is_null() {
                 return None;
             }
-            let mut len = 0;
-            while *ptr.add(len) != 0 {
-                len += 1;
-            }
-            let text = String::from_utf16_lossy(std::slice::from_raw_parts(ptr, len));
+            // 0 when it fails: an empty slice, so empty text.
+            let units = GlobalSize(global) / 2;
+            let text = utf16_until_nul(std::slice::from_raw_parts(ptr, units));
             let _ = GlobalUnlock(global);
             Some(text)
         })();

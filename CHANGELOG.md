@@ -8,6 +8,7 @@ shell 0.4.2
 # [LOW] A foreign page embedded in the app could show the app's own pages inside its frame
 # [LOW] Windows: a URL with a quote or a trailing backslash could break out of the browser's command line
 # [LOW] macOS: an embedded foreign page could block or misroute the Edit menu's shortcuts
+# [LOW] Windows: reading clipboard text a program left unterminated could crash the app or leak its memory
 
 shell 0.4.1
 ================================================================================
