@@ -185,6 +185,18 @@ into every frame empties one of your pages that has a foreign frame above it, be
 `about:blank` and `srcdoc` frames, and your pages inside them, are left alone. The manifest's `webview.frameGuard`
 turns this off (see [The PHP worker](php-worker.md#who-may-frame-your-pages)).
 
+> [!NOTE]
+> **On Linux, a refused navigation may already have reached the website.** When a script, rather than the user's
+> click, sends the window to a website, the shell refuses it. On macOS and Windows that happens before any request is
+> made. On Linux, WebKitGTK does not tell the shell, when a navigation starts, whether it is for the window or for an
+> embedded frame, and an embed must be allowed to load its own pages. So the shell refuses the navigation when the
+> response arrives, before anything is shown. By then the site has seen the request: the DNS lookup, the connection,
+> the URL and the request headers. The shell cannot avoid this without blocking every embedded frame.
+>
+> It gives your page no new power: unless your worker sends a `Content-Security-Policy`, your page may `fetch()` any
+> URL anyway. If you need to limit what the page may contact, send one (`connect-src`, `img-src`, `frame-src`, …).
+> No CSP directive limits where the window itself navigates.
+
 Do your outbound HTTP (calling a remote service) from PHP, where you control the client and the credentials, not from
 page JavaScript.
 
