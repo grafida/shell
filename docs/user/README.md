@@ -49,7 +49,8 @@ path (`/_native/*`) that the shell answers itself. The [architecture](architectu
    window control).
 5. [The `shell.json` manifest](manifest.md): every setting, with defaults.
 6. [Packaging](packaging.md): build installable packages and sign them.
-7. [Troubleshooting](troubleshooting.md): logs, alerts, and what the error codes mean.
+7. [Getting signing certificates](code-signing.md): Apple Developer ID and notarisation, Azure Artifact Signing.
+8. [Troubleshooting](troubleshooting.md): logs, alerts, and what the error codes mean.
 
 Reference material for people who want to go deeper: the [wire protocol v1](../../protocol/v1.md) between the shell and
 the worker, and the [architecture decision record](../adr/0001-shell-stack.md) explaining why the shell is built the

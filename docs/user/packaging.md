@@ -432,6 +432,9 @@ people who understand the warnings.
 
 ## Providing signing credentials
 
+Need the certificates first? [Getting signing certificates](code-signing.md) walks through Apple Developer ID and
+notarisation, and Azure Artifact Signing.
+
 Signing credentials come from **environment variables**, never from `shell-package.json`. The configuration is meant to
 be committed; credentials must not be. Set the variables in whatever way suits you: your CI's secret store, your shell
 profile, or a git-ignored file that you load before building (`set -a; . ./sign.env; set +a`). The packager does not care
