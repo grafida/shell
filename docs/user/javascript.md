@@ -150,6 +150,12 @@ const response = await fetch('/api/paste', {method: 'POST', headers: GrafidaShel
 text (empty if it holds none), replaces the header with `X-Shell-Clipboard: text`, and forwards it. Read the text from
 `$request->body`. There is no prompt and no helper tool.
 
+> [!IMPORTANT]
+> **Any script in your page can read the clipboard this way, at any time, without a click or a prompt.** This is by
+> design: it is what clipboard integration in a desktop app means. A foreign page embedded in yours cannot do it,
+> because the custom header forces a CORS preflight that the shell refuses. A cross-site scripting hole in your own
+> page, however, lets an attacker read whatever the user copies. See the [security model](security-model.md).
+
 ### Opening and revealing
 
 | Call | What it does |

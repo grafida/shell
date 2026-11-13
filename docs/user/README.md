@@ -48,9 +48,10 @@ path (`/_native/*`) that the shell answers itself. The [architecture](architectu
 4. [The JavaScript side](javascript.md): `shell.js` and the native endpoints (dialogs, clipboard, drag and drop,
    window control).
 5. [The `shell.json` manifest](manifest.md): every setting, with defaults.
-6. [Packaging](packaging.md): build installable packages and sign them.
-7. [Getting signing certificates](code-signing.md): Apple Developer ID and notarisation, Azure Artifact Signing.
-8. [Troubleshooting](troubleshooting.md): logs, alerts, and what the error codes mean.
+6. [Security model](security-model.md): what the shell trusts, what it protects against, and what it leaves to you.
+7. [Packaging](packaging.md): build installable packages and sign them.
+8. [Getting signing certificates](code-signing.md): Apple Developer ID and notarisation, Azure Artifact Signing.
+9. [Troubleshooting](troubleshooting.md): logs, alerts, and what the error codes mean.
 
 Reference material for people who want to go deeper: the [wire protocol v1](../../protocol/v1.md) between the shell and
 the worker, and the [architecture decision record](../adr/0001-shell-stack.md) explaining why the shell is built the

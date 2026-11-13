@@ -30,6 +30,10 @@ code it covers. Their rules are as binding as the ones below.
 
 ## Rules that are not guessable from the code
 
+- **The trust model is `docs/user/security-model.md`.** The manifest, the worker and the page are
+  the app developer's code and are trusted (a user who installs the app trusts its developer); the
+  line the shell defends runs between them and foreign content embedded in the page. Do not harden
+  the shell against its own worker. Keep the page in step when a change moves that line.
 - **The origin is sacred.** The page origin must be byte-identical — `shell://app` for Grafida — on
   every platform. Stored documents embed it. Never accept wry's `http://<scheme>.localhost` mapping on
   Windows: the shell creates the WebView2 environment itself with a
