@@ -11,13 +11,15 @@
 //!    instead of an `Origin` on a plain GET), is refused (`403 cross_origin`), so a page embedded in
 //!    the app (an article's `<iframe>`) cannot drive the app's API; with the manifest's
 //!    `webview.frameGuard` off, a cross-site navigation *into a frame* is let through;
-//! 2. `/_native/*` is answered by the shell ([`crate::native`]) and never reaches the worker;
-//! 3. any `x-shell-file-path` the page sent is dropped, and an `x-shell-file` token is resolved
+//! 2. a URL of the scheme with any authority but the app's (`shell://other/…`, which the engines
+//!    route here too) is `404 not_found`, so the worker's `url` always starts with the origin;
+//! 3. `/_native/*` is answered by the shell ([`crate::native`]) and never reaches the worker;
+//! 4. any `x-shell-file-path` the page sent is dropped, and an `x-shell-file` token is resolved
 //!    into `x-shell-file-path` (`400` for an unknown or stale token, without contacting the worker);
-//! 4. a request carrying `x-shell-clipboard: read` gets the OS clipboard's text as its **body** and
+//! 5. a request carrying `x-shell-clipboard: read` gets the OS clipboard's text as its **body** and
 //!    `x-shell-clipboard: text` in place of the request header, so the app reads the clipboard the
 //!    shell read for it (any other value of that header is dropped);
-//! 5. the request goes to the worker, and on the way back `cache-control: no-store` is added under
+//! 6. the request goes to the worker, and on the way back `cache-control: no-store` is added under
 //!    the manifest's `noStorePaths` when the worker sent no cache header of its own, and
 //!    `content-security-policy: frame-ancestors 'self'` when the frame guard is on and the worker
 //!    sent no framing policy of its own (`x-frame-options`, or a `frame-ancestors` directive). Not
@@ -36,6 +38,7 @@ use crate::{
     http::{self, Request, Response},
     manifest::Theme,
     native,
+    navigation::{self, Target},
     supervisor::{Responder, Supervisor},
     tokens::TokenStore,
 };
@@ -155,6 +158,14 @@ impl Bridge {
             && (self.frame_guard || !is_frame_navigation(&request))
         {
             respond(Response::error(403, "cross_origin"));
+            return;
+        }
+
+        // The engines route by scheme alone, so `<scheme>://other/…` lands here too, and
+        // `path()` ignores the authority. Only the app's own reaches the worker or `/_native/*`:
+        // the worker can rely on its `url` starting with the origin.
+        if navigation::classify(&request.url, &self.origin) != Target::App {
+            respond(Response::error(404, "not_found"));
             return;
         }
 
@@ -434,6 +445,51 @@ pub(crate) mod tests {
         );
         let r = call(&b, "GET", "/api/x", &[], "");
         assert_eq!(r.headers["cache-control"], vec!["max-age=60", "private"]);
+    }
+
+    /// The engines hand the shell every URL of its scheme, whatever the authority; only the app's
+    /// own reaches the worker or the native endpoints, so the worker's `url` is always `<origin>/…`.
+    #[test]
+    fn another_authority_of_the_scheme_is_not_found() {
+        let (b, _, echo) = bridge();
+        let send = |url: &str| {
+            let (tx, rx) = mpsc::channel();
+            b.handle(
+                Request {
+                    method: "GET".into(),
+                    url: url.into(),
+                    headers: HeaderMap::new(),
+                    body: Vec::new(),
+                },
+                Box::new(move |r| tx.send(r).unwrap()),
+            );
+            rx.recv().unwrap()
+        };
+        for url in [
+            "shell://evil/api/x",
+            "shell://apple/api/x",
+            "shell://app.evil/api/x",
+            "shell://app:8080/api/x",
+            "shell://app@evil/api/x",
+            "shell://evil/_native/info",
+            "shell:///api/x",
+            "shell:/api/x",
+        ] {
+            let r = send(url);
+            assert_eq!(r.status, 404, "{url}");
+            assert_eq!(json(&r)["error"], "not_found", "{url}");
+        }
+        assert!(echo.seen.lock().unwrap().is_empty());
+
+        for url in [
+            "shell://app",
+            "shell://app/",
+            "shell://app?x=1",
+            "shell://app/api/x#y",
+        ] {
+            assert_eq!(send(url).status, 200, "{url}");
+        }
+        assert_eq!(echo.seen.lock().unwrap().len(), 4);
     }
 
     #[test]

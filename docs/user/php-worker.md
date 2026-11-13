@@ -64,7 +64,8 @@ interface Handler
 ### `Request`
 
 Immutable. Properties: `method` (case preserved), `url` (the absolute URL exactly as sent, for example
-`myapp://app/api/sites?x=1`), `headers`, `body` (raw string).
+`myapp://app/api/sites?x=1`; it always begins with `myapp://app`, as the shell answers a request for any other host
+of the scheme with `404` itself), `headers`, `body` (raw string).
 
 | Method | Returns |
 |---|---|

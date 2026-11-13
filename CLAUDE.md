@@ -74,7 +74,8 @@ code it covers. Their rules are as binding as the ones below.
   `GRAFIDA_DIR`) and skips with a note when they are absent, as on CI. Grafida's worker runs with every
   per-user directory pointed at a temp dir, never the real data.
 - **`src/bridge.rs` is the platform-neutral half and is where request policy lives**: a foreign
-  `Origin` → `403 cross_origin` (an article's `<iframe>` must not drive the app's API); `/_native/*`
+  `Origin` → `403 cross_origin` (an article's `<iframe>` must not drive the app's API); any host of
+  the scheme but the origin's (the engines route by scheme alone) → `404 not_found`; `/_native/*`
   never reaches the worker; `x-shell-file-path` from the page is always dropped and an `x-shell-file`
   token is resolved into it (the token itself is not forwarded); `no-store` is added under the
   manifest's `noStorePaths` when the worker sent no `cache-control`/`expires`;
