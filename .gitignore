@@ -3,3 +3,4 @@
 __pycache__/
 /tests/apps/*/logs/
 /scripts/dev/macvm.conf
+/security.md
