@@ -18,6 +18,16 @@ run anything on Windows, use the test VMs in `docs/dev/windows-test-vm.md` throu
 session (`winvm.sh run`, an interactive scheduled task), never directly over SSH; the automation
 channel reaches the host through `winvm.sh tunnel`.
 
+## Platform and tooling notes (read before touching the area)
+
+These are in `.claude/docs/` and are **not** loaded automatically: read the file before changing the
+code it covers. Their rules are as binding as the ones below.
+
+- `.claude/docs/linux.md` — the Linux webview (`src/linux/`), the `boson://` request map, clipboard and file drops, the navigation policy, KDE decoration, and process-wide settings.
+- `.claude/docs/macos.md` — WKWebView (`src/macos/`), the Blob guard, macOS menus and key routing, spell checking, and run-time selectors.
+- `.claude/docs/windows.md` — WebView2 (`src/windows/`), its scheme bridge, navigation, keys and context menu, the worker Job Object and spawn (`spawn.rs`), the application manifest, and packaged paths.
+- `.claude/docs/dev-tooling.md` — the automation channel (`src/automation.rs`) and the `scripts/dev/parity-*.sh` scripts.
+
 ## Rules that are not guessable from the code
 
 - **The origin is sacred.** The page origin must be byte-identical — `boson://app` for Grafida — on
@@ -63,114 +73,11 @@ channel reaches the host through `winvm.sh tunnel`.
   runs shell-php's echo worker and Grafida's `bin/worker.php` (sibling clones, or `SHELL_PHP_DIR` /
   `GRAFIDA_DIR`) and skips with a note when they are absent, as on CI. Grafida's worker runs with every
   per-user directory pointed at a temp dir, never the real data.
-- **On Linux the shell builds the WebKitGTK webview itself; wry is not used there.** wry's WebKit
-  context is crate-private, so the scheme, the data directories and the sandbox could only be set
-  after wry had created the webview, and `set_sandbox_enabled()` is a *fatal* error once a web process
-  exists. `src/linux/` does it in WebKit's order: context (data manager, sandbox, spelling, scheme,
-  security manager: secure **and** CORS-enabled) → webview → load the start URL after `ready`.
-  The sandbox is verifiably on (`WebKitWebProcess`
-  under `bwrap`); dialogs run in the UI process, outside it.
-- **On macOS the shell owns WKWebView through objc2; neither wry nor muda is used** (ADR 0001,
-  grafida/grafida#88). `src/macos/` builds its own `WKWebViewConfiguration` (the `WKURLSchemeHandler`,
-  devtools, the Blob guard), a `WKWebView` subclass (`ShellWebView`: file drops, the context menu),
-  one delegate object for `WKNavigationDelegate` + `WKUIDelegate`, and the AppKit menu bar. The scheme
-  handler parks each task in a main-thread map; `stopURLSchemeTask:` removes it, so a late answer is
-  dropped (touching a stopped task raises). An `HTTPBody` is checked against `maxBodyBytes` *before*
-  it is copied; an `HTTPBodyStream` is read to EOF in 1 MiB chunks on a reader thread, which posts the
-  request back to the main thread for `Bridge::handle`. Navigation: macOS knows the target frame, so a
-  nil target is a new window, the main frame gets `navigation::for_main_frame_navigation` (nothing
-  off-origin, ever) and a subframe the layered Linux rule. The gesture comes from WebKit's private
-  `_isUserInitiated` behind `respondsToSelector:` (absent = no gesture, the side that never opens a
-  browser), because `navigationType` is `LinkActivated` for a script's `el.click()` too.
-- **WKWebView hands a scheme handler no body for a `Blob`/`File` or a `FormData` with a file part**
-  (ADR 0001). A document-start script (`webview::blob_guard`, macOS only, all frames, page world)
-  makes `fetch()` reject and `XMLHttpRequest.send()`/`sendBeacon()` throw a `TypeError` for such a
-  body to the app's own origin; `tests/apps/echo/blob.js` pins it on both platforms.
-- **macOS has no parent-death signal: the worker's lifetime is stdin EOF only.** An idle worker exits
-  the moment the shell dies; a busy one when its request ends. `tests/supervisor.rs` checks both
-  (Linux keeps the PDEATHSIG test), and so does `parity-macos.sh` against the real worker.
-- **macOS menus come from `src/menu.rs`, a platform-neutral table** tested on every platform: the
-  app menu (About posts a `shell:about` DOM event, no native panel; Quit goes through the shell's own
-  stop path, not `terminate:`), Edit with the Spelling and Grammar selectors (no `pasteAsPlainText:`)
-  and Window. A reserved chord loses its key equivalent, and the live menu bar is walked once more
-  after it is installed, since AppKit adds items. **An uppercase AppKit key equivalent implies Shift.**
-  Dock ▸ Quit and logout arrive as tao's `LoopDestroyed`, which runs the same stop path.
-- **On macOS the shell routes menu shortcuts itself** (`src/macos/keys.rs`). WKWebView claims every
-  Cmd/Ctrl key for the page and, as a subview of tao's view, never hands an unhandled one back, so
-  without this no menu shortcut fires at all. **Edit shortcuts go to the page first** (undo, redo,
-  cut, copy, paste, select all, Spelling): the key is parked, a document-start script in every frame
-  reports `defaultPrevented` once the page's handlers have run, and only an uncancelled key goes to
-  the menu bar (after 1 s without a report it goes anyway). That is what lets TinyMCE's own undo
-  history undo a paste, while a plain field still gets native undo; the webview's native Undo knows
-  nothing of an edit made by script. **App and Window shortcuts go to the menu first** (a page must
-  not block Cmd+Q). Anything the menu does not bind (Cmd+Shift+V, Cmd+B/I/K) goes to the page.
-  The automation channel's `menu` (the live menu bar; `perform` clicks an item) and `key` (a queued
-  key press; it activates the app) commands check all of this in `parity-macos.sh`.
-- **`WebContinuousSpellCheckingEnabled` is set in the shell's own defaults domain on every macOS
-  launch** (`macos::prepare`), as Grafida's `MacSpellCheck` does under Boson: WebKit reads it once,
-  and the page's `spellcheck` attribute is then the switch. Defaults go through cfprefsd, which
-  ignores `HOME` and `CFFIXED_USER_HOME`: a dev run writes `~/Library/Preferences/grafida-shell.plist`.
-- **Selectors and symbols newer than macOS 12 are looked up at run time** (`isInspectable` behind
-  `respondsToSelector:`); UTIs and WebKit menu identifiers are string literals. Builds link for 12.0
-  (`.cargo/config.toml`, checked from `LC_BUILD_VERSION` in CI).
-- **Every `boson://` request is parked in a UI-thread map and completed from it on the UI thread**
-  (`linux/scheme.rs`). The body is read asynchronously on the main loop in 1 MiB chunks **to EOF**,
-  and reading stops past `maxBodyBytes` → `413`. The responder only posts `(id, response)` through
-  the tao event loop. `content-length`/`transfer-encoding` from the worker are dropped (B is the
-  length).
 - **`src/bridge.rs` is the platform-neutral half and is where request policy lives**: a foreign
   `Origin` → `403 cross_origin` (an article's `<iframe>` must not drive the app's API); `/_native/*`
   never reaches the worker; `x-shell-file-path` from the page is always dropped and an `x-shell-file`
   token is resolved into it (the token itself is not forwarded); `no-store` is added under the
   manifest's `noStorePaths` when the worker sent no `cache-control`/`expires`.
-- **The shell reads the clipboard for the app, and takes file drops for it**, because it is the
-  process that owns the window and the page is sandboxed. A request carrying `x-shell-clipboard:
-  read` gets the clipboard's text (GTK's own clipboard: no `wl-paste`/`xclip`, no prompt) as its
-  **body**, with `x-shell-clipboard: text`; any other value of that header from the page is dropped,
-  so a page cannot pass its own text off as the clipboard. A **file drag** (`text/uri-list` without
-  `text/html`) is taken in GTK's drag signals *before* WebKit's class handlers (they are RUN_LAST),
-  because the sandboxed web process cannot read the user's files — WebKit would hand the page only
-  the `file://` URI. The shell issues tokens for the files and dispatches `shell:drop`
-  (`{files: [{token, name, size}], x, y}`) into the page; a link or image dragged out of a browser
-  (it offers `text/html`) and any drag within the page stay WebKit's. The automation channel's
-  `drop` command delivers a drop the same way, since a native drag cannot be scripted on Wayland.
-- **The navigation policy is layered, because WebKitGTK cannot tell a main-frame navigation from a
-  subframe one** (`src/navigation.rs`). A navigation *action* off-origin is cancelled only when it
-  carries a **user gesture** (then http(s) opens in the OS browser); a gesture-less one may be an
-  embed loading in its `<iframe>` and is let through, and the main-frame **response** check
-  (`is_main_frame_main_resource`) refuses anything off-origin before it renders. "User" is the
-  gesture alone: `el.click()` from a script is a `LinkClicked` navigation too. `create` (window.open)
-  never makes a window. Downloads and the context-menu items that navigate, reload, open windows or
-  download are removed.
-- **The automation channel (`src/automation.rs`) exists only with the `automation` feature in a
-  debug build** (a release build with the feature is a `compile_error!`, and CI checks it), and only
-  opens with `--automation`. Two traps when writing checks with it: a script it injects **counts as
-  a user gesture** in WebKit, and a gesture survives about a second through timers, so a no-gesture
-  case must run from a `setTimeout` well past that; and while it is open the shell **records**
-  external URLs instead of launching the browser (`opened`). `tests/apps/echo/` (the fake worker in
-  echo mode, behind a 60 MiB limit) holds the in-webview checks: `bridge.js`, `navigation.js`,
-  `dialogs.js`.
-- **`scripts/dev/parity-macos.sh` is its macOS counterpart** (grafida/grafida#88), with the same
-  checks plus the Blob guard and the shell-SIGKILL lifetime checks. It isolates with `HOME` +
-  `CFFIXED_USER_HOME` (Grafida's data, its log and WebKit's website data follow both) and sets
-  `TMPDIR` explicitly for shell and client, because `launchctl asuser`/`sudo` strip it and the
-  automation file lives there. `GRAFIDA_PACKAGED=<…>.app` copies the bundle and swaps in `SHELL_BIN`,
-  re-signing **only the shell and then the bundle**, ad hoc, with the hardened runtime and the
-  original shell's entitlements (checked afterwards); the worker stub keeps shell-packager's
-  signature. Never `codesign --deep`: it re-signs the stub without either, and the run would test a
-  bundle under weaker restrictions than the one that ships. The script runs under bash 3.2 (a clean
-  guest's), so no associative arrays and `${a[@]+"${a[@]}"}` for a possibly empty array.
-- **`scripts/dev/parity-linux.sh` is the automatable half of #82's Linux parity column**: it runs
-  the debug shell on the current desktop against `tests/apps/{echo,silent}` and against Grafida
-  (`GRAFIDA_DIR`, default `../grafida`) with every per-user directory in a temp dir, and prints a
-  PASS/FAIL Markdown table with the commits it ran on (`QUICK=1` shortens the idle-CPU sample).
-  `GRAFIDA_PACKAGED=<extracted tarball>/grafida` runs the Grafida checks against the **packaged**
-  app instead (a copy of it, with only `grafida-shell` swapped for the debug build), and
-  `SHELL_BIN` takes a prebuilt debug build, e.g. the `debug-automation-linux-<arch>` artifact the
-  release workflow uploads (built on 22.04, so it runs on every supported distribution; a release
-  asset never). On a clean VM it needs python3 only. The
-  automation channel's runtime file is removed in the shell's stop path, not only in `Drop`: tao
-  ends the process without dropping anything, and a stale file hands a client a dead pid.
 - **`launcher/` is a separate crate and must stay free of GTK, WebKit and C dependencies** (std +
   serde_json): it is built static (musl) precisely so it runs where the shell cannot load. It asks
   the system loader whether the shell beside it would load (`LD_TRACE_LOADED_OBJECTS` +
@@ -181,23 +88,6 @@ channel reaches the host through `winvm.sh tunnel`.
   copy). Only undefined symbols *the shell itself* needs count (it is `-z now`; a library's
   own unresolved references bind lazily), and output it does not recognise **fails open**.
   `launcher/tests/loader.rs` breaks real C programs' libraries to pin the loader's formats.
-- **On KDE Plasma the title bar is KWin's, so the window theme is told to KWin too**
-  (`src/linux/decoration.rs`). tao's `set_theme` only sets GTK's `gtk-application-prefer-dark-theme`,
-  which reaches a title bar GTK draws (GNOME's) and not one KWin draws: on Plasma it stayed light in a
-  dark app (grafida/grafida#92). Each theme change also sends Breeze's light or dark colour scheme
-  (an absolute path found in the XDG data dirs; `system` = the empty name, the user's own) through
-  `org_kde_kwin_server_decoration_palette` over GDK's own `wl_display`/`wl_surface` (a foreign-display
-  wayland-client backend, so no new library), or as `_KDE_NET_WM_COLOR_SCHEME` (`STRING`) on X11,
-  only when `XDG_CURRENT_DESKTOP` has `KDE`. Without the global (GNOME, wlroots) nothing is sent.
-- **Process-wide settings go in `linux::environment::prepare()`, called from `main()` before any
-  thread exists** (it sets environment variables): the program name = the manifest `id` (GTK's
-  Wayland `app_id` and X11 `WM_CLASS`, so a packaged app's desktop entry must be named
-  `<id>.desktop`), and `WEBKIT_DISABLE_DMABUF_RENDERER` per `webview.dmabufRenderer`. The user's
-  own value of that variable always wins.
-- **The Windows application manifest is linked from a `.res` that `build.rs` writes** (one
-  `RT_MANIFEST` entry, the documented RESOURCEHEADER format): `embed-manifest` and friends need
-  `mt.exe` to merge manifests, which `lld-link` under `cargo xwin` does not have. An app's packager
-  adds its icon and version resources and must keep this one.
 - **Releases** (`.github/workflows/release.yml`): every push builds, checks
   (`scripts/release/check-linux-binaries.sh`: glibc ≤ 2.35, every NEEDED library from
   `libwebkit2gtk-4.1-0` + `libgtk-3-0`'s dependency closure, no automation marker, a static
@@ -230,85 +120,8 @@ channel reaches the host through `winvm.sh tunnel`.
   there); the manifest is beside the binary or in `../Resources`, and the worker runs in its directory.
 - **`SHELL_ALERTS=stderr` keeps the failure alerts to stderr** on both platforms (tests, headless
   smoke runs); on macOS so does a process with no window-server session.
-- **On Windows the shell owns WebView2 through webview2-com; wry is not used anywhere**
-  (ADR 0001, grafida/grafida#91). `src/windows/` creates the **environment** itself — the app's
-  scheme as a `CoreWebView2CustomSchemeRegistration` (secure, with an authority, the origin allowed),
-  the user data folder `%LOCALAPPDATA%\<dataDir>\WebView2` (the default beside the executable is
-  not writable under Program Files) — and the **controller** directly on tao's window. Both are
-  created asynchronously; their completion handlers run on the UI thread from the message loop and
-  stash the result in a thread-local (COM objects are not `Send`) before posting
-  `UserEvent::Created`. Never `wait_with_pump`: it is a nested, unfiltered pump that swallows
-  `WM_QUIT`. Bounds, focus (`MoveFocus` on activation), `NotifyParentWindowPositionChanged` and
-  hiding while minimised come from tao's window events; there is no subclassing.
-- **The Windows scheme bridge reads bodies on a reader thread** through an `AgileReference` to the
-  request's `IStream`, 1 MiB at a time to EOF, past `maxBodyBytes` → `413`; the deferral is taken in
-  the handler and completed from a UI-thread map. Response headers go one line per value. The
-  filter uses `ICoreWebView2_22`'s source kinds (shared workers, iframes) when present.
-- **WebView2 says which frame navigates**: `NavigationStarting` is the main frame
-  (`for_main_frame_navigation`), `FrameNavigationStarting` a subframe (`for_navigation`).
-  `NewWindowRequested` is handled with no window. ⚠️ **A script's `el.click()` on a `target=_blank`
-  link is not user-initiated for WebView2** (a same-window one is), so it is refused; a real click is
-  (the automation channel's `click`, DevTools' `Input.dispatchMouseEvent`, proves it).
-- **WebView2 needs no key routing of ours** (probed in grafida/grafida#91): every key reaches the
-  page's `keydown`; editing keys are not even offered as accelerators, and with
-  `AreBrowserAcceleratorKeysEnabled = false` the browser acts on none of the others (with it on,
-  Ctrl+R and F5 reload the app and Ctrl+F opens a find bar). No menu bar on Windows, so nothing can
-  take Ctrl+Shift+V. Zoom, pinch zoom, swipe navigation, the status bar, autofill and password saving
-  are off. Debug builds: `SHELL_WINDOWS_BROWSER_KEYS=on`, `SHELL_WINDOWS_KEY_LOG=1` (every
-  accelerator offered to the host) and `SHELL_WINDOWS_MENU_LOG=1` (the context menu's item names).
-- **The Windows context menu is an allowlist** of WebView2 item names (editing, spelling, emoji,
-  copying a link or image; Inspect only with devtools), so an item a future runtime adds never
-  appears. ⚠️ A spelling suggestion is named **`spellcheck`, all lower case** (runtime 157), with an
-  empty label; the match ignores case, and `parity-windows.sh` checks the suggestions really appear
-  (a case-sensitive `spellCheck` had removed every one). WebView2 checks the user's **primary
-  language only** (`spellcheck.dictionaries` holds one entry, whatever else Windows has installed),
-  and there is no WebView2 API to add another. After a cold boot the first text typed into a
-  subframe (TinyMCE's iframe) can stay unchecked until the next edit, which then checks it all. Debug builds: `SHELL_WINDOWS_LANGUAGE=<tag>|none`
-  overrides the language the shell passes to WebView2. A **browser-process** exit is fatal (a native
-  alert, then quit: nothing else would ever repaint the window); a **renderer** exit or hang reloads
-  the page.
-- **`scripts/dev/parity-windows.sh` runs on the host and drives a guest** (`winvm.sh`), and **nothing in
-  it is left to a human**: real keys, clicks and drags through SendInput (the channel's `type`, `key`,
-  `mouse`, `drag`), native dialogs, Explorer, the clipboard, the cursor and the colour mode through
-  desktop-session helpers (`scripts/dev/winvm/desk/`, UI Automation), AI streaming through a host test
-  server at `10.0.2.2`. It runs the shell in the
-  guest's desktop session with `APPDATA`/`LOCALAPPDATA`/`TEMP` in `C:\winvm\run`, the channel tunnelled
-  here (`SHELL_AUTOMATION_REMOTE=1`, so paths are the guest's). Its last row is the **console-window
-  watcher** (`winvm.sh watch-start`/`watch-stop`, a WinEvent hook in the desktop session): any
-  conhost or Windows Terminal window shown during the run fails it. ⚠️ Every helper the guest runs is
-  launched through `conhost.exe --headless` for that reason: a hidden PowerShell started by a
-  scheduled task still flashes a window under Windows Terminal. Worker timings come from the shell's
-  log ("stopping", then "worker stopped"), never from SSH round trips, and nothing that needs a
-  window handle runs in the SSH session (its window station sees none of the desktop's).
-- **The worker's Job Object and its spawn** (`spawn.rs`, Windows): the shell calls `CreateProcessW`
-  itself, not std's `Command`, with `CREATE_SUSPENDED | CREATE_NO_WINDOW`, assigns the worker to one
-  `KILL_ON_JOB_CLOSE` job the shell never closes, and resumes the thread `CreateProcessW` hands back.
-  ⚠️ **`STARTF_FORCEOFFFEEDBACK` is the reason it is not std's**: Windows 10 shows the "working in
-  background" pointer for a new GUI program until it shows a window, and the packaged worker is a
-  GUI-subsystem SFX that never does, so every launch had a 5 s busy pointer (0.1 s with the flag;
-  Windows 11 showed 0.4 s either way). std has the flag, the job list and the thread handle only
-  behind unstable features. Only the three pipe ends are inherited
-  (`PROC_THREAD_ATTRIBUTE_HANDLE_LIST`): a leaked write end of the worker's stdout would hide its
-  death from the supervisor. A bare program name (the dev worker's `php`) is looked up on the
-  worker's PATH, never in the current directory. Unix keeps std's `Command`. The shell is
-  deliberately not in the job: a browser `ShellExecute` starts would die with the app. `CREATE_NO_WINDOW` matters for the dev worker (`php.exe`, a console program, whose
-  children inherit its hidden console); the GUI-subsystem SFX's PHP adds the flag to its own children.
-- **A release Windows shell removes `WEBVIEW2_ADDITIONAL_BROWSER_ARGUMENTS` and the other
-  browser-changing `WEBVIEW2_*` variables** before it creates the environment
-  (`windows::environment::BROWSER_VARIABLES`), so no debugging port can be injected into a release
-  build; a debug build keeps them. The automation channel's `eval` uses `CallDevToolsProtocolMethod`
-  in process: no port is opened in any build.
-- **Packaged Windows paths**: `canonicalize()` answers verbatim `\\?\` paths; `cli::real_path`
-  writes them plainly (the worker is started by that path, and phpmicro derives its sibling `.phar`
-  from it). A `worker.binary` without an extension is `<name>.exe` on Windows.
-- Windows builds use a static CRT (`-C target-feature=+crt-static`, `.cargo/config.toml`) and link
-  the WebView2 loader statically: the shell imports system DLLs only. `#![windows_subsystem =
-  "windows"]`: no console; started from a terminal it attaches to that console for `--dev` logging.
-  Cross-check with `cargo xwin clippy --target x86_64-pc-windows-msvc --workspace --all-targets`.
-
 ## Conventions
 
-- `cargo fmt`, `cargo clippy --all-targets -- -D warnings`, `cargo test` must pass.
 - `spikes/` is frozen Phase 0 evidence; it is excluded from the workspace and not maintained.
 - Keep a terse `CHANGELOG.md` entry per change that ships: the shell, the launcher, the protocol,
   the schema, release assets, the README (Grafida's `!` `+` `-` `~` `# [HIGH|MEDIUM|LOW]` style).
