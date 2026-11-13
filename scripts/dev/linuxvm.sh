@@ -3,17 +3,23 @@
 #
 # Copyright (c) 2026 Nicholas K. Dionysopoulos. MIT; see LICENSE.
 #
-# Three VMs, each installed unattended by its distribution's own installer, then updated and
-# snapshotted as `clean` (nothing of ours installed). See docs/dev/linux-test-vms.md.
+# Four VMs, each set up unattended from its distribution's own image, then updated and snapshotted
+# as `clean` (nothing of ours installed). See docs/dev/linux-test-vms.md.
 #
 #   ubuntu-22.04   the floor: live-server ISO + subiquity autoinstall + ubuntu-desktop-minimal (GNOME)
 #   fedora-43      Everything netinstall + kickstart, @^workstation-product-environment (GNOME)
 #   arch           archiso + its `script=` boot hook, plasma-meta + SDDM (KDE Plasma)
+#   ubuntu-22.04-arm64   the arm64 tarball's floor: Ubuntu's signed arm64 cloud image + cloud-init,
+#                  no desktop; emulated (TCG) by qemu-system-aarch64, always headless, not quickemu.
+#                  `install` fetches and verifies the image itself. session, key and the pointer
+#                  and screen commands need a desktop and refuse it.
 #
 # Usage: scripts/dev/linuxvm.sh COMMAND DISTRO [ARGS…]
-#   install DISTRO          install from the ISO (headless, serial console logged to install.log)
+#   install DISTRO          install from the ISO (headless, serial console logged to install.log);
+#                           arm64: fetch and verify the cloud image, make the disk and the seed
 #   start DISTRO [--headless]  boot it with quickemu (a window, unless --headless); always with a QMP
-#                           socket, $LINUXVM_DIR/DISTRO/DISTRO-qmp.socket, for the input commands below
+#                           socket, $LINUXVM_DIR/DISTRO/DISTRO-qmp.socket, for the input commands below;
+#                           arm64: qemu-system-aarch64, headless, serial console to console.log
 #   wait DISTRO             wait until SSH answers
 #   ssh DISTRO [CMD…]       a shell or a command, as user `tester`
 #   session DISTRO CMD…     a command in the logged-in desktop session (WAYLAND_DISPLAY, D-Bus, …)
@@ -54,9 +60,12 @@ port() {
         ubuntu-22.04) echo 22221 ;;
         fedora-43) echo 22222 ;;
         arch) echo 22223 ;;
-        *) die "unknown distro '$1' (ubuntu-22.04, fedora-43, arch)" ;;
+        ubuntu-22.04-arm64) echo 22225 ;; # 22224 is winvm.sh's windows-10
+        *) die "unknown distro '$1' (ubuntu-22.04, fedora-43, arch, ubuntu-22.04-arm64)" ;;
     esac
 }
+
+is_arm64() { [ "$1" = ubuntu-22.04-arm64 ]; }
 
 iso() {
     local pattern
@@ -148,12 +157,119 @@ CONF
 }
 
 wait_ssh() {
+    # Under emulation a boot takes minutes, and the first one (cloud-init) longer.
+    local tries=180
+    is_arm64 "$1" && tries=360
     # shellcheck disable=SC2046
-    for _ in $(seq 1 180); do
+    for _ in $(seq 1 $tries); do
         ssh $(ssh_opts "$1") tester@localhost true 2>/dev/null && return 0
+        if is_arm64 "$1" && ! arm64_running "$1"; then die "QEMU exited; see $VMS/$1/console.log"; fi
         sleep 5
     done
-    die "$1 did not answer on SSH within 15 minutes"
+    die "$1 did not answer on SSH within $((tries / 12)) minutes"
+}
+
+# --- ubuntu-22.04-arm64 -------------------------------------------------------------------------
+# Ubuntu's cloud image, checked against the release directory's SHA256SUMS, whose signature must be
+# by the "UEC Image Automatic Signing Key <cdimage@ubuntu.com>": the key Ubuntu's own ubuntu-keyring
+# package ships as ubuntu-cloudimage-keyring.gpg. It is fetched by its full fingerprint into a
+# throwaway keyring, so nothing is added to the host's.
+ARM64_BASE=https://cloud-images.ubuntu.com/releases/22.04/release
+ARM64_IMAGE=ubuntu-22.04-server-cloudimg-arm64.img
+ARM64_KEY=D2EB44626FDDC30B513D5BB71A5D6C4C7DB87C81
+# cloud-init's netplan matches the NIC by MAC on the first boot and is never rewritten after it
+# (cloud-init is disabled then), so every boot must use the same one.
+ARM64_MAC=52:54:00:12:34:a6
+
+arm64_running() { [ -f "$VMS/$1/qemu.pid" ] && kill -0 "$(cat "$VMS/$1/qemu.pid")" 2>/dev/null; }
+
+aarch64_firmware() { # the UEFI code image: Arch/Fedora edk2-aarch64, Debian/Ubuntu qemu-efi-aarch64, QEMU's own
+    local f
+    for f in /usr/share/edk2/aarch64/QEMU_CODE.fd /usr/share/edk2/aarch64/QEMU_EFI.fd \
+        /usr/share/AAVMF/AAVMF_CODE.fd /usr/share/qemu/edk2-aarch64-code.fd; do
+        [ -f "$f" ] && { echo "$f"; return; }
+    done
+    die "no aarch64 UEFI firmware (Arch: edk2-aarch64; Debian/Ubuntu: qemu-efi-aarch64)"
+}
+
+fetch_arm64_image() { # into $1, fetched only when the copy there is missing or not the signed one
+    local dl=$1 gnupg want
+    mkdir -p "$dl"
+    curl -fsSL -o "$dl/SHA256SUMS" "$ARM64_BASE/SHA256SUMS"
+    curl -fsSL -o "$dl/SHA256SUMS.gpg" "$ARM64_BASE/SHA256SUMS.gpg"
+    gnupg=$(mktemp -d)
+    curl -fsSL "https://keyserver.ubuntu.com/pks/lookup?op=get&options=mr&search=0x$ARM64_KEY" \
+        | GNUPGHOME=$gnupg gpg -q --import 2>/dev/null
+    # VALIDSIG names the signing key and, last, its primary key.
+    if ! GNUPGHOME=$gnupg gpg --status-fd 1 --verify "$dl/SHA256SUMS.gpg" "$dl/SHA256SUMS" 2>/dev/null \
+        | awk -v k="$ARM64_KEY" '$2 == "VALIDSIG" && ($3 == k || $NF == k) { ok = 1 } END { exit !ok }'; then
+        rm -rf "$gnupg"
+        die "$ARM64_BASE/SHA256SUMS: no good signature by $ARM64_KEY"
+    fi
+    rm -rf "$gnupg"
+    echo "SHA256SUMS: good signature by $ARM64_KEY"
+    want=$(awk -v f="*$ARM64_IMAGE" '$2 == f { print $1 }' "$dl/SHA256SUMS")
+    [ -n "$want" ] || die "$ARM64_IMAGE is not in SHA256SUMS"
+    if ! echo "$want  $dl/$ARM64_IMAGE" | sha256sum -c --status - 2>/dev/null; then
+        curl -fL -# -o "$dl/$ARM64_IMAGE.part" "$ARM64_BASE/$ARM64_IMAGE"
+        mv "$dl/$ARM64_IMAGE.part" "$dl/$ARM64_IMAGE"
+        echo "$want  $dl/$ARM64_IMAGE" | sha256sum -c --status - || die "$ARM64_IMAGE: not the signed SHA-256"
+    fi
+    echo "$ARM64_IMAGE: SHA-256 $want, as signed"
+}
+
+install_arm64() {
+    local distro=$1 dir=$VMS/$1 code vars
+    [ -f "$KEY" ] || ssh-keygen -q -t ed25519 -N '' -C grafida-linuxvm -f "$KEY"
+    [ ! -e "$dir/disk.qcow2" ] || die "$dir/disk.qcow2 exists; remove it to reinstall"
+    code=$(aarch64_firmware)
+    fetch_arm64_image "$dir/download"
+    mkdir -p "$dir/seed"
+    qemu-img convert -O qcow2 "$dir/download/$ARM64_IMAGE" "$dir/disk.qcow2"
+    qemu-img resize -q "$dir/disk.qcow2" 24G
+    render "$HERE/linuxvm/ubuntu-22.04-arm64.user-data" > "$dir/seed/user-data"
+    printf 'instance-id: ubuntu2204-arm64\nlocal-hostname: ubuntu2204-arm64\n' > "$dir/seed/meta-data"
+    genisoimage -quiet -o "$dir/seed.iso" -volid cidata -joliet -rock "$dir/seed/user-data" "$dir/seed/meta-data"
+    # The UEFI variable store: the firmware's own empty template, or zeroes the size of the code.
+    vars=$(dirname "$code")/$(basename "$code" | sed -E 's/(CODE|EFI)\.fd$/VARS.fd/; s/-code\.fd$/-vars.fd/')
+    if [ -f "$vars" ] && [ "$vars" != "$code" ]; then cp "$vars" "$dir/efivars.fd"; else truncate -s "$(stat -c %s "$code")" "$dir/efivars.fd"; fi
+    echo "$distro created. Its first boot runs cloud-init: \`start $distro\`, then \`prepare $distro\`."
+}
+
+start_arm64() {
+    local distro=$1 dir=$VMS/$1
+    [ -f "$dir/disk.qcow2" ] || die "no $dir/disk.qcow2: run \`install $distro\` first"
+    ! arm64_running "$distro" || die "$distro is already running (pid $(cat "$dir/qemu.pid"))"
+    # TCG with a thread per vCPU (MTTCG). -cpu max with the cheap pointer-authentication algorithm:
+    # the default (QARMA5) is several times slower under emulation. No display: the guest has no
+    # desktop; the serial console goes to console.log. The seed stays attached; cloud-init ignores it
+    # after the first boot. The monitor socket is named relative to the VM's folder, QEMU's working
+    # directory, because a unix socket's path must be shorter than 108 bytes.
+    cd "$dir"
+    qemu-system-aarch64 -machine virt,gic-version=3 -accel tcg,thread=multi \
+        -cpu max,pauth-impdef=on -smp 8 -m 8G \
+        -drive "if=pflash,format=raw,readonly=on,file=$(aarch64_firmware)" \
+        -drive "if=pflash,format=raw,file=$dir/efivars.fd" \
+        -drive "if=virtio,format=qcow2,file=$dir/disk.qcow2,cache=writeback,discard=unmap" \
+        -drive "if=virtio,format=raw,readonly=on,file=$dir/seed.iso" \
+        -netdev "user,id=n0,hostfwd=tcp:127.0.0.1:$(port "$distro")-:22" \
+        -device "virtio-net-pci,netdev=n0,mac=$ARM64_MAC" -device virtio-rng-pci \
+        -display none -serial "file:$dir/console.log" \
+        -monitor "unix:$distro-monitor.socket,server=on,wait=off" \
+        -pidfile "$dir/qemu.pid" -daemonize
+    echo "$distro started (pid $(cat "$dir/qemu.pid")), headless; \`wait $distro\` for SSH on $(port "$distro")"
+}
+
+stop_arm64() { # power off and wait for QEMU to exit: a snapshot needs the disk closed
+    local distro=$1
+    arm64_running "$distro" || { echo "$distro is not running"; return 0; }
+    # shellcheck disable=SC2046
+    ssh $(ssh_opts "$distro") tester@localhost 'sudo systemctl poweroff' 2>/dev/null || true
+    for _ in $(seq 1 120); do
+        arm64_running "$distro" || { rm -f "$VMS/$distro/qemu.pid"; echo "$distro stopped"; return 0; }
+        sleep 2
+    done
+    die "$distro still running after 4 minutes"
 }
 
 # The logged-in desktop session's environment, exported, then the command. GNOME and Plasma both
@@ -170,10 +286,18 @@ cmd=${1:-}; distro=${2:-}
 port "$distro" >/dev/null
 shift 2
 
+if is_arm64 "$distro"; then
+    case $cmd in
+        session | key | move | click | drag | screen | screendump)
+            die "$distro has no desktop and no display, which '$cmd' needs" ;;
+    esac
+fi
+
 # shellcheck disable=SC2046
 case $cmd in
-    install) install_vm "$distro" ;;
+    install) if is_arm64 "$distro"; then install_arm64 "$distro"; else install_vm "$distro"; fi ;;
     start)
+        if is_arm64 "$distro"; then start_arm64 "$distro"; exit; fi
         display=()
         [ "${1:-}" = --headless ] && display=(--display none)
         # ⚠️ quickemu adds an SSH forward of its own on the first free port from 22220 up. With a
@@ -193,6 +317,16 @@ case $cmd in
     session) exec ssh $(ssh_opts "$distro") tester@localhost "$SESSION_ENV"$'\n'"$*" ;;
     prepare)
         wait_ssh "$distro"
+        if is_arm64 "$distro"; then
+            # The first boot's cloud-init must be done before apt runs; keep the image's own
+            # configuration files where an update ships new ones.
+            ssh $(ssh_opts "$distro") tester@localhost 'cloud-init status --wait >/dev/null
+                export DEBIAN_FRONTEND=noninteractive
+                sudo -E apt-get update -q && sudo -E apt-get -yq -o Dpkg::Options::=--force-confold full-upgrade &&
+                sudo apt-get -yq autoremove && sudo apt-get clean'
+            stop_arm64 "$distro"
+            exit
+        fi
         case $distro in
             ubuntu-22.04) up='sudo DEBIAN_FRONTEND=noninteractive apt-get update -q && sudo DEBIAN_FRONTEND=noninteractive apt-get -yq full-upgrade' ;;
             fedora-43) up='sudo dnf -y upgrade --refresh' ;;
@@ -213,7 +347,10 @@ if command -v kwriteconfig6 >/dev/null; then
 fi'
         ssh $(ssh_opts "$distro") tester@localhost 'sudo systemctl poweroff' || true
         ;;
-    stop) ssh $(ssh_opts "$distro") tester@localhost 'sudo systemctl poweroff' || true ;;
+    stop)
+        if is_arm64 "$distro"; then stop_arm64 "$distro"; exit; fi
+        ssh $(ssh_opts "$distro") tester@localhost 'sudo systemctl poweroff' || true
+        ;;
     key) printf 'sendkey %s\n' "${1:?key}" | socat - "unix-connect:$VMS/$distro/$distro-monitor.socket" >/dev/null ;;
     move | click | drag | screen) python3 -I "$HERE/linuxvm/qmp.py" "$VMS/$distro/$distro-qmp.socket" "$cmd" "$@" ;;
     screendump) # QEMU writes the file itself, from its own working directory: hand it an absolute path
@@ -222,12 +359,22 @@ fi'
         ;;
     snapshot)
         disk=$VMS/$distro/disk.qcow2
+        ! { is_arm64 "$distro" && arm64_running "$distro"; } || die "stop $distro first"
         case ${1:-} in
             create) qemu-img snapshot -c "${2:?name}" "$disk" ;;
             apply) qemu-img snapshot -a "${2:?name}" "$disk" ;;
             list) qemu-img snapshot -l "$disk" ;;
             *) die "snapshot create|apply|list [NAME]" ;;
         esac
+        # The arm64 guest's UEFI variables (its boot entries) are outside the disk: one copy per
+        # snapshot, so a snapshot boots with the entries it was taken with.
+        if is_arm64 "$distro"; then
+            vars=$VMS/$distro/efivars.fd
+            case $1 in
+                create) cp "$vars" "$vars.$2" ;;
+                apply) if [ -f "$vars.$2" ]; then cp "$vars.$2" "$vars"; fi ;;
+            esac
+        fi
         ;;
     *) die "unknown command '$cmd'" ;;
 esac

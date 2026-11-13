@@ -1,0 +1,18 @@
+#cloud-config
+# Ubuntu 22.04 arm64 for grafida/grafida#93: Ubuntu's own arm64 cloud image, first boot (NoCloud).
+# No desktop: the guest is emulated and headless, for the arm64 tarball's worker, headless launch
+# and install checks. @PASSWORD_HASH@ and @SSH_KEY@ are filled in by linuxvm.sh.
+hostname: ubuntu2204-arm64
+users:
+  - name: tester
+    shell: /bin/bash
+    sudo: "ALL=(ALL) NOPASSWD:ALL"
+    lock_passwd: false
+    passwd: "@PASSWORD_HASH@"
+    ssh_authorized_keys: ["@SSH_KEY@"]
+ssh_pwauth: false
+package_update: false
+package_upgrade: false
+runcmd:
+  # First boot only: later boots, and every snapshot, keep this configuration, seed or no seed.
+  - [touch, /etc/cloud/cloud-init.disabled]

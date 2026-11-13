@@ -1,21 +1,24 @@
 # Clean Linux test VMs (Linux host)
 
-Three local VMs for testing a **packaged** app (an extracted Linux tarball) on machines that have
-never seen a build tool: the clean-VM half of grafida/grafida#86. Each is installed unattended by
-its distribution's own installer, updated, and snapshotted as `clean` before anything of ours
-touches it. `scripts/dev/linuxvm.sh` does all of it.
+Four local VMs for testing a **packaged** app (an extracted Linux tarball) on machines that have
+never seen a build tool: the clean-VM half of grafida/grafida#86. Each is set up unattended from
+its distribution's own image, updated, and snapshotted as `clean` before anything of ours touches
+it. `scripts/dev/linuxvm.sh` does all of it.
 
 | VM | Installer | Desktop | SSH |
 |---|---|---|---|
 | `ubuntu-22.04` | live-server ISO, subiquity autoinstall, `ubuntu-desktop-minimal` | GNOME (Wayland), GDM | `localhost:22221` |
 | `fedora-43` | Everything netinstall, kickstart, `@^workstation-product-environment` | GNOME (Wayland), GDM | `localhost:22222` |
 | `arch` | archiso, its `script=` boot hook, `plasma-meta` | KDE Plasma (Wayland), SDDM | `localhost:22223` |
+| `ubuntu-22.04-arm64` | Ubuntu's signed arm64 cloud image, cloud-init (NoCloud); **emulated** (TCG) | none, always headless | `localhost:22225` |
 
 Ubuntu 22.04 is the floor (glibc 2.35, the oldest WebKitGTK 4.1 we support); Fedora and Arch show
-what the newest WebKitGTK does. Every VM has the user `tester` (password `tester`, sudo without a
-password), logs in automatically, and never locks or blanks the screen, so there is always a desktop
-session to run the app in. The SSH key is `~/.ssh/grafida-linuxvm_ed25519`, created on the first
-install; `~/.ssh/config` is not touched.
+what the newest WebKitGTK does. The first three are x86_64 under KVM. Each logs in automatically and
+never locks or blanks the screen, so there is always a desktop session to run the app in.
+`ubuntu-22.04-arm64` is the floor for the arm64 tarball, for the checks that need no desktop
+(section 5). Every VM has the user `tester` (password `tester`, sudo without a password). The SSH
+key is `~/.ssh/grafida-linuxvm_ed25519`, created on the first install; `~/.ssh/config` is not
+touched.
 
 ## 1. The ISOs
 
@@ -36,6 +39,8 @@ grep 'SHA256 (Fedora-Everything-netinst' Fedora-Everything-43-1.6-x86_64-CHECKSU
 Fedora's Workstation **live** ISO (what `quickget fedora 43 Workstation` fetches) cannot be
 installed unattended: its installer takes no kickstart. The Everything netinstall with the
 Workstation package environment installs the same package set.
+
+`ubuntu-22.04-arm64` needs no ISO: its `install` fetches the cloud image itself (section 5).
 
 ## 2. Install, update, snapshot
 
@@ -136,3 +141,84 @@ scripts/dev/linuxvm.sh drag fedora-43 700 669 900 719
 - **A screendump shows the pointer only if the guest draws it into the framebuffer.** Fedora's GNOME
   does; Ubuntu 22.04's does not. So prove a move by its
   effect, a `:hover` style in the screendump or the page's own event, not by looking for the arrow.
+
+## 5. The arm64 guest (`ubuntu-22.04-arm64`)
+
+No arm64 machine is at hand, so the arm64 tarball is checked in an **emulated** Ubuntu 22.04 arm64
+guest (grafida/grafida#93). It replaces the CI job that did this on GitHub's `ubuntu-22.04-arm`
+runners (Grafida, `48f6290^:.github/workflows/shell-linux.yml`). It covers what needs no desktop:
+the worker, a headless launch, `install.sh` and the launcher. It does **not** stand in for arm64
+hardware: everything runs many times slower than on a real CPU, and the guest has no desktop for
+the launcher's graphical alert or any interactive check.
+
+Host packages (Arch): `qemu-system-aarch64`, `edk2-aarch64` (the UEFI firmware), `gnupg`,
+`cdrtools` (`genisoimage`). Debian/Ubuntu: `qemu-system-arm`, `qemu-efi-aarch64`, `gnupg`,
+`genisoimage`.
+
+```sh
+scripts/dev/linuxvm.sh install ubuntu-22.04-arm64   # ~1 min: fetch, verify, disk, seed
+scripts/dev/linuxvm.sh start ubuntu-22.04-arm64     # always headless
+scripts/dev/linuxvm.sh wait ubuntu-22.04-arm64      # the first boot (cloud-init) takes minutes
+scripts/dev/linuxvm.sh prepare ubuntu-22.04-arm64   # update; powers off and waits for QEMU to exit
+scripts/dev/linuxvm.sh snapshot ubuntu-22.04-arm64 create clean
+```
+
+- **The image is Ubuntu's own**, `ubuntu-22.04-server-cloudimg-arm64.img` from
+  `cloud-images.ubuntu.com/releases/22.04/release/`. `install` checks it against that directory's
+  `SHA256SUMS`, whose signature must be by `D2EB 4462 6FDD C30B 513D 5BB7 1A5D 6C4C 7DB8 7C81`
+  ("UEC Image Automatic Signing Key"), the key Ubuntu's `ubuntu-keyring` package ships as
+  `ubuntu-cloudimage-keyring.gpg`. The key is fetched by its full fingerprint into a throwaway
+  keyring. The image is kept in `~/VMs/ubuntu-22.04-arm64/download/` and fetched again only when
+  it no longer matches the signed `SHA256SUMS`.
+- **cloud-init** (a NoCloud `cidata` seed, `scripts/dev/linuxvm/ubuntu-22.04-arm64.user-data`)
+  creates `tester` on the first boot, then disables itself, so later boots and snapshots keep that
+  configuration. Its network configuration matches the NIC by MAC, so `start` always gives the
+  guest the same one.
+- **QEMU runs directly, not under quickemu**: `-machine virt,gic-version=3 -accel tcg,thread=multi
+  -cpu max,pauth-impdef=on -smp 8 -m 8G`, UEFI, `-display none`, serial console to `console.log`,
+  pid in `qemu.pid`. `pauth-impdef=on` matters: QEMU's default pointer-authentication algorithm
+  makes the guest several times slower. The emulation takes up to 8 host threads; `renice -n 19 -p
+  "$(cat ~/VMs/ubuntu-22.04-arm64/qemu.pid)"` keeps it behind everything else.
+- **`stop` waits for QEMU to exit**, and `snapshot` refuses while the guest runs. The UEFI variables
+  (`efivars.fd`, the boot entries) are outside the disk, so each snapshot keeps its own copy
+  (`efivars.fd.<name>`), restored by `snapshot … apply`.
+- `session`, `key`, `move`, `click`, `drag`, `screen` and `screendump` need a desktop and refuse
+  this guest.
+
+### The tarball check, as the CI job ran it
+
+Each from `clean` (`snapshot ubuntu-22.04-arm64 apply clean`, `start`, `wait`), with the tarball
+copied in (`scp -P 22225 -i ~/.ssh/grafida-linuxvm_ed25519 … tester@localhost:`) and extracted to
+`~/pkg`:
+
+1. **`tests/Pipe` against the packaged worker, with PHP 8.4.** The job's `shivammathur/setup-php`
+   takes PHP on Ubuntu from `ppa:ondrej/php`, so the guest does too: `sudo add-apt-repository -y
+   ppa:ondrej/php`, then `php8.4-cli php8.4-curl php8.4-xml php8.4-mbstring php8.4-sqlite3` (the
+   job's extension list). Copy Grafida's source in with its `vendor/` (no `.git`, no
+   `node_modules`) and run `GRAFIDA_PIPE_WORKER=$HOME/pkg/grafida/grafida-worker vendor/bin/phpunit
+   --testsuite=pipe`. About 2 minutes under emulation.
+2. **The headless launch.** `sudo apt-get install -y libwebkit2gtk-4.1-0 libgtk-3-0 xvfb dbus`;
+   point `HOME` and every `XDG_*` at a temp directory; `dbus-run-session -- xvfb-run -a
+   <pkg>/grafida/grafida`; wait for `worker ready` in `$XDG_STATE_HOME/grafida/logs/shell.log`,
+   with no `giving up` in it; then `pkill -TERM -x grafida-shell` must leave no `grafida-worker`.
+   ⚠️ Set the package path **before** moving `HOME`: a `~/pkg/…` after it points into the empty
+   temp home. Allow longer than the job's 60 s, since under emulation the worker is ready only
+   after several seconds.
+3. **`install.sh` and a launch with no libraries**, on a fresh `clean`: `./install.sh`, then run the
+   `Exec=` of `~/.local/share/applications/app.grafida.desktop`. Over SSH there is no display and no
+   alert program, so the launcher prints its missing-libraries message on stderr and exits 69.
+
+`parity-linux.sh` also runs here, packaged, with the `debug-automation-linux-aarch64` artifact, in
+`dbus-run-session -- xvfb-run -a -s "-screen 0 1280x800x24"` (about 4 minutes), but under TCG
+four rows fail for timing alone (RC5, grafida/grafida#93):
+- "A worker that never sends ready": the row's fixed `sleep 3` ends before the shell's 2 s `ready`
+  timeout fires;
+- "Ctrl+Shift+V": `parity/grafida-editor.js` calls `navigator.clipboard.writeText()` after
+  TinyMCE's initialisation, which takes about 6 s here; by then the eval's user gesture (about 1 s)
+  has expired, so `writeText()` fails with `NotAllowedError`;
+- "drop on the editor": fails because the Ctrl+Shift+V eval threw and returned no drop
+  coordinates;
+- "Idle CPU": measures an emulated CPU, so it says nothing about real hardware.
+
+Re-check the first three by hand, with a longer wait and with the clipboard written in an eval of
+its own. Treat the idle-CPU row as not measured.
