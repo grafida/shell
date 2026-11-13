@@ -95,6 +95,11 @@ jobs:
       # release asset (the publish job downloads linux-* alone).
       - name: Build the debug automation shell (for verification only)
         run: cargo build --locked -p grafida-shell --features automation
+      # Canary for the release checks: the debug automation build MUST carry the marker that
+      # check-*-binaries.sh grep the release binary for. If this fails, the marker moved and those
+      # checks have become silent no-ops (the unit test in src/automation.rs guards the same thing).
+      - name: The debug automation shell carries the marker the release checks look for
+        run: grep -qa 'automation.json' target/debug/grafida-shell
 
       - uses: actions/upload-artifact@v4
         with:
@@ -172,6 +177,11 @@ jobs:
           echo "debug build: $archs, minos $minos"
           test "$archs" = "${{ matrix.arch }}"
           test "$minos" = "12.0"
+      # Canary for the release checks: the debug automation build MUST carry the marker that
+      # check-*-binaries.sh grep the release binary for. If this fails, the marker moved and those
+      # checks have become silent no-ops (the unit test in src/automation.rs guards the same thing).
+      - name: The debug automation shell carries the marker the release checks look for
+        run: grep -qa 'automation.json' "target/${{ matrix.target }}/debug/grafida-shell"
 
       - uses: actions/upload-artifact@v4
         with:
@@ -217,6 +227,11 @@ jobs:
       # the automation channel. A workflow artifact only, never a release asset.
       - name: Build the debug automation shell (for verification only)
         run: cargo build --locked -p grafida-shell --features automation
+      # Canary for the release checks: the debug automation build MUST carry the marker that
+      # check-*-binaries.sh grep the release binary for. If this fails, the marker moved and those
+      # checks have become silent no-ops (the unit test in src/automation.rs guards the same thing).
+      - name: The debug automation shell carries the marker the release checks look for
+        run: grep -qa 'automation.json' target/debug/grafida-shell.exe
       - uses: actions/upload-artifact@v4
         with:
           name: debug-automation-windows-x86_64

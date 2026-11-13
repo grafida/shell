@@ -43,6 +43,8 @@ while read -r lib; do
 done <<< "$libs"
 
 # The automation channel's runtime file name exists only in src/automation.rs.
+# Guarded against drift by the unit test in src/automation.rs and by the canary in
+# .github/workflows/release.yml (the debug automation build must contain this string).
 if grep -qa 'automation.json' "$SHELL_BIN"; then
     fail "the shell carries the automation channel"
 fi

@@ -218,6 +218,25 @@ mod tests {
         }
     }
 
+    /// `scripts/release/check-{linux,macos,windows}-binaries.sh` grep the release binary for the
+    /// literal `automation.json` to prove the channel is not in it, and the release workflow greps
+    /// the debug automation build for it as a canary. That works only while the name is one string
+    /// literal in this file: build it from parts and the checks silently check nothing.
+    #[test]
+    fn the_runtime_file_name_keeps_the_marker_the_release_checks_grep_for() {
+        let name = runtime_file("x");
+        let name = name.file_name().unwrap().to_str().unwrap();
+        assert!(name.ends_with("automation.json"), "{name}");
+        // The marker as one piece in the source that produces the name (spelled so this
+        // assertion's own text is not what satisfies it).
+        let source = include_str!("automation.rs");
+        let literal = ["\"{id}.", "automation.json\""].concat();
+        assert!(
+            source.contains(&literal),
+            "the file name must stay a single string literal containing `automation.json`"
+        );
+    }
+
     #[test]
     fn a_fresh_runtime_file_is_written() {
         let dir = Scratch::new("fresh");
