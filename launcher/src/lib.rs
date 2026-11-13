@@ -287,9 +287,21 @@ fn neutralise_first_line(text: &str) -> String {
     format!("{first}{rest}")
 }
 
-/// The alert tools tried in order, and the arguments each takes. Each is spawned and must have run
-/// (exit 0 or 1, i.e. dismissed); a tool that is absent or cannot start itself (127, a signal)
-/// falls through to the next. stderr always gets the text first.
+/// Whether `program`'s exit status means the alert was shown. 0 always does. 1 does for zenity and
+/// kdialog, which return it when the user closes the dialog, but not for `notify-send` (a usage
+/// error, or no notification daemon) or `xmessage` (its default button exits 0), where it means
+/// nothing appeared and the next tool must be tried. A tool that is absent or cannot start itself
+/// (127, a signal) never counts.
+pub fn shown(program: &str, code: Option<i32>) -> bool {
+    match code {
+        Some(0) => true,
+        Some(1) => matches!(program, "zenity" | "kdialog"),
+        _ => false,
+    }
+}
+
+/// The alert tools tried in order, and the arguments each takes. Each is spawned, and the first
+/// whose exit status says it was [`shown`] ends the chain. stderr always gets the text first.
 pub fn alert_commands(
     title: &str,
     message: &str,
@@ -342,14 +354,13 @@ pub fn alert(title: &str, message: &str, detail: &str) {
         return;
     }
     for (program, args) in alert_commands(title, message, detail) {
-        let shown = Command::new(program)
+        let status = Command::new(program)
             .args(&args)
             .stdin(Stdio::null())
             .stdout(Stdio::null())
             .stderr(Stdio::null())
-            .status()
-            .is_ok_and(|s| matches!(s.code(), Some(0 | 1)));
-        if shown {
+            .status();
+        if status.is_ok_and(|s| shown(program, s.code())) {
             return;
         }
     }

@@ -16,6 +16,7 @@ shell 0.4.2
 # [LOW] Linux launcher: a `shell.json` title starting with `-` could stop the failure alert from showing
 # [LOW] Linux launcher: markup in the app's title or a library name could show as a clickable link in the alert
 # [LOW] Linux, macOS: other users of the computer could read the log, which holds the worker's error output
+# [LOW] Linux launcher: when `notify-send` failed, no other alert tool was tried and the user saw nothing
 
 shell 0.4.1
 ================================================================================
