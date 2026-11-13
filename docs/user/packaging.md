@@ -1,8 +1,30 @@
 # Packaging
 
 [grafida/shell-packager](https://github.com/grafida/shell-packager) turns your app into something users can install:
-a tarball for Linux, a signed disk image for macOS, an installer for Windows. Linux and Windows packages can be built on any host that has the tools listed below. macOS packages need a Mac
-(`codesign` and `hdiutil` exist only there), and a Mac can build all three.
+a tarball for Linux, a disk image for macOS, an installer for Windows. Which of them you can build depends on the
+machine you build on: see [Which machine builds what](#which-machine-builds-what).
+
+## Which machine builds what
+
+**To build for macOS you need a Mac.** The bundle is sealed with `codesign` and the disk image is made with `hdiutil`,
+and both exist only on macOS. Even an unsigned disk image (`--no-sign`) is made with `hdiutil`. Nothing replaces them
+on another operating system.
+
+| Build machine | Linux tarball | Windows installer | macOS disk image |
+|---|---|---|---|
+| **A Mac** | ✅ | ✅ | ✅ |
+| **Linux** | ✅ | ✅ | ❌ |
+| **Windows** | ✅ | ✅ | ❌ |
+
+So with a Mac you can produce every deliverable, for both CPU architectures of each platform. With Linux or Windows you
+can produce the Linux and Windows ones, and for macOS you need a Mac, or a macOS runner in your CI.
+
+* The Linux tarball is written by the packager itself, in PHP, so it needs no extra tool on any host.
+* The Windows installer needs `makensis`, and signing it needs `jsign`; checking the signature needs `osslsigncode`. All
+  three are available for macOS and Linux (Homebrew, apt). See [Install the packager](#install-the-packager).
+* **A cross-built package is not run before it is written.** The packager's
+  [worker test](#the-packaged-worker-is-tested-before-it-is-written) only runs on a machine of the target's operating
+  system and CPU. Test packages built for another platform on the platform itself before you publish them.
 
 ## What goes into a package
 
@@ -49,7 +71,7 @@ You need, on the build machine:
 * `composer` on `PATH`, and a committed **`composer.lock`**. The packager installs your runtime dependencies from the
   lock with `--no-dev --no-scripts` into a staging directory; your own `vendor/` is never used, so development
   dependencies cannot leak into the package. Composer `scripts` do not run during that install.
-* For macOS packages: Xcode's command line tools (`codesign`, `hdiutil`, and for notarisation `notarytool`).
+* For macOS packages (on a Mac only): Xcode's command line tools (`codesign`, `hdiutil`, and for notarisation `notarytool`).
 * For Windows packages: `makensis` 3.08 or later (the installer), and for signing `jsign` and `osslsigncode`.
 
 ## The configuration file: `shell-package.json`
