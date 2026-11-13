@@ -111,10 +111,102 @@ names in lower case.
 
 ## Routing
 
-The library has no router; the handler is a function from request to response. Use whatever you like: a `match` on
-the path as in the [getting-started example](getting-started.md), or a router component (FastRoute, Symfony Routing…)
-fed `$request->method` and `$request->path()`. You can also wrap an existing framework's front controller, as long as
-it can work from a request object rather than from the `$_SERVER` superglobals.
+The library has no router; the handler is a function from request to response. Use whatever suits the size of your app.
+Two things apply to any router:
+
+* Route on `$request->method` and `$request->path()`, never on `$_SERVER`. `path()` is still percent-encoded, so
+  decode it (`rawurldecode()`) if your router does not.
+* The worker is long-lived, so build the route table **once**, in the constructor, not on every request.
+
+### A few routes, no dependencies
+
+For a handful of routes a `match` or an array is enough. This handler has two exact routes and one with a parameter:
+
+```php
+use Grafida\Shell\{Handler, Request, Response};
+
+final class App implements Handler
+{
+    public function __invoke(Request $request): Response
+    {
+        $path = rawurldecode($request->path());
+
+        // Exact routes: "METHOD /path" => handler.
+        $routes = [
+            'GET /api/notes'  => fn () => Response::json($this->notes->all()),
+            'POST /api/notes' => fn () => Response::json($this->notes->add(json_decode($request->body, true, flags: JSON_THROW_ON_ERROR)), 201),
+        ];
+
+        if (isset($routes["{$request->method} {$path}"])) {
+            return $routes["{$request->method} {$path}"]();
+        }
+
+        // A route with a parameter.
+        if ($request->method === 'GET' && preg_match('#^/api/notes/(\d+)$#', $path, $m) === 1) {
+            return Response::json($this->notes->get((int) $m[1]));
+        }
+
+        return Response::json(['error' => 'not_found'], 404);
+    }
+}
+```
+
+(The array is rebuilt on every request, which costs nothing for a few routes; with many, build it once in the constructor.)
+This answers `404` for a wrong method as well as for a wrong path. A router that tells them apart (`405` with an
+`Allow` header) is more work than it looks, which is when a library starts to pay off.
+
+### Symfony Routing
+
+[symfony/routing](https://symfony.com/doc/current/routing.html) works without the rest of Symfony: it needs only a
+route collection and a request context. Add it with `composer require symfony/routing`. It is a runtime dependency, so
+it belongs in `require`, not `require-dev`, and the packager puts it in the PHAR with the rest of `vendor/`.
+
+```php
+use Grafida\Shell\{Handler, Request, Response};
+use Symfony\Component\Routing\Exception\{MethodNotAllowedException, ResourceNotFoundException};
+use Symfony\Component\Routing\Matcher\UrlMatcher;
+use Symfony\Component\Routing\{RequestContext, Route, RouteCollection};
+
+final class App implements Handler
+{
+    private readonly RouteCollection $routes;
+
+    public function __construct()
+    {
+        $this->routes = new RouteCollection();
+        $this->routes->add('notes_list', new Route('/api/notes', ['_action' => 'list'], methods: ['GET']));
+        $this->routes->add('notes_create', new Route('/api/notes', ['_action' => 'create'], methods: ['POST']));
+        $this->routes->add('notes_show', new Route('/api/notes/{id}', ['_action' => 'show'], ['id' => '\d+'], methods: ['GET']));
+    }
+
+    public function __invoke(Request $request): Response
+    {
+        $matcher = new UrlMatcher($this->routes, new RequestContext(method: $request->method));
+
+        try {
+            $match = $matcher->match($request->path());   // decodes the path itself
+        } catch (ResourceNotFoundException) {
+            return Response::json(['error' => 'not_found'], 404);
+        } catch (MethodNotAllowedException $e) {
+            return Response::json(['error' => 'method_not_allowed'], 405, ['Allow' => implode(', ', $e->getAllowedMethods())]);
+        }
+
+        return match ($match['_action']) {
+            'list'   => Response::json($this->notes->all()),
+            'create' => Response::json($this->notes->add(json_decode($request->body, true, flags: JSON_THROW_ON_ERROR)), 201),
+            'show'   => Response::json($this->notes->get((int) $match['id'])),
+        };
+    }
+}
+```
+
+`match()` returns the route's defaults and its placeholders (`$match['id']`, always a string) plus `_route`, the route's
+name. Instead of the `_action` switch you can put a callable or a controller class name in the defaults and dispatch to
+it yourself. The same pattern fits FastRoute and other routers: give them the method and the path, and turn their "not
+found" and "method not allowed" outcomes into responses.
+
+You can also wrap an existing framework's front controller, as long as it can work from a request object rather than
+from the `$_SERVER` superglobals.
 
 ### Static files
 
