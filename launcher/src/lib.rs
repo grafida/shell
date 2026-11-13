@@ -17,6 +17,7 @@
 
 use std::{
     ffi::OsString,
+    io::{Read, Seek, SeekFrom},
     path::{Path, PathBuf},
     process::{Command, Stdio},
 };
@@ -58,8 +59,128 @@ pub enum Check {
     Unknown(String),
 }
 
+/// The program interpreter an ELF file names (its `PT_INTERP`), or `None` for a file that is not
+/// ELF or names none (a static program). Only std: the launcher links nothing else.
+pub fn program_interpreter(file: &mut (impl Read + Seek)) -> std::io::Result<Option<Vec<u8>>> {
+    let mut ident = [0u8; 64];
+    let n = read_up_to(file, &mut ident)?;
+    if n < 0x34 || ident[..4] != *b"\x7fELF" {
+        return Ok(None);
+    }
+    let wide = match ident[4] {
+        1 => false,
+        2 => true,
+        _ => return Ok(None),
+    };
+    let big = match ident[5] {
+        1 => false,
+        2 => true,
+        _ => return Ok(None),
+    };
+    let int = |b: &[u8]| -> u64 {
+        let mut v = 0u64;
+        for i in 0..b.len() {
+            let byte = if big { b[i] } else { b[b.len() - 1 - i] };
+            v = v << 8 | u64::from(byte);
+        }
+        v
+    };
+    // e_phoff, e_phentsize, e_phnum; then p_type, p_offset, p_filesz in each entry.
+    let (phoff, entsize, count, offset_at, size_at) = if wide {
+        if n < 0x40 {
+            return Ok(None);
+        }
+        (
+            int(&ident[0x20..0x28]),
+            int(&ident[0x36..0x38]),
+            int(&ident[0x38..0x3a]),
+            8..16,
+            0x20..0x28,
+        )
+    } else {
+        (
+            int(&ident[0x1c..0x20]),
+            int(&ident[0x2a..0x2c]),
+            int(&ident[0x2c..0x2e]),
+            4..8,
+            0x10..0x14,
+        )
+    };
+    if entsize < size_at.end as u64 {
+        return Ok(None);
+    }
+    let mut entry = vec![0u8; entsize as usize];
+    for i in 0..count {
+        file.seek(SeekFrom::Start(phoff.saturating_add(i * entsize)))?;
+        if read_up_to(file, &mut entry)? < entry.len() {
+            return Ok(None);
+        }
+        if int(&entry[..4]) != PT_INTERP {
+            continue;
+        }
+        let size = int(&entry[size_at]);
+        if size == 0 || size > 4096 {
+            return Ok(None);
+        }
+        let mut path = vec![0u8; size as usize];
+        file.seek(SeekFrom::Start(int(&entry[offset_at])))?;
+        if read_up_to(file, &mut path)? < path.len() {
+            return Ok(None);
+        }
+        if let Some(nul) = path.iter().position(|&b| b == 0) {
+            path.truncate(nul);
+        }
+        return Ok(Some(path));
+    }
+    Ok(None)
+}
+
+const PT_INTERP: u64 = 3;
+
+fn read_up_to(file: &mut impl Read, buf: &mut [u8]) -> std::io::Result<usize> {
+    let mut n = 0;
+    while n < buf.len() {
+        match file.read(&mut buf[n..])? {
+            0 => break,
+            k => n += k,
+        }
+    }
+    Ok(n)
+}
+
+/// Whether an interpreter is glibc's loader (`ld-linux-x86-64.so.2`, `ld-linux-aarch64.so.1`, …),
+/// the only one known to honour `LD_TRACE_LOADED_OBJECTS` by printing instead of running.
+pub fn is_glibc_loader(interpreter: &[u8]) -> bool {
+    let name = interpreter.rsplit(|&b| b == b'/').next().unwrap_or(interpreter);
+    name.starts_with(b"ld-linux")
+}
+
 /// Runs the shell in the loader's trace mode and reads the verdict.
+///
+/// The probe executes the shell, trusting glibc's loader to print its libraries and stop. Under
+/// any other interpreter, or with none (a static or musl shell), `main()` would really run, and
+/// then run again when the launcher execs it (security.md I10). So the shell's `PT_INTERP` is read
+/// first, and anything but glibc's loader is not probed at all: the check fails open, as for any
+/// output it cannot read. A glibc loader that is *missing* (a musl system) is still probed, since
+/// the kernel then refuses the exec before anything runs.
 pub fn check(shell: &Path) -> Check {
+    match std::fs::File::open(shell).and_then(|mut f| program_interpreter(&mut f)) {
+        Ok(Some(interpreter)) if is_glibc_loader(&interpreter) => {}
+        Ok(Some(interpreter)) => {
+            return Check::Unknown(format!(
+                "{} names the program interpreter {}, not glibc's loader; not probed",
+                shell.display(),
+                String::from_utf8_lossy(&interpreter)
+            ));
+        }
+        Ok(None) => {
+            return Check::Unknown(format!(
+                "{} is not a dynamically linked ELF program; not probed",
+                shell.display()
+            ));
+        }
+        Err(e) => return Check::Unknown(format!("could not read {}: {e}", shell.display())),
+    }
     let output = Command::new(shell)
         .env("LD_TRACE_LOADED_OBJECTS", "1")
         .env("LD_BIND_NOW", "1")
@@ -541,6 +662,80 @@ mod tests {
             shell_beside(Path::new("/opt/app/grafida-launcher")),
             Some(PathBuf::from("/opt/app/grafida-shell"))
         );
+    }
+
+    /// A minimal ELF image: the file header, `types.len()` program headers of those types, and
+    /// an interpreter string that every `PT_INTERP` entry points at.
+    fn elf(wide: bool, big: bool, types: &[u32], interp: &[u8]) -> Vec<u8> {
+        let put = |out: &mut Vec<u8>, at: usize, v: u64, len: usize| {
+            for i in 0..len {
+                let shift = 8 * if big { len - 1 - i } else { i };
+                out[at + i] = (v >> shift) as u8;
+            }
+        };
+        let (header, entsize) = if wide { (64, 56) } else { (52, 32) };
+        let interp_at = header + entsize * types.len();
+        let mut out = vec![0u8; interp_at + interp.len()];
+        out[..4].copy_from_slice(b"\x7fELF");
+        out[4] = if wide { 2 } else { 1 };
+        out[5] = if big { 2 } else { 1 };
+        let (phoff, phentsize, phnum) = if wide {
+            (0x20, 0x36, 0x38)
+        } else {
+            (0x1c, 0x2a, 0x2c)
+        };
+        put(&mut out, phoff, header as u64, if wide { 8 } else { 4 });
+        put(&mut out, phentsize, entsize as u64, 2);
+        put(&mut out, phnum, types.len() as u64, 2);
+        for (i, &t) in types.iter().enumerate() {
+            let e = header + i * entsize;
+            put(&mut out, e, u64::from(t), 4);
+            let (off, size, len) = if wide { (8, 0x20, 8) } else { (4, 0x10, 4) };
+            put(&mut out, e + off, interp_at as u64, len);
+            put(&mut out, e + size, interp.len() as u64, len);
+        }
+        out[interp_at..].copy_from_slice(interp);
+        out
+    }
+
+    fn interp_of(bytes: Vec<u8>) -> Option<Vec<u8>> {
+        program_interpreter(&mut std::io::Cursor::new(bytes)).unwrap()
+    }
+
+    #[test]
+    fn the_program_interpreter_is_read_from_any_elf_flavour() {
+        let loader = b"/lib64/ld-linux-x86-64.so.2\0";
+        for wide in [true, false] {
+            for big in [false, true] {
+                // PT_PHDR, PT_INTERP, PT_LOAD, as a linker lays them out.
+                let bytes = elf(wide, big, &[6, 3, 1], loader);
+                assert_eq!(
+                    interp_of(bytes).as_deref(),
+                    Some(&b"/lib64/ld-linux-x86-64.so.2"[..]),
+                    "wide {wide}, big {big}"
+                );
+            }
+        }
+    }
+
+    #[test]
+    fn a_static_program_or_a_non_elf_file_has_no_interpreter() {
+        assert_eq!(interp_of(elf(true, false, &[1, 1], b"")), None);
+        assert_eq!(interp_of(b"#!/bin/sh\nexit 0\n".to_vec()), None);
+        assert_eq!(interp_of(Vec::new()), None);
+        // Truncated: the PT_INTERP entry points past the end of the file.
+        let mut bytes = elf(true, false, &[3], b"/lib/ld-linux-aarch64.so.1\0");
+        bytes.truncate(bytes.len() - 4);
+        assert_eq!(interp_of(bytes), None);
+    }
+
+    #[test]
+    fn only_glibcs_loader_is_trusted_to_trace() {
+        assert!(is_glibc_loader(b"/lib64/ld-linux-x86-64.so.2"));
+        assert!(is_glibc_loader(b"/lib/ld-linux-aarch64.so.1"));
+        assert!(!is_glibc_loader(b"/lib/ld-musl-x86_64.so.1"));
+        assert!(!is_glibc_loader(b"/nix/store/x/bin/ld.so"));
+        assert!(!is_glibc_loader(b""));
     }
 
     fn last_text(args: &[OsString], n: usize) -> Vec<String> {

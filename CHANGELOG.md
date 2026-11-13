@@ -17,6 +17,7 @@ shell 0.4.2
 # [LOW] Linux launcher: markup in the app's title or a library name could show as a clickable link in the alert
 # [LOW] Linux, macOS: other users of the computer could read the log, which holds the worker's error output
 # [LOW] Linux launcher: when `notify-send` failed, no other alert tool was tried and the user saw nothing
+# [LOW] Linux launcher: a shell not linked against glibc ran twice, the first time during the library check
 
 shell 0.4.1
 ================================================================================

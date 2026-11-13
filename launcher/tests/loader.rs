@@ -105,8 +105,10 @@ fn the_real_loader() {
     };
     assert_eq!(p.missing, ["libdemo.so.1"]);
 
-    // A program interpreter that does not exist (a musl system has no glibc loader): rename the
-    // loader in PT_INTERP, keeping its length, on either architecture.
+    // A glibc loader that does not exist (a musl system has none): move the loader's directory in
+    // PT_INTERP, keeping its length and its `ld-linux-…` name, on either architecture
+    // (`/lib64/` → `/lib6x/`, `/lib/` → `/lix/`). The name must stay glibc's: any other is not
+    // probed at all (security.md I10).
     let elf = std::fs::read(&shell).unwrap();
     let needle = b"/ld-linux-";
     let at = elf
@@ -114,7 +116,7 @@ fn the_real_loader() {
         .position(|w| w == needle)
         .expect("a glibc program names its loader");
     let mut broken = elf;
-    broken[at + 1..at + 3].copy_from_slice(b"xx");
+    broken[at - 1] = b'x';
     let path = dir.join("noloader");
     std::fs::write(&path, broken).unwrap();
     std::fs::set_permissions(&path, std::os::unix::fs::PermissionsExt::from_mode(0o755)).unwrap();
@@ -122,6 +124,40 @@ fn the_real_loader() {
         matches!(check(&path), Check::Refused(_)),
         "{:?}",
         check(&path)
+    );
+
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
+/// A shell glibc's loader does not run (here a static program, as a musl one would be) ignores
+/// `LD_TRACE_LOADED_OBJECTS`: probing it would run its `main()`, and the launcher's exec would run
+/// it a second time (security.md I10). It must not be run by the check at all.
+#[test]
+fn a_shell_glibc_does_not_load_is_never_probed() {
+    let dir = std::env::temp_dir().join(format!("grafida-launcher-static-{}", std::process::id()));
+    let _ = std::fs::remove_dir_all(&dir);
+    std::fs::create_dir_all(&dir).unwrap();
+    let marker = dir.join("ran");
+    std::fs::write(
+        dir.join("static.c"),
+        format!(
+            "#include <stdio.h>\nint main(void){{FILE*f=fopen(\"{}\",\"a\");if(f){{fputs(\"ran\\n\",f);fclose(f);}}return 0;}}\n",
+            marker.display()
+        ),
+    )
+    .unwrap();
+    if !cc(&dir, &["-static", "-o", "grafida-shell", "static.c"]) {
+        eprintln!("skipped: no C compiler that links statically (libc.a)");
+        return;
+    }
+    let shell = dir.join("grafida-shell");
+
+    let verdict = check(&shell);
+    assert!(matches!(verdict, Check::Unknown(_)), "{verdict:?}");
+    assert!(
+        !marker.exists(),
+        "the check ran the shell: {:?}",
+        std::fs::read_to_string(&marker)
     );
 
     let _ = std::fs::remove_dir_all(&dir);
