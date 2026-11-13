@@ -6,7 +6,7 @@ A native PHP desktop application shell.
 
 Grafida Shell allows you to write desktop applications using PHP and web technologies.
 
-The application runs inside a window with a system webview, serves the app over a custom scheme (`<scheme>://app`), and supervises a **PHP worker process** that answers those requests over a framed stdio protocol. It is driven entirely by a manifest (`shell.json`). It runs on Windows, Linux, and macOS.
+The application runs inside a window with a system webview, serves the app over a custom scheme (`<scheme>://app`), and supervises a **PHP worker process** that answers those requests over a framed stdio protocol. It is driven entirely by a manifest (`shell.json`). It runs on Windows, Linux, and macOS. It comes with a PHP library to facilitate application development, and a packager to put it all together in a distributable, end-user-friendly form. Distributable installers can be code-signed on Windows and macOS (requires third-party paid certificates).
 
 This shell was originally written for [Akeeba Grafida](https://github.com/grafida/grafida), but is made deliberately generic so it can be used by anyone. It draws heavy inspiration from [Boson](https://bosonphp.com) and aims to replace it – at least the parts we are using in our own software.
 

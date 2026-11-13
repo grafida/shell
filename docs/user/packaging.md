@@ -149,6 +149,61 @@ You pin each by URL and SHA-256, so a build cannot silently change under you:
   `latest` runtimes.
 * Upgrading the shell is: change the URL and hashes, rebuild.
 
+#### Finding the URLs and hashes to pin
+
+**1. Choose the releases.** Open the release pages and note the tag you want from each:
+
+* [grafida/shell releases](https://github.com/grafida/shell/releases): tags like `0.4.1`. One release holds the shell
+  and the Linux launcher for every platform.
+* [grafida/phpmicro releases](https://github.com/grafida/phpmicro/releases): tags like `sfx-20261111.28`. Pick the newest
+  `sfx-<date>.<run>` tag (not `sfx-latest`, which moves). Each tag holds the stubs for every platform and, for Windows,
+  `vc-runtime-x86_64.zip`, which you do not pin.
+
+**2. Build the URLs.** A URL is `https://github.com/<owner>/<repo>/releases/download/<tag>/<asset>`. The asset names
+are:
+
+| Runtime | Asset |
+|---|---|
+| `shell`, Linux | `grafida-shell-linux-x86_64`, `grafida-shell-linux-aarch64` |
+| `shell`, macOS | `grafida-shell-macos-x86_64`, `grafida-shell-macos-arm64` |
+| `shell`, Windows | `grafida-shell-windows-x86_64.exe` |
+| `launcher` (Linux only) | `grafida-launcher-linux-x86_64`, `grafida-launcher-linux-aarch64` |
+| `sfx` | `<platform>-<arch>.standard.sfx`, e.g. `linux-x86_64.standard.sfx`, `macos-aarch64.standard.sfx`, `windows-x86_64.standard.sfx` |
+
+Mind the naming: the macOS **shell** asset says `arm64`, but the macOS **sfx** and the `sha256`/`url` keys in
+`shell-package.json` say `aarch64`. That is why the macOS shell in the example above uses an object for `url`, with one
+entry per architecture.
+
+**3. Get the hashes.** Compute them yourself from the downloaded file; do not copy them from anywhere unchecked:
+
+```sh
+shasum -a 256 grafida-shell-linux-x86_64          # macOS, Linux
+sha256sum grafida-shell-linux-x86_64              # Linux
+Get-FileHash -Algorithm SHA256 grafida-shell-windows-x86_64.exe   # Windows PowerShell
+```
+
+You can also read GitHub's own record of the hash, without downloading, with the [GitHub CLI](https://cli.github.com):
+
+```sh
+gh release view 0.4.1 -R grafida/shell --json assets \
+  -q '.assets[] | "\(.digest | sub("^sha256:"; ""))  \(.name)"'
+```
+
+The same command with `-R grafida/phpmicro` and an `sfx-…` tag lists the stubs. Each asset also has a `.sha256` file
+in the same format as `shasum` output (`<hash>  <name>`); comparing it to the hash you computed is a cheap
+cross-check, but it is only a cross-check, since it comes from the same place as the file.
+
+**4. Let the packager do it for you.** To avoid copying 64-character strings by hand, put the URLs in
+`shell-package.json` with a placeholder hash of 64 zeros (the packager insists on 64 hex digits) and run
+`shell-packager fetch`. It fails with `does not match its pin`, and the `got:` line is the actual SHA-256 of what was downloaded. Treat that as **a value to verify, not to trust**: it is the hash of
+whatever the URL served. Compare it with the value from `gh release view` or the `.sha256` file, then paste it in.
+(Alternatively, make the runtime [`latest`](#using-the-latest-release-instead-of-a-pin) once: the warning prints the
+SHA-256 it downloaded, to compare in the same way.)
+
+Pin every architecture you build. Hashes are per file, so each platform and architecture needs its own entry, and the
+packager fails when the one it needs is missing. Re-do the steps whenever you upgrade; the
+URL and its hash always change together.
+
 #### Using the latest release instead of a pin
 
 Instead of a URL and hashes, a runtime can be just `{"latest": true}`:
