@@ -64,7 +64,7 @@ Every setting at its default is omitted here except where shown for illustration
 | `worker` | object | **yes** | | See [`worker`](#worker). |
 | `dataDir` | string | no | the `id` | Name of the per-user directory in which the webview keeps its data (cookies, localStorage, IndexedDB, caches): on Linux `$XDG_DATA_HOME/<dataDir>/webkit`. Letters, digits, `.`, `_` and `-`. Choose it once: changing it makes the user's stored page data disappear. |
 | `startPath` | string | no | `/` | The path of the first page, loaded once the worker has sent `ready`. Must start with `/`. |
-| `noStorePaths` | array of strings | no | `[]` | Path prefixes (each starting with `/`, for example `"/api/"`). A response under one of them gets `Cache-Control: no-store` **if the worker sent neither `Cache-Control` nor `Expires`**. A header you set yourself always wins. |
+| `noStorePaths` | array of strings | no | `[]` | Path prefixes (each starting with `/`, for example `"/api/"`). A response under one of them gets `Cache-Control: no-store` **if the worker sent neither `Cache-Control` nor `Expires`**. A header you set yourself always wins. The prefixes are compared with the percent-decoded path, so `/%61pi/x` is under `"/api/"`: write them decoded. |
 | `dev` | object | no | | See [`dev`](#dev). |
 | `webview` | object | no | | See [`webview`](#webview). |
 | `menu` | object | no | | See [`menu`](#menu). |

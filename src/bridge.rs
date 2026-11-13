@@ -13,7 +13,10 @@
 //!    `webview.frameGuard` off, a cross-site navigation *into a frame* is let through;
 //! 2. a URL of the scheme with any authority but the app's (`shell://other/…`, which the engines
 //!    route here too) is `404 not_found`, so the worker's `url` always starts with the origin;
-//! 3. `/_native/*` is answered by the shell ([`crate::native`]) and never reaches the worker;
+//! 3. a path with an escaped `/` or NUL (`%2F`, `%00`) is `404 bad_path`, as Apache answers it by
+//!    default; every path check below compares the path **decoded** ([`Request::decoded_path`]),
+//!    as a worker that decodes before routing sees it, while the worker still gets the URL verbatim;
+//!    `/_native/*` is answered by the shell ([`crate::native`]) and never reaches the worker;
 //! 4. any `x-shell-file-path` the page sent is dropped, and an `x-shell-file` token is resolved
 //!    into `x-shell-file-path` (`400` for an unknown or stale token, without contacting the worker);
 //! 5. a request carrying `x-shell-clipboard: read` gets the OS clipboard's text as its **body** and
@@ -179,8 +182,17 @@ impl Bridge {
             return;
         }
 
-        if request.path().starts_with("/_native/") {
-            native::handle(self, request, respond);
+        // A worker that decodes the path before routing it must not see a different path from the
+        // one the shell checks (security.md L6), so the checks below use the decoded path. An
+        // escaped `/` or NUL is refused, as Apache does by default (`AllowEncodedSlashes Off`).
+        let Some(path) = request.decoded_path() else {
+            respond(Response::error(404, "bad_path"));
+            return;
+        };
+
+        if let Some(endpoint) = path.strip_prefix(b"/_native/") {
+            let endpoint = String::from_utf8_lossy(endpoint).into_owned();
+            native::handle(self, &endpoint, request, respond);
             return;
         }
 
@@ -204,7 +216,7 @@ impl Bridge {
         let no_store = self
             .no_store_paths
             .iter()
-            .any(|prefix| request.path().starts_with(prefix.as_str()));
+            .any(|prefix| path.starts_with(prefix.as_bytes()));
 
         if !wants_clipboard {
             forward(&*backend, no_store, self.frame_guard, request, respond);
@@ -500,6 +512,71 @@ pub(crate) mod tests {
             assert_eq!(send(url).status, 200, "{url}");
         }
         assert_eq!(echo.seen.lock().unwrap().len(), 4);
+    }
+
+    /// The shell's own prefix checks see the path decoded, as a worker that decodes it routes it
+    /// (security.md L6): `/%61pi/…` is `/api/…`, `/%5Fnative/…` is `/_native/…`. The worker still
+    /// gets the URL verbatim.
+    #[test]
+    fn prefixes_are_matched_on_the_decoded_path() {
+        let (b, _, echo) = bridge();
+        for path in ["/%61pi/drafts", "/%61%70%69/drafts", "/ap%69/drafts"] {
+            let r = call(&b, "GET", path, &[], "");
+            assert_eq!(r.status, 200, "{path}");
+            assert_eq!(r.headers["cache-control"], vec!["no-store"], "{path}");
+        }
+        let seen: Vec<String> = echo
+            .seen
+            .lock()
+            .unwrap()
+            .iter()
+            .map(|r| r.url.clone())
+            .collect();
+        assert_eq!(
+            seen,
+            [
+                "shell://app/%61pi/drafts",
+                "shell://app/%61%70%69/drafts",
+                "shell://app/ap%69/drafts"
+            ]
+        );
+
+        for path in ["/%5Fnative/info", "/%5f%6Eative/info", "/_native/%69nfo"] {
+            let r = call(&b, "GET", path, &[], "");
+            assert_eq!(r.status, 200, "{path}");
+            assert_eq!(json(&r)["webview"], "TestKit 1.0", "{path}");
+        }
+        assert_eq!(echo.seen.lock().unwrap().len(), 3);
+
+        // Not an escape, so nothing to decode: it reaches the worker as it is.
+        let r = call(&b, "GET", "/api%zz/x", &[], "");
+        assert_eq!(r.status, 200);
+        assert!(!r.headers.contains_key("cache-control"));
+    }
+
+    /// An escaped `/` or NUL is refused before anything else looks at the path, as Apache does with
+    /// `AllowEncodedSlashes Off`: `/api%2Fx` would otherwise be one segment to the shell and two to
+    /// a worker that decodes before splitting.
+    #[test]
+    fn an_escaped_slash_or_nul_is_not_found() {
+        let (b, _, echo) = bridge();
+        for path in [
+            "/api%2Fdrafts",
+            "/api%2fdrafts",
+            "/%2Fapi/drafts",
+            "/x%00",
+            "/api/x%00.json",
+            "/%5Fnative%2Finfo",
+            "/_native/window%2Ftitle",
+        ] {
+            let r = call(&b, "POST", path, &[], "{}");
+            assert_eq!(r.status, 404, "{path}");
+            assert_eq!(json(&r)["error"], "bad_path", "{path}");
+        }
+        assert!(echo.seen.lock().unwrap().is_empty());
+
+        // In the query, an escaped `/` is ordinary data.
+        assert_eq!(call(&b, "GET", "/api/x?path=a%2Fb%00", &[], "").status, 200);
     }
 
     #[test]

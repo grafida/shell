@@ -65,7 +65,8 @@ interface Handler
 
 Immutable. Properties: `method` (case preserved), `url` (the absolute URL exactly as sent, for example
 `myapp://app/api/sites?x=1`; it always begins with `myapp://app`, as the shell answers a request for any other host
-of the scheme with `404` itself), `headers`, `body` (raw string).
+of the scheme with `404` itself; nor does its path ever contain `%2F` or `%00`, which the shell answers with
+`404 bad_path` as Apache does by default), `headers`, `body` (raw string).
 
 | Method | Returns |
 |---|---|

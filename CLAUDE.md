@@ -75,7 +75,10 @@ code it covers. Their rules are as binding as the ones below.
   per-user directory pointed at a temp dir, never the real data.
 - **`src/bridge.rs` is the platform-neutral half and is where request policy lives**: a foreign
   `Origin` → `403 cross_origin` (an article's `<iframe>` must not drive the app's API); any host of
-  the scheme but the origin's (the engines route by scheme alone) → `404 not_found`; `/_native/*`
+  the scheme but the origin's (the engines route by scheme alone) → `404 not_found`; an escaped `/`
+  or NUL in the path → `404 bad_path` (Apache's default); the path checks (`/_native/`,
+  `noStorePaths`) compare the path percent-decoded once, as a decoding worker routes it, never the
+  raw form (security.md L6), while the worker still gets the URL verbatim; `/_native/*`
   never reaches the worker; `x-shell-file-path` from the page is always dropped and an `x-shell-file`
   token is resolved into it (the token itself is not forwarded); `no-store` is added under the
   manifest's `noStorePaths` when the worker sent no `cache-control`/`expires`;

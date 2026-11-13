@@ -17,11 +17,11 @@ use crate::{
     tokens::{Kind, TokenStore},
 };
 
-pub fn handle(bridge: &Bridge, request: Request, respond: Responder) {
-    let endpoint = request.path().trim_start_matches("/_native/").to_string();
+/// Answers `/_native/<endpoint>`; `endpoint` is the rest of the decoded path.
+pub fn handle(bridge: &Bridge, endpoint: &str, request: Request, respond: Responder) {
     let method = request.method.to_ascii_uppercase();
 
-    let expected = match endpoint.as_str() {
+    let expected = match endpoint {
         "info" => "GET",
         "dialog/open-file"
         | "dialog/select-folder"
@@ -59,7 +59,7 @@ pub fn handle(bridge: &Bridge, request: Request, respond: Responder) {
     let host = bridge.host.clone();
     let ok = || Response::json(200, &json!({"ok": true}));
 
-    match endpoint.as_str() {
+    match endpoint {
         "info" => respond(Response::json(
             200,
             &json!({
