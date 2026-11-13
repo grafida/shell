@@ -83,6 +83,24 @@ pub fn for_main_frame_navigation(url: &str, origin: &str, user: bool) -> Decisio
     }
 }
 
+/// A navigation action known to target a subframe (macOS: `targetFrame` is not the main frame).
+/// The layered [`for_navigation`] rule, except that a frame may only be sent to the app's own
+/// origin by the app: `source_is_app` is whether the frame that started the navigation has the app's
+/// origin (`Some(false)`: a foreign frame, which would make the engine request the app's URLs with
+/// no `Origin` header), or `None` when the engine names no source (a frame's initial load, which
+/// only the app's own page can have set up).
+pub fn for_subframe_navigation(
+    url: &str,
+    origin: &str,
+    user: bool,
+    source_is_app: Option<bool>,
+) -> Decision {
+    if classify(url, origin) == Target::App && source_is_app == Some(false) {
+        return Decision::Refuse;
+    }
+    for_navigation(url, origin, user)
+}
+
 /// The response to the main frame's main resource: only the app's own pages may render there.
 pub fn for_main_frame_response(url: &str, origin: &str) -> Decision {
     match classify(url, origin) {
@@ -96,6 +114,46 @@ mod tests {
     use super::*;
 
     const O: &str = "shell://app";
+
+    #[test]
+    fn a_foreign_frame_cannot_send_a_subframe_to_the_app() {
+        // The Origin-less GET that the bridge cannot tell from the app's own (security.md M1).
+        assert_eq!(
+            for_subframe_navigation("shell://app/api/export", O, false, Some(false)),
+            Decision::Refuse
+        );
+        assert_eq!(
+            for_subframe_navigation("shell://app/api/export", O, true, Some(false)),
+            Decision::Refuse
+        );
+        // The app's own frames, and a frame's initial load (no source frame), are legitimate.
+        for source in [Some(true), None] {
+            assert_eq!(
+                for_subframe_navigation("shell://app/embed.html", O, false, source),
+                Decision::Allow
+            );
+        }
+        // Everything else is the layered rule, whoever asks.
+        for source in [Some(true), Some(false), None] {
+            assert_eq!(
+                for_subframe_navigation("https://youtu.be/x", O, false, source),
+                for_navigation("https://youtu.be/x", O, false)
+            );
+            assert_eq!(
+                for_subframe_navigation("about:blank", O, false, source),
+                Decision::Allow
+            );
+            assert_eq!(
+                for_subframe_navigation("shell://apple/", O, false, source),
+                Decision::Refuse
+            );
+        }
+        // Look-alikes of the app's origin are not the app.
+        assert_eq!(
+            for_subframe_navigation("shell://app.evil/", O, false, Some(false)),
+            Decision::Refuse
+        );
+    }
 
     #[test]
     fn classification() {

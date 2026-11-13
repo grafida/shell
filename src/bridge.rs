@@ -7,7 +7,8 @@
 //! here blocks.
 //!
 //! In order, for every request:
-//! 1. a request carrying a foreign `Origin` is refused (`403 cross_origin`), so a page embedded in
+//! 1. a request carrying a foreign `Origin`, or `Sec-Fetch-Site: cross-site` (what a browser sends
+//!    instead of an `Origin` on a plain GET), is refused (`403 cross_origin`), so a page embedded in
 //!    the app (an article's `<iframe>`) cannot drive the app's API;
 //! 2. `/_native/*` is answered by the shell ([`crate::native`]) and never reaches the worker;
 //! 3. any `x-shell-file-path` the page sent is dropped, and an `x-shell-file` token is resolved
@@ -121,6 +122,15 @@ impl Bridge {
     pub fn handle(&self, mut request: Request, respond: Responder) {
         if let Some(origin) = http::first(&request.headers, "origin")
             && origin != self.origin
+        {
+            respond(Response::error(403, "cross_origin"));
+            return;
+        }
+
+        // A browser sends no `Origin` on a plain GET (an `<img>`, a `no-cors` fetch, a frame
+        // navigating itself), but it does say where the request came from.
+        if http::first(&request.headers, "sec-fetch-site")
+            .is_some_and(|v| v.trim().eq_ignore_ascii_case("cross-site"))
         {
             respond(Response::error(403, "cross_origin"));
             return;
@@ -372,6 +382,48 @@ pub(crate) mod tests {
             call(&b, "POST", "/api/sites", &[("origin", "shell://app")], "{}").status,
             200
         );
+    }
+
+    #[test]
+    fn a_cross_site_fetch_never_reaches_the_worker() {
+        let (b, _, echo) = bridge();
+        // No `Origin`, as a browser sends none on a plain GET: only `Sec-Fetch-Site` gives it away.
+        for value in ["cross-site", "Cross-Site", " CROSS-SITE "] {
+            for method in ["GET", "POST"] {
+                let r = call(&b, method, "/api/export", &[("sec-fetch-site", value)], "");
+                assert_eq!(r.status, 403, "{method} {value}");
+                assert_eq!(json(&r)["error"], "cross_origin");
+            }
+            let r = call(&b, "GET", "/_native/info", &[("sec-fetch-site", value)], "");
+            assert_eq!(r.status, 403, "native {value}");
+            assert_eq!(json(&r)["error"], "cross_origin");
+        }
+        assert!(echo.seen.lock().unwrap().is_empty());
+    }
+
+    #[test]
+    fn same_origin_same_site_none_and_absent_sec_fetch_site_pass() {
+        let (b, _, echo) = bridge();
+        for value in ["same-origin", "same-site", "none", "Same-Origin"] {
+            assert_eq!(
+                call(&b, "GET", "/api/x", &[("sec-fetch-site", value)], "").status,
+                200,
+                "{value}"
+            );
+        }
+        assert_eq!(call(&b, "GET", "/api/x", &[], "").status, 200);
+        assert_eq!(
+            call(
+                &b,
+                "GET",
+                "/_native/info",
+                &[("sec-fetch-site", "same-origin")],
+                ""
+            )
+            .status,
+            200
+        );
+        assert_eq!(echo.seen.lock().unwrap().len(), 5);
     }
 
     #[test]

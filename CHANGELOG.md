@@ -2,6 +2,7 @@ shell 0.4.2
 ================================================================================
 + User documentation in `docs/user`: getting started, the PHP and JavaScript sides, the manifest, packaging
 ~ Docs, protocol fixtures and examples use the `shell://` scheme; `boson://` is gone (the manifest names the scheme)
+# [MEDIUM] Embedded foreign pages could send Origin-less GET requests to the worker
 
 shell 0.4.1
 ================================================================================

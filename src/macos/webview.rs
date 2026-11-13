@@ -268,7 +268,12 @@ define_class!(
                 ),
                 Some(_) => (
                     "navigation to",
-                    navigation::for_navigation(&url, origin, user),
+                    navigation::for_subframe_navigation(
+                        &url,
+                        origin,
+                        user,
+                        self.source_is_app(action),
+                    ),
                 ),
             };
             let policy = self.apply(what, &url, decision);
@@ -344,6 +349,17 @@ define_class!(
 );
 
 impl Delegate {
+    /// Whether the frame that started `action` has the app's origin (`<scheme>://app`): `None` when
+    /// WebKit names no source frame. A foreign `<iframe>` must not be able to send a frame to the
+    /// app's URLs, where the request would carry no `Origin` (security.md M1).
+    fn source_is_app(&self, action: &WKNavigationAction) -> Option<bool> {
+        let frame = unsafe { action.sourceFrame() }?;
+        let source = unsafe { frame.securityOrigin() };
+        let (protocol, host) = unsafe { (source.protocol(), source.host()) };
+        let (scheme, authority) = self.ivars().origin.split_once("://")?;
+        Some(protocol.to_string() == scheme && host.to_string() == authority)
+    }
+
     pub fn new(mtm: MainThreadMarker, origin: String, log: Arc<Log>) -> Retained<Self> {
         let this = Self::alloc(mtm).set_ivars(DelegateIvars { origin, log });
         // SAFETY: NSObject's designated initialiser.

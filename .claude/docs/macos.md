@@ -11,7 +11,11 @@ Moved from the root `CLAUDE.md`; same rules, loaded on demand.
   it is copied; an `HTTPBodyStream` is read to EOF in 1 MiB chunks on a reader thread, which posts the
   request back to the main thread for `Bridge::handle`. Navigation: macOS knows the target frame, so a
   nil target is a new window, the main frame gets `navigation::for_main_frame_navigation` (nothing
-  off-origin, ever) and a subframe the layered Linux rule. The gesture comes from WebKit's private
+  off-origin, ever) and a subframe `navigation::for_subframe_navigation`: the layered Linux rule, plus a
+  subframe may only be sent to `<scheme>://app` by a frame whose `sourceFrame.securityOrigin` is the app's
+  (`protocol`/`host`; a nil source is a frame's initial load and passes). WKWebView sends **no `Sec-Fetch-Site`
+  (nor `Origin` on a GET)** to the scheme handler (macOS 27.2, `tests/apps/echo/bridge.js`), so `Bridge`'s
+  `cross-site` refusal is a no-op here and this check is the defence (security.md M1). The gesture comes from WebKit's private
   `_isUserInitiated` behind `respondsToSelector:` (absent = no gesture, the side that never opens a
   browser), because `navigationType` is `LinkActivated` for a script's `el.click()` too.
 - **WKWebView hands a scheme handler no body for a `Blob`/`File` or a `FormData` with a file part**

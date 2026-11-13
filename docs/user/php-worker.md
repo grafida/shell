@@ -112,11 +112,14 @@ names in lower case.
 ## Routing
 
 The library has no router; the handler is a function from request to response. Use whatever suits the size of your app.
-Two things apply to any router:
+Three things apply to any router:
 
 * Route on `$request->method` and `$request->path()`, never on `$_SERVER`. `path()` is still percent-encoded, so
   decode it (`rawurldecode()`) if your router does not.
 * The worker is long-lived, so build the route table **once**, in the constructor, not on every request.
+* Keep `GET` handlers free of side effects. A browser sends no `Origin` on a plain `GET`, so a page embedded in your
+  app can make one without the shell being able to tell it from yours on every platform. Change state with `POST`
+  and a custom header (which forces a CORS preflight the shell refuses from a foreign page).
 
 ### A few routes, no dependencies
 
