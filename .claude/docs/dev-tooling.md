@@ -33,7 +33,14 @@ Moved from the root `CLAUDE.md`; same rules, loaded on demand.
   release workflow uploads (built on 22.04, so it runs on every supported distribution; a release
   asset never). On a clean VM it needs python3 only. The
   automation channel's runtime file is removed in the shell's stop path, not only in `Drop`: tao
-  ends the process without dropping anything, and a stale file hands a client a dead pid.
+  ends the process without dropping anything, and a stale file hands a client a dead pid. The
+  file is written safely (security L7): any stale entry at the path (a killed shell leaves its
+  file; a symlink is removed, never followed) is deleted and the file created with `O_EXCL`, mode
+  0600; and on Unix a directory other users can write to is **refused** with an error naming
+  `XDG_RUNTIME_DIR`. So on a Linux box without a user runtime directory, set `XDG_RUNTIME_DIR` to
+  a private directory (a bare `/tmp` is refused). The path is still computed the same way by every
+  client (`automation.py`, `parity-*.sh`, `winvm.sh`, `ats-matrix.sh`); macOS `$TMPDIR` and
+  Windows `%TEMP%` are per-user and never trip the check.
 - **`scripts/dev/parity-windows.sh` runs on the host and drives a guest** (`winvm.sh`), and **nothing in
   it is left to a human**: real keys, clicks and drags through SendInput (the channel's `type`, `key`,
   `mouse`, `drag`), native dialogs, Explorer, the clipboard, the cursor and the colour mode through

@@ -6,8 +6,13 @@
 //! `debug_assertions`, and even then it opens only with `--automation`.
 //!
 //! The listener binds `127.0.0.1` on an ephemeral port and writes `{port, token, pid}` to
-//! `$XDG_RUNTIME_DIR/<id>.automation.json` (mode 0600, removed on exit). A client sends one JSON
-//! object per line and gets one JSON line back; every command must carry the token.
+//! `$XDG_RUNTIME_DIR/<id>.automation.json` (else the temp dir; mode 0600, removed on exit). A client
+//! sends one JSON object per line and gets one JSON line back; every command must carry the token.
+//!
+//! The file is never written through a symlink: a stale entry at the path (a shell killed by a
+//! signal leaves its file) is removed, then the file is created with `O_EXCL`. On Unix a
+//! directory that other users can write to (a bare `/tmp`) is refused with an error that says to
+//! set `XDG_RUNTIME_DIR` to a private directory. macOS `$TMPDIR` and Windows `%TEMP%` are per-user.
 //!
 //! ```text
 //! {"token":"…","cmd":"eval","js":"return location.origin"}  → {"ok":true,"result":"shell://app"}
@@ -134,9 +139,36 @@ fn serve(stream: TcpStream, token: &str, dispatch: &impl Fn(Command)) {
     }
 }
 
+/// Creates the runtime file, never through a symlink and never in a directory other users can
+/// write to. A shell killed by a signal leaves its file behind, so any existing entry is removed
+/// first (a symlink is removed, not followed), and the file is then created with `O_EXCL`: if
+/// something reappears in between, this fails rather than writing through it.
 fn write_private(path: &Path, text: &str) -> std::io::Result<()> {
+    #[cfg(unix)]
+    if let Some(dir) = path.parent() {
+        use std::os::unix::fs::PermissionsExt;
+        let dir = if dir.as_os_str().is_empty() {
+            Path::new(".")
+        } else {
+            dir
+        };
+        if fs::metadata(dir)?.permissions().mode() & 0o002 != 0 {
+            return Err(std::io::Error::new(
+                std::io::ErrorKind::PermissionDenied,
+                format!(
+                    "refusing to put the automation runtime file in {}, which other users can write to: set XDG_RUNTIME_DIR to a private directory",
+                    dir.display()
+                ),
+            ));
+        }
+    }
+    match fs::remove_file(path) {
+        Ok(()) => {}
+        Err(e) if e.kind() == std::io::ErrorKind::NotFound => {}
+        Err(e) => return Err(e),
+    }
     let mut options = fs::OpenOptions::new();
-    options.write(true).create(true).truncate(true);
+    options.write(true).create_new(true);
     #[cfg(unix)]
     {
         use std::os::unix::fs::OpenOptionsExt;
@@ -149,4 +181,109 @@ fn write_private(path: &Path, text: &str) -> std::io::Result<()> {
         file.set_permissions(fs::Permissions::from_mode(0o600))?;
     }
     file.write_all(text.as_bytes())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// A fresh, private scratch directory under the system temp dir, removed on drop.
+    struct Scratch(PathBuf);
+
+    impl Scratch {
+        fn new(tag: &str) -> Self {
+            let dir = std::env::temp_dir().join(format!(
+                "grafida-automation-test-{tag}-{}-{}",
+                std::process::id(),
+                crate::tokens::random_hex(4)
+            ));
+            fs::create_dir(&dir).unwrap();
+            #[cfg(unix)]
+            {
+                use std::os::unix::fs::PermissionsExt;
+                fs::set_permissions(&dir, fs::Permissions::from_mode(0o700)).unwrap();
+            }
+            Scratch(dir)
+        }
+    }
+
+    impl Drop for Scratch {
+        fn drop(&mut self) {
+            #[cfg(unix)]
+            {
+                use std::os::unix::fs::PermissionsExt;
+                let _ = fs::set_permissions(&self.0, fs::Permissions::from_mode(0o700));
+            }
+            let _ = fs::remove_dir_all(&self.0);
+        }
+    }
+
+    #[test]
+    fn a_fresh_runtime_file_is_written() {
+        let dir = Scratch::new("fresh");
+        let path = dir.0.join("app.automation.json");
+        write_private(&path, "new").unwrap();
+        assert_eq!(fs::read_to_string(&path).unwrap(), "new");
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn a_planted_symlink_is_replaced_and_its_target_left_alone() {
+        let dir = Scratch::new("symlink");
+        let victim = dir.0.join("victim");
+        fs::write(&victim, "precious").unwrap();
+        let path = dir.0.join("app.automation.json");
+        std::os::unix::fs::symlink(&victim, &path).unwrap();
+
+        write_private(&path, "new").unwrap();
+
+        assert_eq!(fs::read_to_string(&victim).unwrap(), "precious");
+        assert!(
+            !fs::symlink_metadata(&path)
+                .unwrap()
+                .file_type()
+                .is_symlink()
+        );
+        assert_eq!(fs::read_to_string(&path).unwrap(), "new");
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn a_stale_file_is_replaced_with_a_private_one() {
+        use std::os::unix::fs::PermissionsExt;
+        let dir = Scratch::new("stale");
+        let path = dir.0.join("app.automation.json");
+        fs::write(
+            &path,
+            "left behind by a killed shell, and longer than the new text",
+        )
+        .unwrap();
+        fs::set_permissions(&path, fs::Permissions::from_mode(0o644)).unwrap();
+
+        write_private(&path, "new").unwrap();
+
+        assert_eq!(fs::read_to_string(&path).unwrap(), "new");
+        assert_eq!(
+            fs::metadata(&path).unwrap().permissions().mode() & 0o777,
+            0o600
+        );
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn a_world_writable_directory_is_refused() {
+        use std::os::unix::fs::PermissionsExt;
+        for mode in [0o777, 0o1777] {
+            let dir = Scratch::new("shared");
+            fs::set_permissions(&dir.0, fs::Permissions::from_mode(mode)).unwrap();
+            let path = dir.0.join("app.automation.json");
+
+            let error = write_private(&path, "new").unwrap_err();
+
+            let message = error.to_string();
+            assert!(message.contains("XDG_RUNTIME_DIR"), "{message}");
+            assert!(message.contains(&dir.0.display().to_string()), "{message}");
+            assert!(!path.exists());
+        }
+    }
 }
