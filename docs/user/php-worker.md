@@ -236,8 +236,9 @@ if ($request->path() === '/shell.js') {
 }
 ```
 
-⚠️ `shell.js` is a non-PHP file inside `vendor/`. When you [package](packaging.md#phar-the-worker-payload) the app, add
-`{"directory": "vendor/grafida/shell-php/resources"}` to `phar.include`, or the packaged app cannot serve it.
+> [!IMPORTANT]
+> `shell.js` is a non-PHP file inside `vendor/`. When you [package](packaging.md#phar-the-worker-payload) the app, add
+> `{"directory": "vendor/grafida/shell-php/resources"}` to `phar.include`, or the packaged app cannot serve it.
 
 ## Things that behave differently from a web request
 

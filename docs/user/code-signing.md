@@ -52,10 +52,11 @@ with a certificate signing request (CSR) made by Keychain Access.
    with the CSR, on this Mac, so the certificate becomes a usable signing identity. Make the CSR on the machine that
    will sign; the certificate is useless without that key.
 
-> ⚠️ **Do not change the certificate's trust settings.** Leave "When using this certificate" on **Use System
-> Defaults**. Setting your Developer ID certificate to "Always Trust" turns it into a trust anchor, and `codesign` then
-> fails to build a chain with `unable to build chain to self-signed root … errSecInternalComponent`. If you already did,
-> open the certificate in Keychain Access, expand **Trust** and put it back to **Use System Defaults**.
+> [!WARNING]
+> **Do not change the certificate's trust settings.** Leave "When using this certificate" on **Use System Defaults**.
+> Setting your Developer ID certificate to "Always Trust" turns it into a trust anchor, and `codesign` then fails to
+> build a chain with `unable to build chain to self-signed root … errSecInternalComponent`. If you already did, open the
+> certificate in Keychain Access, expand **Trust** and put it back to **Use System Defaults**.
 
 Check that it is there:
 

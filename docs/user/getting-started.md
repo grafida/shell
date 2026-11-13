@@ -172,9 +172,10 @@ final class App implements Handler
 </html>
 ```
 
-⚠️ `shell.js` lives in `vendor/`, outside your own code. When you [package](packaging.md#phar-the-worker-payload) the app,
-add `{"directory": "vendor/grafida/shell-php/resources"}` to `phar.include` in `shell-package.json`, or the packaged app
-cannot serve it. In `--dev` it just works, so this is easy to miss.
+> [!IMPORTANT]
+> `shell.js` lives in `vendor/`, outside your own code. When you [package](packaging.md#phar-the-worker-payload) the
+> app, add `{"directory": "vendor/grafida/shell-php/resources"}` to `phar.include` in `shell-package.json`, or the
+> packaged app cannot serve it. In `--dev` it just works, so this is easy to miss.
 
 The page uses plain relative URLs such as `/api/hello`. They resolve against `myapp://app`, so they reach your PHP
 code. There is no `http://` involved anywhere.

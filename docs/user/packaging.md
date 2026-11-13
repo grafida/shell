@@ -102,8 +102,9 @@ desktop entry and icons, `title` is used in alerts, `worker.binary` names the st
 }
 ```
 
-> ⚠️ **Do not forget the last `include` rule above.** `shell.js`, the helper your page loads to reach native features,
-> is not a PHP file, and it lives inside `vendor/`, so the `vendor` rule (which only takes `*.php`) skips it. Without the
+> [!IMPORTANT]
+> **Do not forget the last `include` rule above.** `shell.js`, the helper your page loads to reach native features, is
+> not a PHP file, and it lives inside `vendor/`, so the `vendor` rule (which only takes `*.php`) skips it. Without the
 > `{"directory": "vendor/grafida/shell-php/resources"}` rule, the packaged app works in `--dev` but answers `/shell.js`
 > with `500`, and every native feature (file dialogs, the clipboard, drag and drop) fails. Details below.
 
@@ -257,7 +258,8 @@ Each runtime is either pinned or `latest`; giving both is an error. You can mix 
 Every use prints a `WARNING: … is LATEST, not pinned` line with the URL and the SHA-256 of what was downloaded, and the
 file is cached under that hash.
 
-> ⚠️ **"Latest" changes your build under you.** Nothing is checked against a hash you chose, so two builds of the same
+> [!WARNING]
+> **"Latest" changes your build under you.** Nothing is checked against a hash you chose, so two builds of the same
 > commit, made on different days, can ship different shells and different PHP runtimes: a new shell release, a new PHP
 > patch version, a changed extension list, a different minimum operating system. A release can contain incompatible
 > changes, and you will find out when your packaged app misbehaves, not when you build it. **Do not use `latest` for a
