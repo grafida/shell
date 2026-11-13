@@ -11,6 +11,7 @@ shell 0.4.2
 # [LOW] macOS: an embedded foreign page could block or misroute the Edit menu's shortcuts
 # [LOW] Windows: reading clipboard text a program left unterminated could crash the app or leak its memory
 # [LOW] A percent-encoded path (`/%61pi/`) escaped `noStorePaths`, and `/%5Fnative/` went to the worker
+# [LOW] Linux launcher: if it could not find its own path it searched `PATH` for `grafida-shell`; now it refuses
 
 shell 0.4.1
 ================================================================================

@@ -24,12 +24,24 @@ fn main() -> std::process::ExitCode {
 
 #[cfg(unix)]
 fn main() -> ExitCode {
-    let launcher = std::env::current_exe().unwrap_or_else(|_| "grafida-launcher".into());
-    let shell = shell_beside(&launcher);
+    // Without an absolute path to ourselves there is no "beside": refuse rather than let the shell
+    // be searched for on PATH (`/proc` missing, e.g. a chroot).
+    let launcher = std::env::current_exe().ok();
+    let Some(shell) = launcher.as_deref().and_then(shell_beside) else {
+        let title = "The application";
+        alert(
+            title,
+            &format!("{title} cannot start."),
+            "The launcher could not find out where it is installed, so it cannot locate the \
+             application beside it.",
+        );
+        return ExitCode::from(EXIT_UNAVAILABLE);
+    };
     let title = || {
         manifest_title(&shell.with_file_name("shell.json")).unwrap_or_else(|| {
             launcher
-                .file_name()
+                .as_deref()
+                .and_then(|l| l.file_name())
                 .map(|n| n.to_string_lossy().into_owned())
                 .unwrap_or_else(|| "The application".into())
         })

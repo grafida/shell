@@ -304,13 +304,15 @@ pub fn alert(title: &str, message: &str, detail: &str) {
     }
 }
 
-/// The shell beside the launcher. `current_exe()` resolves `/proc/self/exe`, so a symlink to the
-/// launcher (say `~/.local/bin/grafida`) still finds the real directory.
-pub fn shell_beside(launcher: &Path) -> PathBuf {
-    launcher
-        .parent()
-        .unwrap_or(Path::new("."))
-        .join(SHELL_BINARY)
+/// The shell beside the launcher, or `None` unless `launcher` is an absolute path with a file name.
+/// `current_exe()` resolves `/proc/self/exe`, so a symlink to the launcher (say
+/// `~/.local/bin/grafida`) still finds the real directory. A bare or relative path would make
+/// `Command` search `PATH` for the shell, both for the probe and for the exec: never do that.
+pub fn shell_beside(launcher: &Path) -> Option<PathBuf> {
+    if !launcher.is_absolute() {
+        return None;
+    }
+    Some(launcher.parent()?.join(SHELL_BINARY))
 }
 
 #[cfg(test)]
@@ -460,5 +462,22 @@ mod tests {
         let commands = alert_commands("A & B", "x < y", "");
         assert_eq!(commands[0].0, "zenity");
         assert!(commands[0].1.iter().any(|a| a == "--no-markup"));
+    }
+
+    #[test]
+    fn the_shell_is_never_a_bare_or_relative_path() {
+        for launcher in [
+            "grafida-launcher",
+            "./grafida-launcher",
+            "bin/grafida-launcher",
+            "",
+        ] {
+            assert_eq!(shell_beside(Path::new(launcher)), None, "{launcher:?}");
+        }
+        assert_eq!(shell_beside(Path::new("/")), None);
+        assert_eq!(
+            shell_beside(Path::new("/opt/app/grafida-launcher")),
+            Some(PathBuf::from("/opt/app/grafida-shell"))
+        );
     }
 }
