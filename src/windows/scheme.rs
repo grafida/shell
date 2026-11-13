@@ -6,8 +6,8 @@
 //! every resource context and request source kind, takes a deferral, and parks the event args in a
 //! UI-thread map under an id.
 //!
-//! The body is read **to EOF in bounded chunks on a reader thread** (the Phase 0 spike read it on
-//! the UI thread: 50 MiB in 865 ms with the window frozen), through an agile reference to the
+//! The body is read **to EOF in bounded chunks on a reader thread** (reading it on
+//! the UI thread freezes the window for the length of a large upload), through an agile reference to the
 //! request's `IStream`; reading stops past `maxBodyBytes` → `413`. The reader posts the body back to
 //! the UI thread, which hands the request to [`Bridge::handle`]; the answer is posted back again
 //! and completed from the map, on the UI thread, where the deferral was taken.

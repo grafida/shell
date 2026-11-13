@@ -122,7 +122,6 @@ code it covers. Their rules are as binding as the ones below.
   smoke runs); on macOS so does a process with no window-server session.
 ## Conventions
 
-- `spikes/` is frozen Phase 0 evidence; it is excluded from the workspace and not maintained.
 - Keep a terse `CHANGELOG.md` entry per change that ships: the shell, the launcher, the protocol,
   the schema, release assets, the README (Grafida's `!` `+` `-` `~` `# [HIGH|MEDIUM|LOW]` style).
   **Development tooling gets none**: `scripts/dev/` (the VM, parity and automation scripts), tests

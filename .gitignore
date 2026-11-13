@@ -1,7 +1,4 @@
 /target/
-/spikes/*/target*/
-/spikes/*/build/
-/spikes/results/
 /.idea/
 __pycache__/
 /tests/apps/*/logs/

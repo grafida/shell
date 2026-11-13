@@ -1,7 +1,7 @@
 //! The Windows shell: a tao window holding a WebView2 controller the shell creates itself
 //! (grafida/grafida#91).
 //!
-//! wry is not used, as on Linux and macOS (ADR 0001, "Results (Windows, Phase 5)"): the shell
+//! wry is not used, as on Linux and macOS (ADR 0001, "Windows"): the shell
 //! creates the WebView2 **environment** itself, with the app's scheme registered as a real custom
 //! scheme (`CoreWebView2CustomSchemeRegistration`: secure, with an authority, the app's origin
 //! allowed), its user data folder under `%LOCALAPPDATA%\<dataDir>\WebView2` (the default beside the

@@ -17,7 +17,7 @@
 # Needs only python3 there (no Rust, no PHP).
 #
 # The checks that need a human (context menu, spelling, real dialogs, drag and drop, title bar,
-# Ctrl+Shift+V, AI streaming, …) are listed in the Phase 2 issue; this script does not pretend to
+# Ctrl+Shift+V, AI streaming, …) are listed in grafida/grafida#85; this script does not pretend to
 # cover them.
 
 set -uo pipefail

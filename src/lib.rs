@@ -1,6 +1,5 @@
 //! Grafida Shell — library half of the crate. See docs/adr/0001-shell-stack.md and
-//! grafida/grafida#82; Phase 2 (Linux, dev mode) is grafida/grafida#85, Phase 4 (macOS)
-//! grafida/grafida#88, Phase 5 (Windows) grafida/grafida#91.
+//! grafida/grafida#82.
 
 // Here, not in the module: the module itself is only compiled in debug builds.
 #[cfg(all(feature = "automation", not(debug_assertions)))]

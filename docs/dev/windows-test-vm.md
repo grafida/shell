@@ -173,15 +173,14 @@ test VM.
 Run it in the logged-on user's desktop session through an interactive scheduled task:
 
 ```sh
-scp myapp.exe winvm:C:/spike/
-ssh winvm 'schtasks /Create /TN Run1 /TR "C:\spike\myapp.exe" /SC ONCE /ST 23:59 /IT /RU $env:USERNAME /F; schtasks /Run /TN Run1'
+scp myapp.exe winvm:C:/app/
+ssh winvm 'schtasks /Create /TN Run1 /TR "C:\app\myapp.exe" /SC ONCE /ST 23:59 /IT /RU $env:USERNAME /F; schtasks /Run /TN Run1'
 ssh winvm 'schtasks /Delete /TN Run1 /F'      # afterwards
 ```
 
 `/ST` only has to be syntactically valid, since the task is started with `/Run`. A start time in
 the past just makes `schtasks` print a warning. To capture output or measure the program, run a
-PowerShell script through the task instead. `spikes/windows/run.ps1` (report + idle CPU of the
-process tree) and `spikes/windows/dialog.ps1` (run once, wait for exit) are working examples.
+PowerShell script through the task instead (`scripts/dev/winvm.sh run` does this).
 
 Build Windows binaries on the host and only *run* them in the VM, which keeps it close to a clean
 machine:

@@ -1,4 +1,4 @@
-//! The debug-only automation channel (grafida/grafida#82, Phase 2): the one uniform way to drive
+//! The debug-only automation channel (grafida/grafida#82): the one uniform way to drive
 //! the real window from a script, since an embedded WebKitGTK or WKWebView cannot be attached to
 //! by Playwright or WebDriver.
 //!

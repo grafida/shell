@@ -30,8 +30,8 @@
 #
 # Menu shortcuts are sent as queued key presses (`automation.py key`), which activates the app: the
 # run takes the keyboard focus. The checks that need a human (the menus by mouse, Spelling, the
-# context menu, real dialogs, a real drag, the title bar, AI streaming, …) are listed in the Phase 4
-# issue.
+# context menu, real dialogs, a real drag, the title bar, AI streaming, …) are listed in
+# grafida/grafida#88.
 
 set -uo pipefail
 
