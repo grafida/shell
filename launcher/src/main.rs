@@ -8,7 +8,9 @@ use std::{
 };
 
 #[cfg(unix)]
-use grafida_launcher::{Check, alert, check, explain, family, manifest_title, shell_beside};
+use grafida_launcher::{
+    Check, FALLBACK_TITLE, alert, check, explain, family, manifest_title, safe_title, shell_beside,
+};
 
 /// `EX_UNAVAILABLE`, as Grafida's own start-up checks use.
 const EXIT_UNAVAILABLE: u8 = 69;
@@ -28,7 +30,7 @@ fn main() -> ExitCode {
     // be searched for on PATH (`/proc` missing, e.g. a chroot).
     let launcher = std::env::current_exe().ok();
     let Some(shell) = launcher.as_deref().and_then(shell_beside) else {
-        let title = "The application";
+        let title = FALLBACK_TITLE;
         alert(
             title,
             &format!("{title} cannot start."),
@@ -38,13 +40,15 @@ fn main() -> ExitCode {
         return ExitCode::from(EXIT_UNAVAILABLE);
     };
     let title = || {
-        manifest_title(&shell.with_file_name("shell.json")).unwrap_or_else(|| {
-            launcher
-                .as_deref()
-                .and_then(|l| l.file_name())
-                .map(|n| n.to_string_lossy().into_owned())
-                .unwrap_or_else(|| "The application".into())
-        })
+        safe_title(
+            &manifest_title(&shell.with_file_name("shell.json")).unwrap_or_else(|| {
+                launcher
+                    .as_deref()
+                    .and_then(|l| l.file_name())
+                    .map(|n| n.to_string_lossy().into_owned())
+                    .unwrap_or_default()
+            }),
+        )
     };
 
     match check(&shell) {

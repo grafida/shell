@@ -243,6 +243,23 @@ pub fn manifest_title(manifest: &Path) -> Option<String> {
     value.get("title")?.as_str().map(str::to_owned)
 }
 
+/// The name every alert uses when the real title is missing or unusable.
+pub const FALLBACK_TITLE: &str = "The application";
+
+/// The title as the alert tools may see it. It comes from `shell.json` or the launcher's file
+/// name, and every message starts with it, so a title like `--help` would be read as an option by
+/// the tools that take their text positionally (`notify-send`, `xmessage`; X Toolkit options may
+/// also start with `+`). Leading `-`, `+` and whitespace are dropped; nothing left means
+/// [`FALLBACK_TITLE`].
+pub fn safe_title(title: &str) -> String {
+    let kept = title.trim_start_matches(|c: char| c == '-' || c == '+' || c.is_whitespace());
+    if kept.is_empty() {
+        FALLBACK_TITLE.to_owned()
+    } else {
+        kept.to_owned()
+    }
+}
+
 /// The alert tools tried in order, and the arguments each takes. Each is spawned and must have run
 /// (exit 0 or 1, i.e. dismissed); a tool that is absent or cannot start itself (127, a signal)
 /// falls through to the next. stderr always gets the text first.
@@ -277,6 +294,7 @@ pub fn alert_commands(
             vec![
                 os("--urgency=critical"),
                 os(&format!("--app-name={title}")),
+                os("--"),
                 os(message),
                 os(detail),
             ],
@@ -479,5 +497,44 @@ mod tests {
             shell_beside(Path::new("/opt/app/grafida-launcher")),
             Some(PathBuf::from("/opt/app/grafida-shell"))
         );
+    }
+
+    fn last_text(args: &[OsString], n: usize) -> Vec<String> {
+        let n = args.len() - n;
+        args[n..]
+            .iter()
+            .map(|a| a.to_string_lossy().into_owned())
+            .collect()
+    }
+
+    #[test]
+    fn a_title_that_looks_like_an_option_never_starts_a_text_argument() {
+        for raw in ["-x", "--help", "+rv", "  - --version", "-"] {
+            let title = safe_title(raw);
+            let (message, detail) = explain(&title, &Problems::default(), Family::Other);
+            let commands = alert_commands(&title, &message, &detail);
+            let find = |name: &str| commands.iter().find(|c| c.0 == name).unwrap().1.clone();
+
+            // notify-send: summary and body; xmessage: the text; kdialog: --error's value.
+            let ns = find("notify-send");
+            let mut texts = last_text(&ns, 2);
+            texts.extend(last_text(&find("xmessage"), 1));
+            texts.extend(last_text(&find("kdialog"), 1));
+            for t in texts {
+                assert!(!t.starts_with(['-', '+']), "{raw:?}: {t:?}");
+            }
+            // ...and notify-send is told the positionals begin.
+            assert_eq!(ns[ns.len() - 3], "--", "{ns:?}");
+        }
+    }
+
+    #[test]
+    fn a_title_with_nothing_left_is_the_fallback() {
+        for raw in ["", "-", "--", " - ", "+", "\t-+ "] {
+            assert_eq!(safe_title(raw), "The application", "{raw:?}");
+        }
+        assert_eq!(safe_title("--Grafida"), "Grafida");
+        assert_eq!(safe_title("Grafida"), "Grafida");
+        assert_eq!(safe_title("My-App"), "My-App");
     }
 }
