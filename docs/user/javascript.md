@@ -187,6 +187,10 @@ On Linux and Windows the shell has no menu bar, and on macOS it has the standard
 (`menu.preset`, see the [manifest](manifest.md#menu)). Menu accelerators fire **before** the webview sees a key. If your
 page implements a shortcut itself, list its chord in `menu.reservedChords` so the shell never binds it.
 
+> [!NOTE]
+> **Custom application menus are not supported.** You cannot add, change or remove menu items, and a menu click cannot
+> call into your page or your PHP code. If your app needs a menu, build it in HTML and CSS inside the page.
+
 ## Raw endpoints
 
 You do not need the helper to call the native endpoints. Each is `<scheme>://app/_native/<endpoint>`, JSON in and out,

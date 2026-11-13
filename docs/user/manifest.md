@@ -117,6 +117,10 @@ Only used with `--dev`.
 | `preset` | `"standard"` or `"none"` | `"standard"` | `"standard"`: on macOS the application, Edit and Window menus; on Linux and Windows no menu bar. `"none"`: no menus anywhere. |
 | `reservedChords` | array of strings | `[]` | Key chords your page owns. Menu accelerators fire *before* the webview sees a key, so the shell never binds these. Format: zero or more modifiers from `CmdOrCtrl`, `Cmd`, `Ctrl`, `Alt`, `Shift`, `Super`, then a key, joined by `+`: `"CmdOrCtrl+Shift+V"`. No duplicates. |
 
+> [!NOTE]
+> **Custom application menus are not supported.** The only choice is between the standard menus and none. To give your
+> users a menu, build it in the page.
+
 ## Rules of thumb
 
 * **Decide `id`, `scheme` and `dataDir` before the first release.** They are the app's identity to the operating system
