@@ -6,13 +6,15 @@ A native PHP desktop application shell.
 
 Grafida Shell allows you to write desktop applications using PHP and web technologies.
 
-The application runs inside a window with a system webview, serves the app over a custom scheme (`<scheme>://app`), and supervises a **PHP worker process** that answers those requests over a framed stdio protocol. It is driven entirely by a manifest (`shell.json`).
+The application runs inside a window with a system webview, serves the app over a custom scheme (`<scheme>://app`), and supervises a **PHP worker process** that answers those requests over a framed stdio protocol. It is driven entirely by a manifest (`shell.json`). It runs on Windows, Linux, and macOS.
 
 This shell was originally written for [Akeeba Grafida](https://github.com/grafida/grafida), but is made deliberately generic so it can be used by anyone. It draws heavy inspiration from [Boson](https://bosonphp.com) and aims to replace it – at least the parts we are using in our own software.
 
-### Info
+### Getting started
 
-Design: [ADR 0001](docs/adr/0001-shell-stack.md) and the [wire protocol v1](protocol/v1.md).
+Read the [architecture diagrams](docs/user/architecture.md) to understand how each piece of the architecture fits together in a shipped application.
+
+You can read the [architecture decisions](docs/adr/0001-shell-stack.md) and the [wire protocol v1](protocol/v1.md) for more information.
 
 - Stack: Rust + [wry](https://github.com/tauri-apps/wry) / [tao](https://github.com/tauri-apps/tao) /
   [rfd](https://github.com/PolyMeilex/rfd) / [muda](https://github.com/tauri-apps/muda)
