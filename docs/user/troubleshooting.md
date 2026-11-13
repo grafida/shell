@@ -70,6 +70,10 @@ These come from the worker library:
 
 ## Common problems
 
+**macOS says the app is "damaged" or from an unidentified developer; Windows says "Windows protected your PC".**
+The build is unsigned (or, on macOS, signed only ad hoc). Sign it, or see the [caveats of unsigned
+builds](packaging.md#unsigned-builds) for how users can open it anyway.
+
 **It works with `--dev` but not once packaged.**
 Almost always one of: a file that no `phar.include` rule matches; an extension that the
 [packaged runtime](packaging.md#the-php-runtime-inside-the-package) does not have; or code writing next to itself or

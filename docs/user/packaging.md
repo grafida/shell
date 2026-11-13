@@ -278,7 +278,7 @@ payload, `shell.json`, the icon and your extra resources are in `Contents/Resour
   `infoPlist`. Keys the packager computes cannot be overridden.
 * **Signing comes from the environment, never the configuration**: `MACOS_SIGN_IDENTITY` (a "Developer ID Application:
   …" identity name). Without it the build is signed *ad hoc*, which runs on the machine that built it but is blocked by
-  Gatekeeper elsewhere. Everything is signed inside out (stub, shell, bundle) with the **hardened runtime**, so an
+  Gatekeeper elsewhere. To sign nothing at all, see [Unsigned builds](#unsigned-builds). Everything is signed inside out (stub, shell, bundle) with the **hardened runtime**, so an
   ad-hoc build behaves like the final one.
 * **Entitlements** are optional per binary (`entitlements.shell`, `entitlements.worker`), applied at signing and
   verified afterwards. The hardened runtime blocks things PHP may need. Grafida's worker, for example, needs only
@@ -312,16 +312,98 @@ payload, `shell.json`, the icon and your extra resources are in `Contents/Resour
   Start from it.
 * **Signing comes from the environment** and uses Jsign: Azure Trusted Signing (`WINDOWS_SIGN_ENDPOINT`,
   `WINDOWS_SIGN_PROFILE` as `account/profile`, `WINDOWS_SIGN_TOKEN`), or a keystore for testing
-  (`WINDOWS_SIGN_PKCS12`, `WINDOWS_SIGN_PKCS12_PASSWORD`). With neither, everything is left unsigned. The packager checks
+  (`WINDOWS_SIGN_PKCS12`, `WINDOWS_SIGN_PKCS12_PASSWORD`). With neither, everything is left unsigned (see [Unsigned builds](#unsigned-builds)). The packager checks
   each signature with `osslsigncode`.
 * When signing, your NSIS script receives `SHELL_PACKAGER_SIGN` and **must** sign its uninstaller with
   `!uninstfinalize '${SHELL_PACKAGER_SIGN}' = 0`. The uninstaller is written inside the installer, so nothing can sign it later.
   A script that does not is refused.
 
-## Secrets
+## Unsigned builds
 
-Signing credentials are read from the environment and passed on to the tools by reference; the configuration file only
-holds non-secret facts. Keep the configuration in version control, and the secrets in your CI's secret store.
+Signing needs paid certificates and credentials. For development, CI smoke tests, internal tools and hobby projects you
+can build without it. Add `--no-sign` to `macos-app`, `macos-dmg`, `windows-tree` or `windows-installer`:
+
+```sh
+php -d phar.readonly=0 vendor/bin/shell-packager macos-app --config=shell-package.json --app-version=1.2.3 --no-sign
+php -d phar.readonly=0 vendor/bin/shell-packager windows-installer --config=shell-package.json --app-version=1.2.3 --no-sign
+```
+
+`--no-sign` wins over any signing credentials in the environment. Linux packages are never signed, so they need nothing.
+On Windows, a build with no credentials in the environment is already unsigned; `--no-sign` just makes it explicit.
+
+**What the package is not.** An unsigned package works, but the operating systems treat it as software of unknown
+origin. Tell your users what to expect, because the first thing they see is a warning, not your app.
+
+### macOS
+
+* **Gatekeeper rejects the app.** The bundle is not sealed, so `codesign --verify` fails ("code has no resources but
+  signature indicates they must be present") and `spctl --assess` rejects it. If the user downloaded it (a browser, a
+  chat app and AirDrop mark files as quarantined), macOS refuses to open it and may say the app is "damaged" or from an
+  unidentified developer. To open it anyway, on recent macOS the user must go to **System Settings → Privacy & Security**,
+  find the message about the app, and choose **Open Anyway**; older versions allow Control-click → **Open**. From a
+  terminal, `xattr -dr com.apple.quarantine /Applications/MyApp.app` clears the quarantine flag. A copy that never
+  went through a browser (built locally, or copied with `scp`) carries no quarantine flag.
+* **It cannot be notarised.** Notarisation needs a Developer ID signature. Setting `MACOS_NOTARY_PROFILE` together with
+  `--no-sign` is an error.
+* **"Unsigned" is not quite nothing.** The shell and the worker stub were released with an ad-hoc *linker* signature,
+  which Apple Silicon requires of every program it runs. `--no-sign` leaves it exactly as it came, so the binaries still
+  run. It adds nothing: no seal over `Info.plist` and `Resources`, no hardened runtime, no entitlements (the `entitlements`
+  settings are ignored). The packaged worker was run inside such a bundle and answered `ready`.
+* **Every update asks again.** The warning returns for each new download.
+* The ad-hoc build you get without `--no-sign` (no `MACOS_SIGN_IDENTITY`) is the middle ground: it is sealed and
+  runs under the hardened runtime, which makes it a good test of your entitlements, but Gatekeeper rejects it elsewhere
+  just the same.
+
+### Windows
+
+These are behaviours of Windows rather than of the packager; they have not been verified on a test machine for this guide.
+
+* **SmartScreen warns.** A downloaded unsigned installer or program (it carries the "mark of the web") shows "Windows
+  protected your PC". The user must choose **More info → Run anyway**. An unsigned file has no publisher, so it never
+  builds a reputation; a signed one eventually can.
+* **The publisher is "Unknown publisher"** in the installer and in the file's properties.
+* **Smart App Control** (Windows 11, when it is switched on) blocks unsigned programs outright, with no "Run anyway".
+  The user has to turn Smart App Control off, which cannot be undone without reinstalling Windows. This is the biggest
+  obstacle to distributing unsigned Windows software to ordinary users.
+* **Antivirus programs** are more suspicious of unsigned executables, and a program that unpacks a PHP runtime and starts
+  child processes looks suspicious to some of them. Expect the occasional false positive.
+* **Managed computers** often only allow signed software through policies such as AppLocker or Windows Defender Application Control. For these users an unsigned build does not work at all.
+* **Updating is no different:** each new unsigned build gets the same treatment.
+
+### When not to ship unsigned
+
+For anything you hand to people outside your team, sign and (on macOS) notarise. Unsigned builds are for you and for
+people who understand the warnings.
+
+## Providing signing credentials
+
+Signing credentials come from **environment variables**, never from `shell-package.json`. The configuration is meant to
+be committed; credentials must not be. Set the variables in whatever way suits you: your CI's secret store, your shell
+profile, or a git-ignored file that you load before building (`set -a; . ./sign.env; set +a`). The packager does not care
+how they got there. If a variable is absent, that kind of signing is simply off (see [Unsigned builds](#unsigned-builds)).
+
+| Platform | Variable | Meaning |
+|---|---|---|
+| macOS | `MACOS_SIGN_IDENTITY` | The name of a "Developer ID Application: …" certificate in a keychain the build can use. Unset: signed ad hoc. |
+| macOS | `MACOS_NOTARY_PROFILE` | A `notarytool` keychain profile, created once with `xcrun notarytool store-credentials`. Needs the identity. Unset: not notarised. |
+| Windows, certificate file | `WINDOWS_SIGN_PKCS12` | Path to a PKCS#12 (`.p12` / `.pfx`) keystore. |
+| Windows, certificate file | `WINDOWS_SIGN_PKCS12_PASSWORD` | Its password. |
+| Windows, Azure Trusted Signing | `WINDOWS_SIGN_ENDPOINT` | The signing endpoint's URL. |
+| Windows, Azure Trusted Signing | `WINDOWS_SIGN_PROFILE` | `<account>/<profile>`. |
+| Windows, Azure Trusted Signing | `WINDOWS_SIGN_TOKEN` | An access token for `https://codesigning.azure.net`. You obtain it (for example with the Azure CLI or a CI step) and export it; the packager does not fetch it. Tokens are short-lived, so get one just before building. |
+| Windows, optional | `WINDOWS_SIGN_TSAURL` | Overrides the timestamp server. |
+| Windows, optional | `WINDOWS_SIGN_CAFILE` | Root certificates to verify the finished signature's chain against. Without it only the signed digest is checked. |
+
+Notes:
+
+* **Windows: use one method.** Trusted Signing needs all three of its variables, and a keystore needs its password;
+  setting only some of them, or both methods together, is an error. With none of the variables set, the build is
+  unsigned.
+* The Windows secrets reach the signing tool as `env:` references, never as command-line arguments, so they do not show
+  up in process listings or build logs.
+* The macOS certificate and notary credentials live in the keychain, so no secret passes through the environment for them
+  at all; the variables only name them. A CI machine has to import them into a keychain first.
+* Keep `WINDOWS_SIGN_PKCS12_PASSWORD` and `WINDOWS_SIGN_TOKEN` out of version control, shell history and build logs.
 
 ## System requirements
 
