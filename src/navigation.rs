@@ -87,18 +87,36 @@ pub fn for_main_frame_navigation(url: &str, origin: &str, user: bool) -> Decisio
 /// The layered [`for_navigation`] rule, except that a frame may only be sent to the app's own
 /// origin by the app: `source_is_app` is whether the frame that started the navigation has the app's
 /// origin (`Some(false)`: a foreign frame, which would make the engine request the app's URLs with
-/// no `Origin` header), or `None` when the engine names no source (a frame's initial load, which
-/// only the app's own page can have set up).
+/// no `Origin` header). `None`, the engine naming no source, is refused too: WebKit names the
+/// parent frame even for an iframe's initial load (measured, security.md M1), so a nameless source
+/// is not a case the app's own page produces.
 pub fn for_subframe_navigation(
     url: &str,
     origin: &str,
     user: bool,
     source_is_app: Option<bool>,
 ) -> Decision {
-    if classify(url, origin) == Target::App && source_is_app == Some(false) {
+    if classify(url, origin) == Target::App && source_is_app != Some(true) {
         return Decision::Refuse;
     }
     for_navigation(url, origin, user)
+}
+
+/// Whether a frame whose security origin is `protocol://host` is the app itself, and so may act
+/// for it. Compared member by member, as WebKit reports them, so `shell://app.evil` is not the app.
+pub fn frame_is_app(protocol: &str, host: &str, origin: &str) -> bool {
+    origin
+        .split_once("://")
+        .is_some_and(|(scheme, authority)| protocol == scheme && host == authority)
+}
+
+/// Whether a request for one of the app's URLs, made from a frame, may be answered: the main frame
+/// always (nothing off-origin ever renders there), a subframe only when it has the app's origin. A
+/// foreign frame's `<img src>` or `no-cors` fetch of the app's URLs carries no `Origin`, and on
+/// WKWebView no `Sec-Fetch-Site` either, so the frame is the only thing that gives it away
+/// (security.md M1).
+pub fn frame_may_request(is_main_frame: bool, protocol: &str, host: &str, origin: &str) -> bool {
+    is_main_frame || frame_is_app(protocol, host, origin)
 }
 
 /// The response to the main frame's main resource: only the app's own pages may render there.
@@ -126,13 +144,15 @@ mod tests {
             for_subframe_navigation("shell://app/api/export", O, true, Some(false)),
             Decision::Refuse
         );
-        // The app's own frames, and a frame's initial load (no source frame), are legitimate.
-        for source in [Some(true), None] {
-            assert_eq!(
-                for_subframe_navigation("shell://app/embed.html", O, false, source),
-                Decision::Allow
-            );
-        }
+        // The app's own frames are legitimate; a nameless source is not something they produce.
+        assert_eq!(
+            for_subframe_navigation("shell://app/embed.html", O, false, Some(true)),
+            Decision::Allow
+        );
+        assert_eq!(
+            for_subframe_navigation("shell://app/embed.html", O, false, None),
+            Decision::Refuse
+        );
         // Everything else is the layered rule, whoever asks.
         for source in [Some(true), Some(false), None] {
             assert_eq!(
@@ -152,6 +172,25 @@ mod tests {
         assert_eq!(
             for_subframe_navigation("shell://app.evil/", O, false, Some(false)),
             Decision::Refuse
+        );
+    }
+
+    #[test]
+    fn only_the_main_frame_and_the_apps_own_frames_may_request_the_app() {
+        // The main frame's first load has no origin yet (measured on WebKit: `://`).
+        assert!(frame_may_request(true, "", "", O));
+        assert!(frame_may_request(true, "http", "127.0.0.1", O));
+        assert!(frame_may_request(false, "shell", "app", O));
+        // A foreign embed's subresources: the Origin-less GETs of security.md M1.
+        assert!(!frame_may_request(false, "http", "127.0.0.1", O));
+        assert!(!frame_may_request(false, "https", "www.youtube.com", O));
+        assert!(!frame_may_request(false, "", "", O));
+        assert!(!frame_may_request(false, "shell", "app.evil", O));
+        assert!(!frame_may_request(false, "shell", "apple", O));
+        assert!(!frame_may_request(false, "shells", "app", O));
+        assert!(
+            !frame_is_app("shell", "app", "shell"),
+            "an origin without a scheme"
         );
     }
 

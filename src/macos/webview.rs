@@ -350,14 +350,21 @@ define_class!(
 
 impl Delegate {
     /// Whether the frame that started `action` has the app's origin (`<scheme>://app`): `None` when
-    /// WebKit names no source frame. A foreign `<iframe>` must not be able to send a frame to the
-    /// app's URLs, where the request would carry no `Origin` (security.md M1).
+    /// WebKit names no source frame (not seen in practice: an iframe's initial load names its
+    /// parent). A foreign `<iframe>` must not be able to send a frame to the app's URLs, where the
+    /// request would carry no `Origin` (security.md M1); its subresources are the scheme handler's
+    /// to refuse (`Scheme::frame_may_request`).
     fn source_is_app(&self, action: &WKNavigationAction) -> Option<bool> {
-        let frame = unsafe { action.sourceFrame() }?;
-        let source = unsafe { frame.securityOrigin() };
-        let (protocol, host) = unsafe { (source.protocol(), source.host()) };
-        let (scheme, authority) = self.ivars().origin.split_once("://")?;
-        Some(protocol.to_string() == scheme && host.to_string() == authority)
+        // SAFETY: the action is live for the call; the frame info and its origin are value objects.
+        let (protocol, host) = unsafe {
+            let source = action.sourceFrame()?.securityOrigin();
+            (source.protocol().to_string(), source.host().to_string())
+        };
+        Some(navigation::frame_is_app(
+            &protocol,
+            &host,
+            &self.ivars().origin,
+        ))
     }
 
     pub fn new(mtm: MainThreadMarker, origin: String, log: Arc<Log>) -> Retained<Self> {

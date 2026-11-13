@@ -179,7 +179,8 @@ Embedded `<iframe>`s load normally, but a request carrying a foreign `Origin` he
 is answered `403 cross_origin` by the shell. Not every webview sends `Sec-Fetch-Site` (WKWebView on macOS does not), and
 browsers send no `Origin` on a plain GET, so keep your GET handlers side-effect free: change state with `POST` plus a
 custom header, which forces a CORS preflight that the shell refuses from a foreign page. On macOS the shell also
-refuses a foreign frame's navigation to `<scheme>://app`.
+refuses any request for `<scheme>://app` made from a foreign frame (its navigation, an `<img>`, a `fetch`), since
+there it can see which frame asked.
 
 Do your outbound HTTP (calling a remote service) from PHP, where you control the client and the credentials, not from
 page JavaScript.

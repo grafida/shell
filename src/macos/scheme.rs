@@ -20,13 +20,16 @@ use std::{
 
 use objc2::{
     AllocAnyThread, DefinedClass, MainThreadMarker, MainThreadOnly, Message, define_class,
-    msg_send, rc::Retained, runtime::ProtocolObject,
+    msg_send,
+    rc::Retained,
+    runtime::{AnyObject, ProtocolObject},
+    sel,
 };
 use objc2_foundation::{
     NSData, NSDictionary, NSHTTPURLResponse, NSInputStream, NSObject, NSObjectProtocol, NSString,
     NSURLRequest, ns_string,
 };
-use objc2_web_kit::{WKURLSchemeHandler, WKURLSchemeTask, WKWebView};
+use objc2_web_kit::{WKFrameInfo, WKURLSchemeHandler, WKURLSchemeTask, WKWebView};
 use tao::event_loop::EventLoopProxy;
 
 use super::UserEvent;
@@ -34,6 +37,7 @@ use crate::{
     bridge::Bridge,
     http::{self, Request, Response},
     log::Log,
+    navigation,
     protocol::HeaderMap,
 };
 
@@ -49,6 +53,8 @@ pub struct Scheme {
     next_id: Cell<u64>,
     proxy: Mutex<EventLoopProxy<UserEvent>>,
     log: std::sync::Arc<Log>,
+    /// The "no `_frame`" note has been logged.
+    frame_unknown_noted: Cell<bool>,
 }
 
 impl Scheme {
@@ -63,6 +69,7 @@ impl Scheme {
             next_id: Cell::new(1),
             proxy: Mutex::new(proxy),
             log,
+            frame_unknown_noted: Cell::new(false),
         })
     }
 
@@ -83,6 +90,14 @@ impl Scheme {
             .HTTPMethod()
             .map(|s| s.to_string())
             .unwrap_or_else(|| "GET".into());
+        if !self.frame_may_request(task) {
+            self.log.line(
+                "shell",
+                &format!("{method} {url} from a foreign frame refused"),
+            );
+            self.finish(id, Response::error(403, "cross_origin"));
+            return;
+        }
         let mut headers = HeaderMap::new();
         if let Some(all) = request.allHTTPHeaderFields() {
             for key in all.allKeys().iter() {
@@ -158,6 +173,46 @@ impl Scheme {
                 },
             );
         }
+    }
+
+    /// Whether the frame that made `task`'s request may have the app's URLs
+    /// ([`navigation::frame_may_request`]): the main frame, or a subframe of the app's origin. A
+    /// foreign embed's `<img src>` or `no-cors` fetch of `<scheme>://app/…` carries no `Origin`,
+    /// and WKWebView adds no `Sec-Fetch-Site`, so [`Bridge`] cannot tell it from the app's own
+    /// (security.md M1); the frame can. The public `WKURLSchemeTask` says nothing about who asked:
+    /// this reads WebKit's private `_frame` (a `WKFrameInfo`, there since macOS 10.15) behind
+    /// `respondsToSelector:`. Should it ever go, every request is let through and the log says so
+    /// once, rather than the app going dark.
+    fn frame_may_request(&self, task: &ProtocolObject<dyn WKURLSchemeTask>) -> bool {
+        let object: &AnyObject = task.as_ref();
+        // SAFETY: plain selector queries on a live task; `_frame` answers nil or a `WKFrameInfo`.
+        let frame: Option<Retained<WKFrameInfo>> = unsafe {
+            let responds: bool = msg_send![object, respondsToSelector: sel!(_frame)];
+            if responds {
+                msg_send![object, _frame]
+            } else {
+                None
+            }
+        };
+        let Some(frame) = frame else {
+            if !self.frame_unknown_noted.replace(true) {
+                self.log.line(
+                    "shell",
+                    "WebKit names no frame for scheme requests: foreign-frame requests cannot be refused",
+                );
+            }
+            return true;
+        };
+        // SAFETY: the frame info is ours, retained; its origin is a plain value object.
+        let (is_main, protocol, host) = unsafe {
+            let origin = frame.securityOrigin();
+            (
+                frame.isMainFrame(),
+                origin.protocol().to_string(),
+                origin.host().to_string(),
+            )
+        };
+        navigation::frame_may_request(is_main, &protocol, &host, &self.bridge.origin)
     }
 
     /// Hands a request whose body is read to the bridge. Main thread only.
