@@ -32,7 +32,10 @@ Moved from the root `CLAUDE.md`; same rules, loaded on demand.
   (`is_main_frame_main_resource`) refuses anything off-origin before it renders. "User" is the
   gesture alone: `el.click()` from a script is a `LinkClicked` navigation too. `create` (window.open)
   never makes a window. Downloads and the context-menu items that navigate, reload, open windows or
-  download are removed.
+  download are removed. A foreign frame *can* be sent to the app here (no source frame is known),
+  so with `webview.frameGuard` on the webview's `UserContentManager` carries
+  `navigation::frame_buster` (all frames, document start): WebKit ignores `frame-ancestors` on a
+  scheme response on macOS, and WebKitGTK shares that code path (security.md L1).
 - **On KDE Plasma the title bar is KWin's, so the window theme is told to KWin too**
   (`src/linux/decoration.rs`). tao's `set_theme` only sets GTK's `gtk-application-prefer-dark-theme`,
   which reaches a title bar GTK draws (GNOME's) and not one KWin draws: on Plasma it stayed light in a

@@ -9,7 +9,8 @@
 //! In order, for every request:
 //! 1. a request carrying a foreign `Origin`, or `Sec-Fetch-Site: cross-site` (what a browser sends
 //!    instead of an `Origin` on a plain GET), is refused (`403 cross_origin`), so a page embedded in
-//!    the app (an article's `<iframe>`) cannot drive the app's API;
+//!    the app (an article's `<iframe>`) cannot drive the app's API; with the manifest's
+//!    `webview.frameGuard` off, a cross-site navigation *into a frame* is let through;
 //! 2. `/_native/*` is answered by the shell ([`crate::native`]) and never reaches the worker;
 //! 3. any `x-shell-file-path` the page sent is dropped, and an `x-shell-file` token is resolved
 //!    into `x-shell-file-path` (`400` for an unknown or stale token, without contacting the worker);
@@ -17,7 +18,11 @@
 //!    `x-shell-clipboard: text` in place of the request header, so the app reads the clipboard the
 //!    shell read for it (any other value of that header is dropped);
 //! 5. the request goes to the worker, and on the way back `cache-control: no-store` is added under
-//!    the manifest's `noStorePaths` when the worker sent no cache header of its own.
+//!    the manifest's `noStorePaths` when the worker sent no cache header of its own, and
+//!    `content-security-policy: frame-ancestors 'self'` when the frame guard is on and the worker
+//!    sent no framing policy of its own (`x-frame-options`, or a `frame-ancestors` directive). Not
+//!    every engine enforces it on a scheme handler's response (WKWebView does not), which is why
+//!    each platform also injects [`crate::navigation::frame_buster`] into every frame.
 //!
 //! The body limit is the platform layer's to enforce while it reads (it must stop reading, not read
 //! and then check), using [`Bridge::max_body_bytes`] and answering [`Bridge::too_large`].
@@ -89,6 +94,7 @@ pub struct Bridge {
     backend: Arc<dyn Backend>,
     pub(crate) tokens: Arc<Mutex<TokenStore>>,
     pub(crate) dialog_open: Arc<Mutex<bool>>,
+    frame_guard: bool,
 }
 
 impl Bridge {
@@ -107,7 +113,21 @@ impl Bridge {
             backend,
             tokens: Arc::new(Mutex::new(TokenStore::new())),
             dialog_open: Arc::new(Mutex::new(false)),
+            frame_guard: true,
         }
+    }
+
+    /// The manifest's `webview.frameGuard` (on unless the app turns it off): whether only the app
+    /// may frame its pages. Off, no `frame-ancestors` is added, and a foreign frame's *navigation*
+    /// to the app (`Sec-Fetch-Site: cross-site` with `Sec-Fetch-Mode: navigate` into a frame) is let
+    /// through, so the page can be framed; a foreign frame's subresource requests stay refused.
+    pub fn with_frame_guard(mut self, on: bool) -> Bridge {
+        self.frame_guard = on;
+        self
+    }
+
+    pub fn frame_guard(&self) -> bool {
+        self.frame_guard
     }
 
     pub fn max_body_bytes(&self) -> u64 {
@@ -128,9 +148,11 @@ impl Bridge {
         }
 
         // A browser sends no `Origin` on a plain GET (an `<img>`, a `no-cors` fetch, a frame
-        // navigating itself), but it does say where the request came from.
+        // navigating itself), but it does say where the request came from. With the frame guard
+        // off, a foreign frame may still be sent to one of the app's pages (that is framing).
         if http::first(&request.headers, "sec-fetch-site")
             .is_some_and(|v| v.trim().eq_ignore_ascii_case("cross-site"))
+            && (self.frame_guard || !is_frame_navigation(&request))
         {
             respond(Response::error(403, "cross_origin"));
             return;
@@ -164,11 +186,12 @@ impl Bridge {
             .any(|prefix| request.path().starts_with(prefix.as_str()));
 
         if !wants_clipboard {
-            forward(&*backend, no_store, request, respond);
+            forward(&*backend, no_store, self.frame_guard, request, respond);
             return;
         }
 
         let limit = self.max_body_bytes;
+        let frame_guard = self.frame_guard;
         self.host.read_clipboard(Box::new(move |text| {
             let text = text.unwrap_or_default();
             if text.len() as u64 > limit {
@@ -177,7 +200,7 @@ impl Bridge {
             }
             request.body = text.into_bytes();
             http::append(&mut request.headers, CLIPBOARD_HEADER, "text");
-            forward(&*backend, no_store, request, respond);
+            forward(&*backend, no_store, frame_guard, request, respond);
         }));
     }
 
@@ -201,7 +224,23 @@ impl Bridge {
     }
 }
 
-fn forward(backend: &dyn Backend, no_store: bool, request: Request, respond: Responder) {
+/// A frame being sent to one of the app's pages (`Sec-Fetch-Mode: navigate` into an `iframe` or a
+/// `frame`), as opposed to a subresource request.
+fn is_frame_navigation(request: &Request) -> bool {
+    let is = |name, values: &[&str]| {
+        http::first(&request.headers, name)
+            .is_some_and(|v| values.iter().any(|w| v.trim().eq_ignore_ascii_case(w)))
+    };
+    is("sec-fetch-mode", &["navigate"]) && is("sec-fetch-dest", &["iframe", "frame"])
+}
+
+fn forward(
+    backend: &dyn Backend,
+    no_store: bool,
+    frame_guard: bool,
+    request: Request,
+    respond: Responder,
+) {
     backend.submit(
         request,
         Box::new(move |mut response| {
@@ -211,9 +250,37 @@ fn forward(backend: &dyn Backend, no_store: bool, request: Request, respond: Res
             {
                 http::append(&mut response.headers, "cache-control", "no-store");
             }
+            if frame_guard && !sets_framing_policy(&response.headers) {
+                http::append(
+                    &mut response.headers,
+                    "content-security-policy",
+                    NO_FOREIGN_FRAMING,
+                );
+            }
             respond(response);
         }),
     );
+}
+
+/// What the shell adds so that only the app itself may frame its pages (security.md L1): a foreign
+/// page the app embeds (an article's `<iframe>`) could otherwise frame a live app page and overlay
+/// it. On every response, not only HTML: an SVG, a PDF or a JSON answer renders in a frame too,
+/// and `frame-ancestors` means nothing to a subresource.
+const NO_FOREIGN_FRAMING: &str = "frame-ancestors 'self'";
+
+/// Whether the worker chose its own framing policy: an `x-frame-options`, or an enforced
+/// `content-security-policy` with a `frame-ancestors` directive. A policy without one gets the
+/// shell's as a second policy beside it (the engine enforces every policy), which leaves the
+/// worker's untouched. Policies are split on `,` (repeated headers), directives on `;`.
+fn sets_framing_policy(headers: &crate::protocol::HeaderMap) -> bool {
+    headers.contains_key("x-frame-options")
+        || headers
+            .get("content-security-policy")
+            .into_iter()
+            .flatten()
+            .flat_map(|value| value.split([',', ';']))
+            .filter_map(|directive| directive.split_ascii_whitespace().next())
+            .any(|name| name.eq_ignore_ascii_case("frame-ancestors"))
 }
 
 /// A path as a header value: UTF-8, and free of the bytes a header value may not carry.
@@ -424,6 +491,148 @@ pub(crate) mod tests {
             200
         );
         assert_eq!(echo.seen.lock().unwrap().len(), 5);
+    }
+
+    /// Answers 200 with the headers it was built with.
+    struct Sends(Vec<(&'static str, &'static str)>);
+
+    impl Backend for Sends {
+        fn submit(&self, _: Request, respond: Responder) {
+            let mut r = Response::new(200);
+            for (k, v) in &self.0 {
+                http::append(&mut r.headers, k, *v);
+            }
+            respond(r);
+        }
+    }
+
+    fn sending(headers: &[(&'static str, &'static str)]) -> Bridge {
+        Bridge::new(
+            "shell://app".into(),
+            1 << 20,
+            vec!["/api/".into()],
+            Arc::new(FakeHost::default()),
+            Arc::new(Sends(headers.to_vec())),
+        )
+    }
+
+    const NO_FRAMING: &str = "frame-ancestors 'self'";
+
+    #[test]
+    fn the_apps_pages_cannot_be_framed_by_a_foreign_page() {
+        let (b, _, _) = bridge();
+        for path in ["/", "/index.html", "/api/x", "/img/logo.svg"] {
+            let r = call(&b, "GET", path, &[], "");
+            assert_eq!(
+                r.headers["content-security-policy"],
+                vec![NO_FRAMING],
+                "{path}"
+            );
+        }
+    }
+
+    #[test]
+    fn a_framing_policy_from_the_worker_is_left_alone() {
+        let own: [&[(&str, &str)]; 5] = [
+            &[("content-security-policy", "frame-ancestors *")],
+            &[(
+                "content-security-policy",
+                "default-src 'self'; Frame-Ancestors https://a.example",
+            )],
+            &[(
+                "content-security-policy",
+                "default-src 'self', frame-ancestors 'none'",
+            )],
+            &[("x-frame-options", "DENY")],
+            &[
+                ("content-security-policy", "default-src 'self'"),
+                ("x-frame-options", "SAMEORIGIN"),
+            ],
+        ];
+        for headers in own {
+            let r = call(&sending(headers), "GET", "/", &[], "");
+            let csp: Vec<_> = headers
+                .iter()
+                .filter(|(k, _)| *k == "content-security-policy")
+                .map(|(_, v)| v.to_string())
+                .collect();
+            assert_eq!(
+                r.headers
+                    .get("content-security-policy")
+                    .cloned()
+                    .unwrap_or_default(),
+                csp,
+                "{headers:?}"
+            );
+        }
+    }
+
+    #[test]
+    fn a_policy_without_frame_ancestors_gets_ours_beside_it() {
+        // Several policies are all enforced, so the worker's stays as it is and framing is refused.
+        // A report-only policy enforces nothing, so it does not count as the worker's own.
+        for (name, value) in [
+            ("content-security-policy", "default-src 'self'"),
+            (
+                "content-security-policy",
+                "default-src 'self'; script-src-elem 'self'",
+            ),
+            ("content-security-policy-report-only", "frame-ancestors *"),
+        ] {
+            let r = call(&sending(&[(name, value)]), "GET", "/", &[], "");
+            let mut want = vec![NO_FRAMING];
+            if name == "content-security-policy" {
+                want.insert(0, value);
+            }
+            assert_eq!(
+                r.headers["content-security-policy"], want,
+                "{name}: {value}"
+            );
+        }
+    }
+
+    #[test]
+    fn with_the_frame_guard_off_nothing_is_added() {
+        let b = sending(&[]).with_frame_guard(false);
+        let r = call(&b, "GET", "/", &[], "");
+        assert!(!r.headers.contains_key("content-security-policy"));
+    }
+
+    #[test]
+    fn with_the_frame_guard_off_a_foreign_frame_may_navigate_to_the_app_and_nothing_more() {
+        const FRAME: [(&str, &str); 3] = [
+            ("sec-fetch-site", "cross-site"),
+            ("sec-fetch-mode", "navigate"),
+            ("sec-fetch-dest", "iframe"),
+        ];
+        const IMAGE: [(&str, &str); 3] = [
+            ("sec-fetch-site", "cross-site"),
+            ("sec-fetch-mode", "no-cors"),
+            ("sec-fetch-dest", "image"),
+        ];
+        let (on, _, _) = bridge();
+        assert_eq!(call(&on, "GET", "/page.html", &FRAME, "").status, 403);
+
+        let (off, _, echo) = bridge();
+        let off = off.with_frame_guard(false);
+        assert_eq!(call(&off, "GET", "/page.html", &FRAME, "").status, 200);
+        let mut frame = FRAME;
+        frame[2].1 = "frame";
+        assert_eq!(call(&off, "GET", "/page.html", &frame, "").status, 200);
+        assert_eq!(call(&off, "GET", "/api/export", &IMAGE, "").status, 403);
+        // A navigation of the main frame (or a new window) is not a frame being framed.
+        let mut document = FRAME;
+        document[2].1 = "document";
+        assert_eq!(call(&off, "GET", "/page.html", &document, "").status, 403);
+        // A form POST carries a foreign `Origin`, refused whatever the guard says.
+        let post = [
+            FRAME[0],
+            FRAME[1],
+            FRAME[2],
+            ("origin", "https://evil.example"),
+        ];
+        assert_eq!(call(&off, "POST", "/api/x", &post, "").status, 403);
+        assert_eq!(echo.seen.lock().unwrap().len(), 2);
     }
 
     #[test]

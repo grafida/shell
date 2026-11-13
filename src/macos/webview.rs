@@ -228,6 +228,8 @@ fn dropped_files(sender: &ProtocolObject<dyn NSDraggingInfo>) -> Vec<PathBuf> {
 pub struct DelegateIvars {
     origin: String,
     log: Arc<Log>,
+    /// The manifest's `webview.frameGuard`: off, a foreign frame may be sent to the app's pages.
+    frame_guard: bool,
 }
 
 define_class!(
@@ -265,6 +267,10 @@ define_class!(
                 Some(frame) if unsafe { frame.isMainFrame() } => (
                     "navigation to",
                     navigation::for_main_frame_navigation(&url, origin, user),
+                ),
+                Some(_) if !self.ivars().frame_guard => (
+                    "navigation to",
+                    navigation::for_navigation(&url, origin, user),
                 ),
                 Some(_) => (
                     "navigation to",
@@ -367,8 +373,17 @@ impl Delegate {
         ))
     }
 
-    pub fn new(mtm: MainThreadMarker, origin: String, log: Arc<Log>) -> Retained<Self> {
-        let this = Self::alloc(mtm).set_ivars(DelegateIvars { origin, log });
+    pub fn new(
+        mtm: MainThreadMarker,
+        origin: String,
+        log: Arc<Log>,
+        frame_guard: bool,
+    ) -> Retained<Self> {
+        let this = Self::alloc(mtm).set_ivars(DelegateIvars {
+            origin,
+            log,
+            frame_guard,
+        });
         // SAFETY: NSObject's designated initialiser.
         unsafe { msg_send![super(this), init] }
     }

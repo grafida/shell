@@ -22,7 +22,9 @@ Moved from the root `CLAUDE.md`; same rules, loaded on demand.
   filter uses `ICoreWebView2_22`'s source kinds (shared workers, iframes) when present.
 - **WebView2 says which frame navigates**: `NavigationStarting` is the main frame
   (`for_main_frame_navigation`), `FrameNavigationStarting` a subframe (`for_navigation`).
-  `NewWindowRequested` is handled with no window. ⚠️ **A script's `el.click()` on a `target=_blank`
+  `NewWindowRequested` is handled with no window. With `webview.frameGuard` on,
+  `navigation::frame_buster` is added with `AddScriptToExecuteOnDocumentCreated` (it runs in child
+  frames too) beside the bridge's `frame-ancestors` (security.md L1). ⚠️ **A script's `el.click()` on a `target=_blank`
   link is not user-initiated for WebView2** (a same-window one is), so it is refused; a real click is
   (the automation channel's `click`, DevTools' `Input.dispatchMouseEvent`, proves it).
 - **WebView2 needs no key routing of ours** (probed in grafida/grafida#91): every key reaches the

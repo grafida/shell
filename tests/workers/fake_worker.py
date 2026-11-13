@@ -112,6 +112,16 @@ def serve(linger=False, deaf=False, page=False):
         if page and url.path == "/smoke-report":
             sys.stderr.write("smoke: origin=%s post=%s\n" % (query["origin"][0], query["post"][0]))
             sys.stderr.flush()
+        if url.path == "/framed.html":
+            # Tells the top window it rendered (tests/apps/echo/framing.js); `csp` is a policy of
+            # the worker's own, sent as `content-security-policy`, `xfo` as `x-frame-options`.
+            extra = {name: query[key] for key, name in
+                     (("csp", "content-security-policy"), ("xfo", "x-frame-options")) if key in query}
+            write_frame({"type": "response", "id": rid, "status": 200,
+                         "headers": {"content-type": ["text/html; charset=utf-8"], **extra}},
+                        b"<!doctype html><meta charset=\"utf-8\"><script>"
+                        b"top.postMessage({framed: location.search}, '*')</script>framed")
+            continue
         if url.path == "/pid":
             respond(rid, 200, {"pid": os.getpid()})
             continue

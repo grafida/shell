@@ -22,7 +22,11 @@ Moved from the root `CLAUDE.md`; same rules, loaded on demand.
   (`Scheme::frame_may_request`, `navigation::frame_may_request`), read from WebKit's private `_frame` on
   `WKURLSchemeTask` (macOS 10.15+) behind `respondsToSelector:`; the selector absent, every request is let
   through and the log says so once; the selector present but answering nil, the request is refused
-  (security.md M1). Measured values: the main frame's first load has origin `://` and
+  (security.md M1). Both source-frame checks (navigation and scheme task) apply only while the
+  manifest's `webview.frameGuard` is on; off, a foreign frame may load and request the app (the
+  operator's choice). WKWebView enforces a scheme response's CSP but **not** `frame-ancestors` nor
+  `X-Frame-Options` (measured, macOS 27.2, `tests/apps/echo/framing.js`), hence the frame-buster
+  user script (all frames) beside the bridge's header. Measured values: the main frame's first load has origin `://` and
   `isMainFrame`; the app's own iframe's first request already reports `shell://app`; a foreign frame's
   subresources report its `http://host`. The gesture comes from WebKit's private
   `_isUserInitiated` behind `respondsToSelector:` (absent = no gesture, the side that never opens a

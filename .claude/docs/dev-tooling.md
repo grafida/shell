@@ -9,7 +9,10 @@ Moved from the root `CLAUDE.md`; same rules, loaded on demand.
   case must run from a `setTimeout` well past that; and while it is open the shell **records**
   external URLs instead of launching the browser (`opened`). `tests/apps/echo/` (the fake worker in
   echo mode, behind a 60 MiB limit) holds the in-webview checks: `bridge.js`, `navigation.js`,
-  `dialogs.js`.
+  `dialogs.js`, `framing.js` (a sandboxed `srcdoc` frame stands in for a foreign page: its origin
+  is opaque, and it needs no network; run it in the echo app and in `tests/apps/unguarded`, the
+  same worker with `frameGuard: false`, which is the control that the foreign frame really reaches
+  the app's page).
 - **`scripts/dev/parity-macos.sh` is its macOS counterpart** (grafida/grafida#88), with the same
   checks plus the Blob guard and the shell-SIGKILL lifetime checks. It isolates with `HOME` +
   `CFFIXED_USER_HOME` (Grafida's data, its log and WebKit's website data follow both) and sets

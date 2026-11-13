@@ -46,6 +46,7 @@ use crate::{
     http::{Request, Response},
     log::Log,
     manifest::{Manifest, MenuPreset, Theme},
+    navigation,
     supervisor::{self, Notice, Supervisor},
 };
 
@@ -176,7 +177,8 @@ pub fn run(launch: Launch, log: Arc<Log>) -> i32 {
         manifest.no_store_paths.clone(),
         host,
         supervisor.clone(),
-    );
+    )
+    .with_frame_guard(manifest.webview.frame_guard);
     let scheme = Scheme::new(bridge, proxy.clone(), log.clone());
 
     // ── The configuration: everything that must precede the webview ─────────────────────────
@@ -227,6 +229,15 @@ pub fn run(launch: Launch, log: Arc<Log>) -> i32 {
             false,
         );
         config.userContentController().addUserScript(&reporter);
+        if manifest.webview.frame_guard {
+            let buster = WKUserScript::initWithSource_injectionTime_forMainFrameOnly(
+                WKUserScript::alloc(mtm),
+                &NSString::from_str(&navigation::frame_buster(&origin)),
+                WKUserScriptInjectionTime::AtDocumentStart,
+                false,
+            );
+            config.userContentController().addUserScript(&buster);
+        }
     }
     let key_state = keys::KeyState::new(proxy.clone());
     let key_reporter = keys::KeyReporter::new(mtm, key_state.clone());
@@ -257,7 +268,12 @@ pub fn run(launch: Launch, log: Arc<Log>) -> i32 {
     if devtools {
         set_inspectable(&webview);
     }
-    let delegate = Delegate::new(mtm, origin.clone(), log.clone());
+    let delegate = Delegate::new(
+        mtm,
+        origin.clone(),
+        log.clone(),
+        manifest.webview.frame_guard,
+    );
     unsafe {
         webview.setNavigationDelegate(Some(ProtocolObject::from_ref(&*delegate)));
         webview.setUIDelegate(Some(ProtocolObject::from_ref(&*delegate)));

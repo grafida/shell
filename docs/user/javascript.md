@@ -180,7 +180,10 @@ is answered `403 cross_origin` by the shell. Not every webview sends `Sec-Fetch-
 browsers send no `Origin` on a plain GET, so keep your GET handlers side-effect free: change state with `POST` plus a
 custom header, which forces a CORS preflight that the shell refuses from a foreign page. On macOS the shell also
 refuses any request for `<scheme>://app` made from a foreign frame (its navigation, an `<img>`, a `fetch`), since
-there it can see which frame asked.
+there it can see which frame asked. Nor can a foreign frame show your pages inside itself: a script the shell puts
+into every frame empties one of your pages that has a foreign frame above it, before your own scripts run. Your own
+`about:blank` and `srcdoc` frames, and your pages inside them, are left alone. The manifest's `webview.frameGuard`
+turns this off (see [The PHP worker](php-worker.md#who-may-frame-your-pages)).
 
 Do your outbound HTTP (calling a remote service) from PHP, where you control the client and the credentials, not from
 page JavaScript.

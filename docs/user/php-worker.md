@@ -102,6 +102,20 @@ You do not set `Content-Length`; the shell derives it. Bodies are strings held i
 the shell reads the whole body in a request or a response and enforces `worker.maxBodyBytes` both ways.
 A request body above the limit is answered by the shell itself with `413 {"error":"body_too_large"}`.
 
+### Who may frame your pages
+
+Only your app may show your pages in a frame, unless the manifest's `webview.frameGuard` is `false`. A foreign page your
+app embeds (an article's `<iframe>`) cannot load one of your pages inside its own frame to overlay it: a script the
+shell puts into every frame empties such a page before any of its own scripts run. The shell also adds
+`Content-Security-Policy: frame-ancestors 'self'` to every response, unless you send an `X-Frame-Options` header or a
+`Content-Security-Policy` with a `frame-ancestors` directive of your own. A `Content-Security-Policy` of yours without
+`frame-ancestors` is kept as it is, and the shell's is sent beside it.
+
+Your own framing header does not *allow* foreign framing: the script still applies. To let other pages frame yours, set
+`webview.frameGuard` to `false`. Do not count on your own `frame-ancestors` or `X-Frame-Options` to *forbid* framing
+either: WKWebView (macOS) ignores both on your app's responses, although it enforces the rest of your
+`Content-Security-Policy`.
+
 ### `Headers`
 
 `Request::$headers` and `Response::$headers` are `Headers` objects: immutable, case-insensitive, and they keep **every**

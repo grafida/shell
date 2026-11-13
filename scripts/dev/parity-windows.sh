@@ -125,7 +125,7 @@ STAGE=$(mktemp -d -t parity-windows-XXXXXX)
 mkdir -p "$STAGE/tests"
 cp -r "$SHELL_DIR/tests/apps" "$SHELL_DIR/tests/workers" "$STAGE/tests/"
 rm -rf "$STAGE"/tests/workers/__pycache__ "$STAGE"/tests/apps/*/logs
-for app in echo silent; do sed -i 's/"python3"/"python"/' "$STAGE/tests/apps/$app/shell.json"; done
+for app in echo silent unguarded; do sed -i 's/"python3"/"python"/' "$STAGE/tests/apps/$app/shell.json"; done
 cp "$BIN" "$STAGE/grafida-shell.exe"
 cat >"$STAGE/seed-site.py" <<'SEED'
 # Adds a site to Grafida's database, so the Articles screen and the editor open (parity-windows.sh).
@@ -170,6 +170,11 @@ opened=$($CLIENT opened | python3 -I -c 'import json,sys; print(json.load(sys.st
 record "$( [ "$(ok_field <<<"$answer")" = yes ] && [ "$opened" = "['https://example.com/clicked', 'https://example.com/blank']" ] && echo PASS || echo FAIL)" \
     "Off-origin link → OS browser; target=_blank (a real click) → OS browser; nothing navigates the app away" \
     "to the browser: $opened; $(ok_field <<<"$answer")"
+
+answer=$(js "$SHELL_DIR/tests/apps/echo/framing.js")
+record "$( [ "$(ok_field <<<"$answer")" = yes ] && echo PASS || echo FAIL)" \
+    "The app frames its own pages; a foreign frame cannot (frameGuard on)" \
+    "$(python3 -I -c 'import json,sys; r=json.load(sys.stdin)["result"]; print("own %s; foreign %s; foreign, worker allows %s; csp %r; engine enforces frame-ancestors %s; failures %s" % (r["own"], r["foreign"], r["foreignAllowed"], r["csp"], r["headerEnforced"], r["failures"]))' <<<"$answer")"
 
 $CLIENT pick 'C:\winvm\files\pick.png' >/dev/null
 $CLIENT pick --cancel >/dev/null
@@ -219,6 +224,15 @@ for busy in 0 1; do
         "worker $worker $state"
     close_tunnel; SHELL_PID=
 done
+
+# The same framing check with `webview.frameGuard: false`: the foreign frame must render.
+if start_shell "$GS\\grafida-shell.exe" test.shell.unguarded 0 --dev "$GS\\tests\\apps\\unguarded"; then
+    answer=$(js "$SHELL_DIR/tests/apps/echo/framing.js")
+    record "$( [ "$(ok_field <<<"$answer")" = yes ] && echo PASS || echo FAIL)" \
+        "frameGuard off: a foreign frame does frame the app's pages (the control for the row above)" \
+        "$(python3 -I -c 'import json,sys; r=json.load(sys.stdin)["result"]; print("own %s; foreign %s; foreign, worker allows %s; csp %r; engine enforces frame-ancestors %s; failures %s" % (r["own"], r["foreign"], r["foreignAllowed"], r["csp"], r["headerEnforced"], r["failures"]))' <<<"$answer")"
+    stop_shell
+fi
 
 # A worker that never says `ready`.
 SILENT="$GS\\tests\\apps\\silent"

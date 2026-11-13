@@ -150,6 +150,11 @@
                     "type": "boolean",
                     "default": true
                 },
+                "frameGuard": {
+                    "description": "Only the app itself may show its pages in a frame: a foreign page the app embeds (an article's <iframe>) cannot frame them. false lets any page frame the app's pages, and on macOS lets a foreign frame load and request the app's URLs; turn it off only when the app has controls of its own.",
+                    "type": "boolean",
+                    "default": true
+                },
                 "dmabufRenderer": {
                     "description": "Linux: WebKitGTK's DMA-BUF renderer. \"auto\" turns it off when NVIDIA's driver is loaded, where it can leave the window blank; \"on\" and \"off\" force it. The user's own WEBKIT_DISABLE_DMABUF_RENDERER always wins.",
                     "enum": ["auto", "on", "off"],

@@ -30,7 +30,8 @@ use webkit2gtk::{
     ContextMenuAction, ContextMenuExt, ContextMenuItemExt, DownloadExt, NavigationPolicyDecision,
     NavigationPolicyDecisionExt, PolicyDecision, PolicyDecisionExt, PolicyDecisionType,
     ResponsePolicyDecision, ResponsePolicyDecisionExt, SecurityManagerExt, SettingsExt,
-    URIRequestExt, WebContext, WebContextExt, WebView, WebViewExt, WebsiteDataManager,
+    URIRequestExt, UserContentInjectedFrames, UserContentManagerExt, UserScript,
+    UserScriptInjectionTime, WebContext, WebContextExt, WebView, WebViewExt, WebsiteDataManager,
 };
 
 use crate::{
@@ -201,7 +202,8 @@ pub fn run(launch: Launch, log: Arc<Log>) -> i32 {
         manifest.no_store_paths.clone(),
         host,
         supervisor.clone(),
-    );
+    )
+    .with_frame_guard(manifest.webview.frame_guard);
     let respond_proxy = Mutex::new(proxy.clone());
     let scheme = scheme::Scheme::new(
         bridge,
@@ -219,6 +221,19 @@ pub fn run(launch: Launch, log: Arc<Log>) -> i32 {
 
     // ── The webview ─────────────────────────────────────────────────────────────────────────
     let webview = WebView::with_context(&context);
+    // WebKitGTK, like WKWebView, may well ignore the bridge's `frame-ancestors` on a scheme
+    // response; the script holds either way (security.md L1).
+    if manifest.webview.frame_guard
+        && let Some(content) = webview.user_content_manager()
+    {
+        content.add_script(&UserScript::new(
+            &navigation::frame_buster(&origin),
+            UserContentInjectedFrames::AllFrames,
+            UserScriptInjectionTime::Start,
+            &[],
+            &[],
+        ));
+    }
     let devtools = manifest.webview.devtools.enabled(|k| std::env::var(k).ok());
     if let Some(settings) = WebViewExt::settings(&webview) {
         settings.set_enable_developer_extras(devtools);

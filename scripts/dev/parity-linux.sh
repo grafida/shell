@@ -126,6 +126,11 @@ record "$( [ "$(ok_field <<<"$answer")" = yes ] && [ "$opened" = "['https://exam
     "Off-origin link → OS browser; window.open → OS browser; nothing navigates the app away" \
     "to the browser: $opened; $(ok_field <<<"$answer")"
 
+answer=$(js "$ECHO/framing.js")
+record "$( [ "$(ok_field <<<"$answer")" = yes ] && echo PASS || echo FAIL)" \
+    "The app frames its own pages; a foreign frame cannot (frameGuard on)" \
+    "$(python3 -I -c 'import json,sys; r=json.load(sys.stdin)["result"]; print("own %s; foreign %s; foreign, worker allows %s; csp %r; engine enforces frame-ancestors %s; failures %s" % (r["own"], r["foreign"], r["foreignAllowed"], r["csp"], r["headerEnforced"], r["failures"]))' <<<"$answer")"
+
 $CLIENT pick "$WORK/pick.png" >/dev/null
 $CLIENT pick --cancel >/dev/null
 answer=$(js "$ECHO/dialogs.js")
@@ -163,6 +168,17 @@ record "$( [ "$gave_up" -ge 1 ] && kill -0 "$SHELL_PID" 2>/dev/null && echo PASS
     "4 kills in 60 s → native alert with the stderr tail" \
     "log: $(grep "giving up on the worker" "$ECHO/logs/shell.log" | tail -1 | cut -c26-150)"
 kill "$SHELL_PID" 2>/dev/null
+SHELL_PID=
+
+# The same framing check with `webview.frameGuard: false`: the foreign frame must render.
+UNGUARDED=$SHELL_DIR/tests/apps/unguarded
+mkdir -p "$UNGUARDED/logs"
+start_shell "$UNGUARDED" test.shell.unguarded
+answer=$(js "$ECHO/framing.js")
+record "$( [ "$(ok_field <<<"$answer")" = yes ] && echo PASS || echo FAIL)" \
+    "frameGuard off: a foreign frame does frame the app's pages (the control for the row above)" \
+    "$(python3 -I -c 'import json,sys; r=json.load(sys.stdin)["result"]; print("own %s; foreign %s; foreign, worker allows %s; csp %r; engine enforces frame-ancestors %s; failures %s" % (r["own"], r["foreign"], r["foreignAllowed"], r["csp"], r["headerEnforced"], r["failures"]))' <<<"$answer")"
+stop_shell
 SHELL_PID=
 
 # A worker that never says `ready`.

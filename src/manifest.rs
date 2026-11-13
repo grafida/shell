@@ -125,6 +125,10 @@ pub struct Webview {
     pub devtools: Devtools,
     #[serde(default = "yes")]
     pub spell_check: bool,
+    /// Only the app may frame its pages (security.md L1): the bridge's `frame-ancestors 'self'`
+    /// and the frame-buster script in every frame; on macOS also the source-frame checks (M1).
+    #[serde(default = "yes")]
+    pub frame_guard: bool,
     #[serde(default)]
     pub dmabuf_renderer: DmabufRenderer,
 }
@@ -135,6 +139,7 @@ impl Default for Webview {
             context_menu: true,
             devtools: Devtools::default(),
             spell_check: true,
+            frame_guard: true,
             dmabuf_renderer: DmabufRenderer::default(),
         }
     }
@@ -362,6 +367,7 @@ mod tests {
         assert_eq!(m.window.theme, Theme::System);
         assert!(m.webview.context_menu);
         assert!(m.webview.spell_check);
+        assert!(m.webview.frame_guard);
         assert!(!m.webview.devtools.enabled(|_| Some("1".into())));
         assert_eq!(m.menu.preset, MenuPreset::Standard);
         assert_eq!(m.log_dir, "auto");

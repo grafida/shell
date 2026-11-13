@@ -90,7 +90,7 @@ impl Scheme {
             .HTTPMethod()
             .map(|s| s.to_string())
             .unwrap_or_else(|| "GET".into());
-        if !self.frame_may_request(task) {
+        if self.bridge.frame_guard() && !self.frame_may_request(task) {
             self.log.line(
                 "shell",
                 &format!("{method} {url} from a foreign frame refused"),

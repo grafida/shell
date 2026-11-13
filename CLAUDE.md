@@ -77,7 +77,16 @@ code it covers. Their rules are as binding as the ones below.
   `Origin` → `403 cross_origin` (an article's `<iframe>` must not drive the app's API); `/_native/*`
   never reaches the worker; `x-shell-file-path` from the page is always dropped and an `x-shell-file`
   token is resolved into it (the token itself is not forwarded); `no-store` is added under the
-  manifest's `noStorePaths` when the worker sent no `cache-control`/`expires`.
+  manifest's `noStorePaths` when the worker sent no `cache-control`/`expires`;
+  `content-security-policy: frame-ancestors 'self'` is added to every worker response unless the
+  worker sent `x-frame-options` or a `frame-ancestors` directive of its own (security.md L1).
+- **Only the app frames its pages while `webview.frameGuard` is on (the default), and the header is
+  not what holds it**: WKWebView enforces neither `frame-ancestors` nor `x-frame-options` on a scheme
+  response (measured; the rest of the CSP it does), so every platform also injects
+  `navigation::frame_buster` into every frame at document start, which empties an app page with a
+  foreign ancestor. Off, the bridge adds no header and lets a cross-site *frame navigation* through,
+  the buster is not injected, and macOS drops M1's source-frame checks; subresources stay refused.
+  `tests/apps/echo/framing.js` checks both states (`tests/apps/unguarded` is the guard-off app).
 - **`launcher/` is a separate crate and must stay free of GTK, WebKit and C dependencies** (std +
   serde_json): it is built static (musl) precisely so it runs where the shell cannot load. It asks
   the system loader whether the shell beside it would load (`LD_TRACE_LOADED_OBJECTS` +

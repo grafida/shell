@@ -31,11 +31,12 @@ use tao::{
     window::{Theme as TaoTheme, Window, WindowBuilder},
 };
 use webview2_com::{
-    ContextMenuRequestedEventHandler, CoreWebView2CustomSchemeRegistration,
-    CoreWebView2EnvironmentOptions, CreateCoreWebView2ControllerCompletedHandler,
-    CreateCoreWebView2EnvironmentCompletedHandler, DownloadStartingEventHandler,
-    Microsoft::Web::WebView2::Win32::*, NavigationStartingEventHandler,
-    NewWindowRequestedEventHandler, ProcessFailedEventHandler, take_pwstr,
+    AddScriptToExecuteOnDocumentCreatedCompletedHandler, ContextMenuRequestedEventHandler,
+    CoreWebView2CustomSchemeRegistration, CoreWebView2EnvironmentOptions,
+    CreateCoreWebView2ControllerCompletedHandler, CreateCoreWebView2EnvironmentCompletedHandler,
+    DownloadStartingEventHandler, Microsoft::Web::WebView2::Win32::*,
+    NavigationStartingEventHandler, NewWindowRequestedEventHandler, ProcessFailedEventHandler,
+    take_pwstr,
 };
 use windows::{
     Win32::{
@@ -282,13 +283,16 @@ pub fn run(launch: Launch, log: Arc<Log>) -> i32 {
         proxy: Mutex::new(proxy.clone()),
         runtime: runtime.clone(),
     });
-    let bridge = Some(Bridge::new(
-        origin.clone(),
-        manifest.worker.max_body_bytes,
-        manifest.no_store_paths.clone(),
-        host,
-        supervisor.clone(),
-    ));
+    let bridge = Some(
+        Bridge::new(
+            origin.clone(),
+            manifest.worker.max_body_bytes,
+            manifest.no_store_paths.clone(),
+            host,
+            supervisor.clone(),
+        )
+        .with_frame_guard(manifest.webview.frame_guard),
+    );
     let devtools = manifest.webview.devtools.enabled(|k| std::env::var(k).ok());
     log.line(
         "shell",
@@ -336,6 +340,7 @@ pub fn run(launch: Launch, log: Arc<Log>) -> i32 {
     let start_url = manifest.start_url();
     let title = manifest.title.clone();
     let context_menu = manifest.webview.context_menu;
+    let frame_guard = manifest.webview.frame_guard;
     let mut bridge = bridge;
     let mut scheme_handler: Option<Rc<Scheme>> = None;
     let mut controller: Option<ICoreWebView2Controller> = None;
@@ -415,6 +420,7 @@ pub fn run(launch: Launch, log: Arc<Log>) -> i32 {
                                 origin: &origin,
                                 devtools,
                                 context_menu,
+                                frame_guard,
                             };
                             match configure(
                                 &c,
@@ -616,6 +622,7 @@ struct WebviewOptions<'a> {
     origin: &'a str,
     devtools: bool,
     context_menu: bool,
+    frame_guard: bool,
 }
 
 /// Settings, bounds and every handler on a new controller. Returns its webview.
@@ -631,6 +638,7 @@ fn configure(
         origin,
         devtools,
         context_menu,
+        frame_guard,
     } = *options;
     // SAFETY: COM calls on the UI thread, on objects created on it.
     unsafe {
@@ -665,6 +673,9 @@ fn configure(
             scheme.install(&webview, name)?;
         }
         install_policy(&webview, origin, log.clone())?;
+        if frame_guard {
+            install_frame_buster(&webview, origin, log.clone())?;
+        }
         if context_menu {
             install_context_menu(&webview, devtools, log.clone())?;
         }
@@ -709,6 +720,35 @@ fn configure(
         }
         let _ = controller.MoveFocus(COREWEBVIEW2_MOVE_FOCUS_REASON_PROGRAMMATIC);
         Ok(webview)
+    }
+}
+
+/// [`navigation::frame_buster`] in every document the webview creates, child frames included
+/// (WebView2's documentation: a document-created script runs in iframes too; `framing.js`'s
+/// `foreign, worker allows` row is what shows it), before the page's own scripts
+/// (security.md L1). The main frame does not need it (the script is inert there).
+fn install_frame_buster(
+    webview: &ICoreWebView2,
+    origin: &str,
+    log: Arc<Log>,
+) -> windows::core::Result<()> {
+    let script = HSTRING::from(navigation::frame_buster(origin));
+    // SAFETY: a COM call on the UI thread; the handler also runs on it.
+    unsafe {
+        webview.AddScriptToExecuteOnDocumentCreated(
+            &script,
+            &AddScriptToExecuteOnDocumentCreatedCompletedHandler::create(Box::new(
+                move |code, _id| {
+                    if let Err(e) = code {
+                        log.line(
+                            "shell",
+                            &format!("the frame guard script was not added: {}", e.message()),
+                        );
+                    }
+                    Ok(())
+                },
+            )),
+        )
     }
 }
 

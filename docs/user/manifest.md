@@ -108,6 +108,7 @@ Only used with `--dev`.
 | `contextMenu` | boolean | `true` | Whether the webview's native right-click menu is available. It carries the spelling suggestions, so turn it off only if you provide your own. |
 | `devtools` | boolean or `"env:NAME"` | `false` | The web inspector. `true` always, `false` never, `"env:NAME"` only when the environment variable `NAME` is set to something non-empty other than `0`. The `env:` form lets you keep it off for users and turn it on for yourself without rebuilding. |
 | `spellCheck` | boolean | `true` | Turns on the webview's spell checker. Your page still decides per element with the `spellcheck` attribute. |
+| `frameGuard` | boolean | `true` | Only your app may show its pages in a frame: a foreign page your app embeds (an article's `<iframe>`) cannot frame them to overlay them. `false` lets any page frame your pages and, on macOS, lets a foreign frame load and request your app's URLs. Turn it off only when your app has controls of its own. See [The PHP worker](php-worker.md#who-may-frame-your-pages). |
 | `dmabufRenderer` | `"auto"`, `"on"` or `"off"` | `"auto"` | **Linux only.** WebKitGTK's DMA-BUF renderer. `"auto"` turns it off when NVIDIA's proprietary driver is loaded, where it can leave the window blank. The user's own `WEBKIT_DISABLE_DMABUF_RENDERER` environment variable always wins. |
 
 ## `menu`

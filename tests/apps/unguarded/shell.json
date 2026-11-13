@@ -1,0 +1,10 @@
+{
+    "id": "test.shell.unguarded",
+    "title": "Shell echo test, frame guard off",
+    "scheme": "shell",
+    "window": {"width": 900, "height": 600},
+    "worker": {"binary": "unused"},
+    "dev": {"worker": ["python3", "-I", "../../workers/fake_worker.py", "echo"]},
+    "webview": {"frameGuard": false},
+    "logDir": "logs"
+}

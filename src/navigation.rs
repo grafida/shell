@@ -119,6 +119,44 @@ pub fn frame_may_request(is_main_frame: bool, protocol: &str, host: &str, origin
     is_main_frame || frame_is_app(protocol, host, origin)
 }
 
+/// The document-start script every platform injects into **every frame** while the manifest's
+/// `webview.frameGuard` is on (security.md L1): one of the app's own pages, loaded in a frame with
+/// a foreign ancestor anywhere above it (an embed framing `<scheme>://app/…`, to overlay it), stops
+/// loading and empties itself before any of its own script runs. Inert everywhere else: in the
+/// main frame, in a foreign document (an embed's own page), and in the app's own `about:blank` /
+/// `srcdoc` frames (TinyMCE's), whose `location.origin` is not the app's.
+///
+/// The bridge's `frame-ancestors 'self'` says the same in a header, but WKWebView enforces neither
+/// it nor `X-Frame-Options` on a scheme handler's response (measured, macOS 27.2), so the script
+/// is what holds. `location.ancestorOrigins` names every ancestor (an opaque one as `"null"`); an
+/// engine without it walks the parents, where a cross-origin one throws.
+pub fn frame_buster(origin: &str) -> String {
+    let app = serde_json::to_string(origin).expect("a string serialises");
+    format!(
+        r#"(() => {{
+  const APP = {app};
+  if (window === window.top || location.origin !== APP) return;
+  let foreign = false;
+  const ancestors = location.ancestorOrigins;
+  if (ancestors) {{
+    for (let i = 0; i < ancestors.length; i++) if (ancestors[i] !== APP) foreign = true;
+  }} else {{
+    try {{
+      for (let w = window.parent; ; w = w.parent) {{
+        if (w.origin !== APP) {{ foreign = true; break; }}
+        if (w === w.top) break;
+      }}
+    }} catch (e) {{ foreign = true; }}
+  }}
+  if (!foreign) return;
+  window.stop();
+  const empty = () => {{ if (document.documentElement) document.documentElement.remove(); }};
+  empty();
+  document.addEventListener("readystatechange", empty);
+}})();"#
+    )
+}
+
 /// The response to the main frame's main resource: only the app's own pages may render there.
 pub fn for_main_frame_response(url: &str, origin: &str) -> Decision {
     match classify(url, origin) {
@@ -132,6 +170,12 @@ mod tests {
     use super::*;
 
     const O: &str = "shell://app";
+
+    #[test]
+    fn the_frame_buster_names_the_app_as_a_string_literal() {
+        assert!(frame_buster(O).contains(r#"const APP = "shell://app";"#));
+        assert!(frame_buster(r#"a"b://app"#).contains(r#"const APP = "a\"b://app";"#));
+    }
 
     #[test]
     fn a_foreign_frame_cannot_send_a_subframe_to_the_app() {
