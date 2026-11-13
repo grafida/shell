@@ -29,8 +29,12 @@ jobs:
       - run: cargo clippy --workspace --all-targets --features automation -- -D warnings
       # A release build must refuse the automation feature outright.
       - name: Automation never compiles into a release build
-        run: "! cargo check --release --features automation 2>/dev/null"
+        run: |
+          if out=$(cargo check --release --features automation 2>&1); then echo "$out"; echo 'a release build accepted the automation feature'; exit 1; fi
+          grep -q 'must never be compiled into a release build' <<<"$out" || { echo "$out"; echo 'cargo failed, but not on the automation guard'; exit 1; }
       - run: cargo test --workspace
+      # The automation module has its own tests (debug build only); the workspace run above does not enable the feature.
+      - run: cargo test -p grafida-shell --features automation --lib automation::tests
       # The fixture writer only adds cases; anything it would add must already be committed.
       - name: Fixtures are complete and untouched
         run: |
@@ -56,8 +60,12 @@ jobs:
       - run: cargo clippy --workspace --all-targets -- -D warnings
       - run: cargo clippy --workspace --all-targets --features automation -- -D warnings
       - name: Automation never compiles into a release build
-        run: "! cargo check --release --features automation 2>/dev/null"
+        run: |
+          if out=$(cargo check --release --features automation 2>&1); then echo "$out"; echo 'a release build accepted the automation feature'; exit 1; fi
+          grep -q 'must never be compiled into a release build' <<<"$out" || { echo "$out"; echo 'cargo failed, but not on the automation guard'; exit 1; }
       - run: cargo test --workspace
+      # The automation module has its own tests (debug build only); the workspace run above does not enable the feature.
+      - run: cargo test -p grafida-shell --features automation --lib automation::tests
       - name: Linked for macOS 12 (LC_BUILD_VERSION minos)
         run: |
           cargo build --locked
@@ -69,7 +77,9 @@ jobs:
       - run: cargo clippy --workspace --all-targets --target x86_64-apple-darwin -- -D warnings
       - run: cargo clippy --workspace --all-targets --target x86_64-apple-darwin --features automation -- -D warnings
       - name: Automation never compiles into a release build (x86_64)
-        run: "! cargo check --release --target x86_64-apple-darwin --features automation 2>/dev/null"
+        run: |
+          if out=$(cargo check --release --target x86_64-apple-darwin --features automation 2>&1); then echo "$out"; echo 'a release build accepted the automation feature'; exit 1; fi
+          grep -q 'must never be compiled into a release build' <<<"$out" || { echo "$out"; echo 'cargo failed, but not on the automation guard'; exit 1; }
       - name: Linked for macOS 12 (x86_64)
         run: |
           cargo build --locked --target x86_64-apple-darwin
@@ -95,8 +105,14 @@ jobs:
       - run: cargo clippy --workspace --all-targets -- -D warnings
       - run: cargo clippy --workspace --all-targets --features automation -- -D warnings
       - name: Automation never compiles into a release build
-        run: "! cargo check --release --features automation 2>/dev/null"
+        run: |
+          if out=$(cargo check --release --features automation 2>&1); then echo "$out"; echo 'a release build accepted the automation feature'; exit 1; fi
+          grep -q 'must never be compiled into a release build' <<<"$out" || { echo "$out"; echo 'cargo failed, but not on the automation guard'; exit 1; }
       # The fake worker is Python; the runner's interpreter is `python` (grafida/grafida#91).
       - run: cargo test --workspace
+        env:
+          SHELL_TEST_PYTHON: python
+      # The automation module has its own tests (debug build only); the workspace run above does not enable the feature.
+      - run: cargo test -p grafida-shell --features automation --lib automation::tests
         env:
           SHELL_TEST_PYTHON: python
