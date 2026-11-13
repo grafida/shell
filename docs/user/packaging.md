@@ -90,6 +90,7 @@ desktop entry and icons, `title` is used in alerts, `worker.binary` names the st
       {"directory": "src", "name": "*.php"},
       {"directory": "public"},
       {"directory": "vendor", "name": "*.php", "notName": ["*Test.php"]},
+      // shell.js, which the page loads. Do not leave this out (see below).
       {"directory": "vendor/grafida/shell-php/resources"}
     ],
     "ini": {"memory_limit": "512M", "display_errors": "stderr", "opcache.enable": false}
@@ -100,6 +101,11 @@ desktop entry and icons, `title` is used in alerts, `worker.binary` names the st
   "windows": { /* … */ }
 }
 ```
+
+> ⚠️ **Do not forget the last `include` rule above.** `shell.js`, the helper your page loads to reach native features,
+> is not a PHP file, and it lives inside `vendor/`, so the `vendor` rule (which only takes `*.php`) skips it. Without the
+> `{"directory": "vendor/grafida/shell-php/resources"}` rule, the packaged app works in `--dev` but answers `/shell.js`
+> with `500`, and every native feature (file dialogs, the clipboard, drag and drop) fails. Details below.
 
 ### `phar`: the worker payload
 
