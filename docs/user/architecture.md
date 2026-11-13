@@ -14,11 +14,11 @@ flowchart TB
     subgraph shell["grafida-shell: one Rust process"]
         direction LR
         subgraph wv["System webview (provided by the OS)"]
-            ui["<b>App UI</b><br/>HTML, JS, CSS<br/>origin boson://app"]
+            ui["<b>App UI</b><br/>HTML, JS, CSS<br/>origin shell://app"]
         end
         subgraph core["Shell"]
             direction TB
-            bridge["Scheme bridge<br/>serves boson://app"]
+            bridge["Scheme bridge<br/>serves shell://app"]
             native["Native endpoints<br/>/_native/*, answered in Rust"]
             sup["Worker supervisor<br/>spawns, restarts, forwards"]
             win["Window, menus, alerts"]
@@ -54,7 +54,7 @@ Teal is the shell (generic), amber is your application, dashed grey is the opera
 
 ## How the application talks to the shell
 
-The page has a single door: every request goes to `boson://app` (or whatever scheme `shell.json` names).
+The page has a single door: every request goes to `shell://app` (or whatever scheme `shell.json` names).
 
 ```mermaid
 flowchart LR
@@ -74,7 +74,7 @@ flowchart LR
     worker["PHP worker<br/>handles the request,<br/>returns status, headers, body"]
     os["Operating system<br/>open and save dialogs<br/>open URL, reveal file<br/>title, theme, quit"]
 
-    f1 -- "boson://app/api/..." --> policy
+    f1 -- "shell://app/api/..." --> policy
     f2 -- "POST JSON" --> policy
     sup -- "request frame (stdin)" --> worker
     worker -- "response frame (stdout)" --> sup

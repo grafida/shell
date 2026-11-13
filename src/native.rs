@@ -473,7 +473,7 @@ mod tests {
 
         let host = Arc::new(Slow::default());
         let b = Bridge::new(
-            "boson://app".into(),
+            "shell://app".into(),
             1 << 20,
             vec![],
             host.clone(),
@@ -483,7 +483,7 @@ mod tests {
         b.handle(
             crate::http::Request {
                 method: "POST".into(),
-                url: "boson://app/_native/dialog/open-file".into(),
+                url: "shell://app/_native/dialog/open-file".into(),
                 headers: Default::default(),
                 body: vec![],
             },
@@ -499,7 +499,7 @@ mod tests {
         b.handle(
             crate::http::Request {
                 method: "POST".into(),
-                url: "boson://app/_native/dialog/select-folder".into(),
+                url: "shell://app/_native/dialog/select-folder".into(),
                 headers: Default::default(),
                 body: vec![],
             },

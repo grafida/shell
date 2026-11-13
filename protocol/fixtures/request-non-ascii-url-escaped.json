@@ -6,7 +6,7 @@
         "type": "request",
         "id": 9,
         "method": "GET",
-        "url": "boson://app/api/help/page/Ελληνικά?q=καλημέρα&emoji=🎉",
+        "url": "shell://app/api/help/page/Ελληνικά?q=καλημέρα&emoji=🎉",
         "headers": {}
       },
       "body": {

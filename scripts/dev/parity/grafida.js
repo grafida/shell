@@ -4,7 +4,7 @@ const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 const out = { failures: [] };
 const check = (ok, what) => { if (!ok) out.failures.push(what); };
 
-check(location.origin === 'boson://app' && isSecureContext, 'origin boson://app, secure');
+check(location.origin === 'shell://app' && isSecureContext, 'origin shell://app, secure');
 check(await underShell(), 'underShell()');
 
 document.querySelector('#main-nav [data-screen="help"]').click();

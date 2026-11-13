@@ -6,7 +6,7 @@
         "type": "request",
         "id": 6,
         "method": "GET",
-        "url": "boson://app/",
+        "url": "shell://app/",
         "headers": {
           "x-empty": [
             ""

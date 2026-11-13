@@ -10,7 +10,7 @@
 //! object per line and gets one JSON line back; every command must carry the token.
 //!
 //! ```text
-//! {"token":"…","cmd":"eval","js":"return location.origin"}  → {"ok":true,"result":"boson://app"}
+//! {"token":"…","cmd":"eval","js":"return location.origin"}  → {"ok":true,"result":"shell://app"}
 //! {"token":"…","cmd":"screenshot","path":"/tmp/x.png"}       → {"ok":true}
 //! {"token":"…","cmd":"pick","paths":["/tmp/a.png"]}          → {"ok":true}   (next dialog answers this)
 //! {"token":"…","cmd":"pick","paths":null}                    → {"ok":true}   (next dialog is cancelled)

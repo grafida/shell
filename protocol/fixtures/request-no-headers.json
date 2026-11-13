@@ -6,7 +6,7 @@
         "type": "request",
         "id": 2,
         "method": "DELETE",
-        "url": "boson://app/api/drafts/9",
+        "url": "shell://app/api/drafts/9",
         "headers": {}
       },
       "body": {

@@ -6,7 +6,7 @@
         "type": "request",
         "id": 1,
         "method": "GET",
-        "url": "boson://app/api/bootstrap",
+        "url": "shell://app/api/bootstrap",
         "headers": {
           "accept": [
             "application/json"

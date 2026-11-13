@@ -229,7 +229,7 @@ fn yes() -> bool {
 }
 
 impl Manifest {
-    /// The page origin, e.g. `boson://app`.
+    /// The page origin, e.g. `shell://app`.
     pub fn origin(&self) -> String {
         format!("{}://app", self.scheme)
     }
@@ -338,7 +338,7 @@ mod tests {
         json!({
             "id": "app.example",
             "title": "Example",
-            "scheme": "boson",
+            "scheme": "shell",
             "window": {"width": 800, "height": 600},
             "worker": {"binary": "example-worker"}
         })
@@ -347,8 +347,8 @@ mod tests {
     #[test]
     fn a_minimal_manifest_gets_the_defaults() {
         let m = Manifest::parse(&minimal().to_string()).unwrap();
-        assert_eq!(m.origin(), "boson://app");
-        assert_eq!(m.start_url(), "boson://app/");
+        assert_eq!(m.origin(), "shell://app");
+        assert_eq!(m.start_url(), "shell://app/");
         assert_eq!(m.data_dir(), "app.example");
         assert_eq!(m.worker.ready_timeout_ms, 15_000);
         assert_eq!(m.worker.max_body_bytes, 128 << 20);

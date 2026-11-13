@@ -6,7 +6,7 @@
         "type": "request",
         "id": 1,
         "method": "POST",
-        "url": "boson://app/x",
+        "url": "shell://app/x",
         "headers": {}
       },
       "body": {

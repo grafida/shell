@@ -19,7 +19,7 @@ for (const size of [0, 1, 1023, 1024, 1025, 65536, 1048577, 10 << 20, 50 << 20])
 for (const method of ['GET', 'PATCH', 'DELETE', 'PUT']) {
     const r = await fetch('/api/m?q=%C3%A9', { method, cache: 'no-store' });
     const j = await r.json();
-    check(j.method === method && j.url === 'boson://app/api/m?q=%C3%A9', `method ${method}: ${j.method} ${j.url}`);
+    check(j.method === method && j.url === 'shell://app/api/m?q=%C3%A9', `method ${method}: ${j.method} ${j.url}`);
 }
 
 let r = await fetch('/api/headers', { headers: { 'X-Custom': 'yes' }, cache: 'no-store' });

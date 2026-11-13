@@ -93,48 +93,48 @@ ok("ready-minimal", "A ready frame with only the required members; optional ones
    {"type": "ready", "protocol": 1, "pid": 0})
 
 ok("request-get-empty-body", "A GET with an empty body and one header.",
-   {"type": "request", "id": 1, "method": "GET", "url": "boson://app/api/bootstrap",
+   {"type": "request", "id": 1, "method": "GET", "url": "shell://app/api/bootstrap",
     "headers": {"accept": ["application/json"]}})
 
 ok("request-post-json", "A POST with a JSON body.",
-   {"type": "request", "id": 17, "method": "POST", "url": "boson://app/api/drafts/3",
+   {"type": "request", "id": 17, "method": "POST", "url": "shell://app/api/drafts/3",
     "headers": {"content-type": ["application/json"]}},
    '{"title":"Καλημέρα","state":1}'.encode("utf-8"))
 
 ok("request-no-headers", "An empty header map is valid.",
-   {"type": "request", "id": 2, "method": "DELETE", "url": "boson://app/api/drafts/9", "headers": {}})
+   {"type": "request", "id": 2, "method": "DELETE", "url": "shell://app/api/drafts/9", "headers": {}})
 
 BINARY = bytes(range(256)) + MAGIC + b"\xff\xfe\x00\xc3\x28" + frame(j({"type": "shutdown"}))
 ok("request-binary-body",
    "A body with every byte value, invalid UTF-8, and bytes that look like a frame is opaque data.",
-   {"type": "request", "id": 3, "method": "POST", "url": "boson://app/api/sites/1/media",
+   {"type": "request", "id": 3, "method": "POST", "url": "shell://app/api/sites/1/media",
     "headers": {"content-type": ["application/octet-stream"]}}, BINARY)
 
 LARGE = bytes(i % 251 for i in range((1 << 20) + 1))
 ok("request-large-body",
    "A 1 MiB + 1 body, crossing every pipe and stream buffer size, arrives intact.",
-   {"type": "request", "id": 4, "method": "POST", "url": "boson://app/api/sites/1/media/files",
+   {"type": "request", "id": 4, "method": "POST", "url": "shell://app/api/sites/1/media/files",
     "headers": {"content-type": ["application/json"]}}, LARGE)
 
 ok("request-repeated-headers",
    "Repeated headers keep every value, in order (the reason values are arrays).",
-   {"type": "request", "id": 5, "method": "GET", "url": "boson://app/",
+   {"type": "request", "id": 5, "method": "GET", "url": "shell://app/",
     "headers": {"accept": ["text/html", "application/json"], "x-multi": ["one", "two", "three"],
                 "cookie": ["a=1", "b=2"]}})
 
 ok("request-header-values-edge",
    "An empty string is a valid header value, and non-ASCII values pass through unchanged.",
-   {"type": "request", "id": 6, "method": "GET", "url": "boson://app/",
+   {"type": "request", "id": 6, "method": "GET", "url": "shell://app/",
     "headers": {"x-empty": [""], "x-greek": ["Ελληνικά"], "x-token-chars": ["!#$%&'*+-.^_`|~"]}})
 
 ok("request-header-name-token-chars", "Every tchar is allowed in a lower-case header name.",
-   {"type": "request", "id": 7, "method": "GET", "url": "boson://app/",
+   {"type": "request", "id": 7, "method": "GET", "url": "shell://app/",
     "headers": {"x-a!#$%&'*+-.^_`|~0123456789": ["1"]}})
 
 ok("request-method-case-preserved", "The method is a token whose case is preserved, not normalised.",
-   {"type": "request", "id": 8, "method": "patch", "url": "boson://app/api/drafts/1", "headers": {}})
+   {"type": "request", "id": 8, "method": "patch", "url": "shell://app/api/drafts/1", "headers": {}})
 
-NON_ASCII_URL = "boson://app/api/help/page/Ελληνικά?q=καλημέρα&emoji=🎉"
+NON_ASCII_URL = "shell://app/api/help/page/Ελληνικά?q=καλημέρα&emoji=🎉"
 ok("request-non-ascii-url-raw", "A URL with raw non-ASCII, written as raw UTF-8, is kept verbatim.",
    {"type": "request", "id": 9, "method": "GET", "url": NON_ASCII_URL, "headers": {}})
 
@@ -147,30 +147,30 @@ add("request-non-ascii-url-escaped",
 ok("request-percent-encoded-url",
    "Percent escapes are not decoded by the codec; the URL is passed through verbatim.",
    {"type": "request", "id": 10, "method": "GET",
-    "url": "boson://app/api/sites/1/media?path=a%20b%2Fc&x=%E2%82%AC+%25", "headers": {}})
+    "url": "shell://app/api/sites/1/media?path=a%20b%2Fc&x=%E2%82%AC+%25", "headers": {}})
 
 ok("request-id-zero", "Id 0 is valid.",
-   {"type": "request", "id": 0, "method": "GET", "url": "boson://app/", "headers": {}})
+   {"type": "request", "id": 0, "method": "GET", "url": "shell://app/", "headers": {}})
 ok("request-id-max", "Id 2^53 - 1 is the largest valid id.",
-   {"type": "request", "id": MAX_ID, "method": "GET", "url": "boson://app/", "headers": {}})
+   {"type": "request", "id": MAX_ID, "method": "GET", "url": "shell://app/", "headers": {}})
 
 add("request-unknown-members",
     "Unknown members, nested ones included, are ignored and left out of the normal form.",
     frame('{"x-future":{"nested":[1,2,{"a":null}]},"type":"request","priority":"high",'
-          '"id":11,"method":"GET","url":"boson://app/","headers":{},"trace":true}'),
-    [expect({"type": "request", "id": 11, "method": "GET", "url": "boson://app/", "headers": {}})])
+          '"id":11,"method":"GET","url":"shell://app/","headers":{},"trace":true}'),
+    [expect({"type": "request", "id": 11, "method": "GET", "url": "shell://app/", "headers": {}})])
 
 add("header-whitespace",
     "Insignificant JSON whitespace, leading and trailing included, is allowed.",
     frame(' \n{ "type" : "shutdown" }\r\n\t '),
     [expect({"type": "shutdown"})])
 
-PAD_PREFIX = '{"type":"request","id":12,"method":"GET","url":"boson://app/","headers":{},"pad":"'
+PAD_PREFIX = '{"type":"request","id":12,"method":"GET","url":"shell://app/","headers":{},"pad":"'
 PAD_SUFFIX = '"}'
 PAD = "x" * (MAX_HEADER - len(PAD_PREFIX) - len(PAD_SUFFIX))
 add("request-header-at-size-limit", "A header of exactly 1 MiB is within the limit.",
     frame(PAD_PREFIX + PAD + PAD_SUFFIX),
-    [expect({"type": "request", "id": 12, "method": "GET", "url": "boson://app/", "headers": {}})])
+    [expect({"type": "request", "id": 12, "method": "GET", "url": "shell://app/", "headers": {}})])
 
 RESPONSE = {"type": "response", "id": 17, "status": 200,
             "headers": {"content-type": ["application/json; charset=utf-8"],
@@ -202,8 +202,8 @@ add("empty-stream", "Zero bytes is a clean end of stream with no frames.", b"", 
 
 # --- Valid streams ---------------------------------------------------------------------------
 
-S1 = {"type": "request", "id": 1, "method": "GET", "url": "boson://app/api/bootstrap", "headers": {}}
-S2 = {"type": "request", "id": 2, "method": "POST", "url": "boson://app/api/settings/language",
+S1 = {"type": "request", "id": 1, "method": "GET", "url": "shell://app/api/bootstrap", "headers": {}}
+S2 = {"type": "request", "id": 2, "method": "POST", "url": "shell://app/api/settings/language",
       "headers": {"content-type": ["application/json"]}}
 S2_BODY = b'{"language":"el-GR"}'
 add("stream-shell-to-worker", "What a shell writes: two requests, then shutdown.",
@@ -220,7 +220,7 @@ add("stream-worker-to-shell", "What a worker writes: ready, then two responses."
 # --- Truncation: EOF inside a frame is an error, never a wait -------------------------------
 
 SHUT = frame(j({"type": "shutdown"}))
-REQ = frame(j({"type": "request", "id": 1, "method": "POST", "url": "boson://app/x", "headers": {}}),
+REQ = frame(j({"type": "request", "id": 1, "method": "POST", "url": "shell://app/x", "headers": {}}),
             b"0123456789")
 bad("error-truncated-magic", "EOF after 2 of the 4 magic bytes.", b"GS", "truncated")
 bad("error-truncated-header-length", "EOF inside the header length.", MAGIC + b"\x10\x00", "truncated")
@@ -229,7 +229,7 @@ bad("error-truncated-body-length", "EOF inside the body length.", SHUT[:-5], "tr
 bad("error-truncated-body", "EOF after 3 of 10 body bytes.", REQ[:-7], "truncated")
 bad("error-truncated-second-frame", "A complete frame, then EOF inside the next one.",
     REQ + REQ[:10], "truncated",
-    [expect({"type": "request", "id": 1, "method": "POST", "url": "boson://app/x", "headers": {}},
+    [expect({"type": "request", "id": 1, "method": "POST", "url": "shell://app/x", "headers": {}},
             b"0123456789")])
 
 # --- Lost sync: stop at once, never scan for the next magic ----------------------------------
@@ -248,7 +248,7 @@ bad("error-stray-output-after-frame",
 bad("error-header-too-large", "H = 1 MiB + 1, with nothing after it.",
     MAGIC + u32(MAX_HEADER + 1), "header_too_large")
 bad("error-header-length-u32-max", "H = 2^32 - 1.", MAGIC + u32(0xFFFFFFFF), "header_too_large")
-RQH = j({"type": "request", "id": 1, "method": "POST", "url": "boson://app/x", "headers": {}})
+RQH = j({"type": "request", "id": 1, "method": "POST", "url": "shell://app/x", "headers": {}})
 bad("error-body-too-large", "B = 128 MiB + 1, with no body bytes after it.",
     frame(RQH, body_len=MAX_BODY + 1), "body_too_large")
 bad("error-body-length-u64-max", "B = 2^64 - 1 (negative if read as a signed 64-bit integer).",
@@ -263,10 +263,10 @@ bad("error-header-not-json", "A header that is not JSON.", frame("{type: shutdow
 bad("error-header-trailing-garbage", "Trailing non-whitespace after the JSON value.",
     frame('{"type":"shutdown"} x'), "bad_json")
 bad("error-header-invalid-utf8", "Invalid UTF-8 inside a JSON string.",
-    frame(b'{"type":"request","id":1,"method":"GET","url":"boson://app/\xc3\x28","headers":{}}'),
+    frame(b'{"type":"request","id":1,"method":"GET","url":"shell://app/\xc3\x28","headers":{}}'),
     "bad_json")
 bad("error-header-lone-surrogate", "An unpaired UTF-16 surrogate escape is not a Unicode string.",
-    frame('{"type":"request","id":1,"method":"GET","url":"boson://app/\\ud800","headers":{}}'),
+    frame('{"type":"request","id":1,"method":"GET","url":"shell://app/\\ud800","headers":{}}'),
     "bad_json")
 bad("error-bad-json-before-body",
     "A malformed header is reported as soon as it has arrived, before any body length is read.",
@@ -302,7 +302,7 @@ bad("error-shutdown-huge-body",
 
 
 def req(**overrides):
-    base = {"type": "request", "id": 1, "method": "GET", "url": "boson://app/", "headers": {}}
+    base = {"type": "request", "id": 1, "method": "GET", "url": "shell://app/", "headers": {}}
     base.update(overrides)
     return base
 
@@ -319,9 +319,9 @@ bad("error-request-id-u64-max", "Id 2^64 - 1 is a u64 but beyond the JSON-safe r
     frame(j(req(id=(1 << 64) - 1))), "bad_header")
 bad("error-request-id-beyond-u64", "Id 2^64 is not even a u64.", frame(j(req(id=1 << 64))), "bad_header")
 bad("error-request-id-float", "17.0 is not an integer on the wire.",
-    frame('{"type":"request","id":17.0,"method":"GET","url":"boson://app/","headers":{}}'), "bad_header")
+    frame('{"type":"request","id":17.0,"method":"GET","url":"shell://app/","headers":{}}'), "bad_header")
 bad("error-request-id-exponent", "1e2 is not an integer on the wire.",
-    frame('{"type":"request","id":1e2,"method":"GET","url":"boson://app/","headers":{}}'), "bad_header")
+    frame('{"type":"request","id":1e2,"method":"GET","url":"shell://app/","headers":{}}'), "bad_header")
 bad("error-request-id-string", "An id written as a string.", frame(j(req(id="17"))), "bad_header")
 bad("error-request-method-missing", "request without method.",
     frame(j(without(req(), "method"))), "bad_header")

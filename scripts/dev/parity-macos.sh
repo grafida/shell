@@ -75,7 +75,7 @@ start_shell() { # app_dir app_id [extra env...]
     done
     SHELL_PID=$(python3 -I -c 'import json,sys; print(json.load(open(sys.argv[1]))["pid"])' "$channel")
     # The app's own document, not the blank one the window shows until the worker is ready.
-    $CLIENT wait 'return location.origin === "boson://app" && document.readyState === "complete"' 60 >/dev/null
+    $CLIENT wait 'return location.origin === "shell://app" && document.readyState === "complete"' 60 >/dev/null
 }
 
 stop_shell() {
@@ -342,7 +342,7 @@ else
     answer=$($CLIENT eval-file "$SHELL_DIR/scripts/dev/parity/grafida.js")
     opened=$($CLIENT opened | python3 -I -c 'import json,sys; print(json.load(sys.stdin)["result"])')
     record "$( [ "$(ok_field <<<"$answer")" = yes ] && echo PASS || echo FAIL)" \
-        "Grafida: SPA loads at boson://app; file open (image/markdown), cancel, select folder → export" \
+        "Grafida: SPA loads at shell://app; file open (image/markdown), cancel, select folder → export" \
         "$(ok_field <<<"$answer"); export: $(find "$WORK/exports" -type f -exec basename {} \; | head -1)"
     record "$( [ "$opened" != "[]" ] && echo PASS || echo FAIL)" \
         "Grafida: Help screen renders the bundled docs; an external Help link → OS browser" "to the browser: $opened"
@@ -393,7 +393,7 @@ PY
     $CLIENT drop "$dx" "$dy" "$WORK/dropped.png" >/dev/null
     sleep 2
     dropped=$($CLIENT eval 'return [...State.tinyMCEEditor.getBody().querySelectorAll("img[data-grafida-media-id]")].map(i => i.getAttribute("src"))')
-    record "$(grep -q 'boson://app/api/media/' <<<"$dropped" && echo PASS || echo FAIL)" \
+    record "$(grep -q 'shell://app/api/media/' <<<"$dropped" && echo PASS || echo FAIL)" \
         "Grafida: an image file dropped on the editor is inserted as offline media (delivered as in a real drop)" \
         "$(tr -d '\n ' <<<"$dropped" | cut -c1-120)"
     # Leaving by script keeps the keyboard focus in the hidden editor's iframe, whose caret then

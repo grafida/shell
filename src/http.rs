@@ -94,11 +94,11 @@ mod tests {
 
     #[test]
     fn path_strips_origin_query_and_fragment() {
-        assert_eq!(req("boson://app/api/x?y=1#z").path(), "/api/x");
-        assert_eq!(req("boson://app").path(), "/");
-        assert_eq!(req("boson://app?x").path(), "/");
-        assert_eq!(req("boson://app/_native/info").path(), "/_native/info");
-        assert_eq!(req("boson://app/a%2Fb").path(), "/a%2Fb");
+        assert_eq!(req("shell://app/api/x?y=1#z").path(), "/api/x");
+        assert_eq!(req("shell://app").path(), "/");
+        assert_eq!(req("shell://app?x").path(), "/");
+        assert_eq!(req("shell://app/_native/info").path(), "/_native/info");
+        assert_eq!(req("shell://app/a%2Fb").path(), "/a%2Fb");
     }
 
     #[test]

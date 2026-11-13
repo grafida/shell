@@ -1,7 +1,7 @@
 {
     "id": "test.shell.silent",
     "title": "Shell silent-worker test",
-    "scheme": "boson",
+    "scheme": "shell",
     "window": {"width": 600, "height": 400},
     "worker": {"binary": "unused", "readyTimeoutMs": 2000},
     "dev": {"worker": ["python3", "-I", "../../workers/fake_worker.py", "silent"]},

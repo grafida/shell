@@ -95,17 +95,17 @@ pub fn for_main_frame_response(url: &str, origin: &str) -> Decision {
 mod tests {
     use super::*;
 
-    const O: &str = "boson://app";
+    const O: &str = "shell://app";
 
     #[test]
     fn classification() {
-        assert_eq!(classify("boson://app/", O), Target::App);
-        assert_eq!(classify("boson://app", O), Target::App);
-        assert_eq!(classify("boson://app?x", O), Target::App);
-        assert_eq!(classify("boson://app/api/x#y", O), Target::App);
-        assert_eq!(classify("boson://apple/", O), Target::Other);
-        assert_eq!(classify("boson://app.evil/", O), Target::Other);
-        assert_eq!(classify("boson://other/", O), Target::Other);
+        assert_eq!(classify("shell://app/", O), Target::App);
+        assert_eq!(classify("shell://app", O), Target::App);
+        assert_eq!(classify("shell://app?x", O), Target::App);
+        assert_eq!(classify("shell://app/api/x#y", O), Target::App);
+        assert_eq!(classify("shell://apple/", O), Target::Other);
+        assert_eq!(classify("shell://app.evil/", O), Target::Other);
+        assert_eq!(classify("shell://other/", O), Target::Other);
         assert_eq!(classify("about:blank", O), Target::Blank);
         assert_eq!(classify("about:srcdoc", O), Target::Blank);
         assert_eq!(classify("https://grafida.app/", O), Target::Web);
@@ -123,7 +123,7 @@ mod tests {
         );
         assert_eq!(for_navigation("mailto:a@b", O, true), Decision::Refuse);
         assert_eq!(
-            for_navigation("boson://app/#help", O, true),
+            for_navigation("shell://app/#help", O, true),
             Decision::Allow
         );
     }
@@ -133,7 +133,7 @@ mod tests {
         let embed = "https://www.youtube.com/embed/xyz";
         assert_eq!(for_navigation(embed, O, false), Decision::Allow);
         assert_eq!(for_main_frame_response(embed, O), Decision::Refuse);
-        assert_eq!(for_main_frame_response("boson://app/", O), Decision::Allow);
+        assert_eq!(for_main_frame_response("shell://app/", O), Decision::Allow);
         assert_eq!(
             for_navigation("file:///etc/passwd", O, false),
             Decision::Refuse
@@ -147,14 +147,14 @@ mod tests {
             Decision::OpenExternally("https://x/".into())
         );
         assert_eq!(for_new_window("https://x/", O, false), Decision::Refuse);
-        assert_eq!(for_new_window("boson://app/", O, true), Decision::Refuse);
+        assert_eq!(for_new_window("shell://app/", O, true), Decision::Refuse);
         assert_eq!(for_new_window("about:blank", O, true), Decision::Refuse);
     }
 
     #[test]
     fn the_main_frame_never_loads_anything_off_origin() {
         assert_eq!(
-            for_main_frame_navigation("boson://app/x", O, false),
+            for_main_frame_navigation("shell://app/x", O, false),
             Decision::Allow
         );
         assert_eq!(
@@ -175,7 +175,7 @@ mod tests {
             Decision::Refuse
         );
         assert_eq!(
-            for_main_frame_navigation("boson://apple/", O, true),
+            for_main_frame_navigation("shell://apple/", O, true),
             Decision::Refuse
         );
     }

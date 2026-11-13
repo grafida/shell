@@ -7,7 +7,7 @@ use std::{path::Path, process::Command};
 
 fn manifest(worker: &str) -> String {
     format!(
-        r#"{{"id":"test.shell.packaged","title":"Packaged test","scheme":"boson",
+        r#"{{"id":"test.shell.packaged","title":"Packaged test","scheme": "shell",
         "window":{{"width":10,"height":10}},"worker":{{"binary":"{worker}"}}}}"#
     )
 }

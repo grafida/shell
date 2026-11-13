@@ -79,7 +79,7 @@ start_shell() { # program app_id keep(0|1) [args…]; WINVM_ENV for variables
     TUNNEL_DIR=$("$W" tunnel "$VM" "$id")
     export XDG_RUNTIME_DIR=$TUNNEL_DIR
     # The app's own document, not the blank one the window shows until the worker is ready.
-    $CLIENT wait 'return location.origin === "boson://app" && document.readyState === "complete"' 60 >/dev/null
+    $CLIENT wait 'return location.origin === "shell://app" && document.readyState === "complete"' 60 >/dev/null
 }
 
 stop_shell() { # through the shell's own stop path
@@ -250,7 +250,7 @@ answer=$($CLIENT eval-file "$SHELL_DIR/scripts/dev/parity/grafida.js")
 opened=$($CLIENT opened | python3 -I -c 'import json,sys; print(json.load(sys.stdin)["result"])')
 exports=$(gps "(Get-ChildItem C:\\winvm\\files\\exports | Select -First 1).Name")
 record "$( [ "$(ok_field <<<"$answer")" = yes ] && [ -n "$exports" ] && echo PASS || echo FAIL)" \
-    "Grafida: SPA loads at boson://app; file open (image/markdown), cancel, select folder → export" \
+    "Grafida: SPA loads at shell://app; file open (image/markdown), cancel, select folder → export" \
     "$(ok_field <<<"$answer"); export: $exports"
 record "$( [ "$opened" != "[]" ] && echo PASS || echo FAIL)" \
     "Grafida: Help screen renders the bundled docs; an external Help link → OS browser" "to the browser: $opened"
@@ -373,15 +373,15 @@ $CLIENT drop "$dx" "$dy" 'C:\winvm\files\dropped.png' >/dev/null
 sleep 2
 # TinyMCE's own drop handling inserts the image (no data-grafida-media-id, which only Grafida's
 # shell:drop path adds); publishing uploads every offline image by its URL, tagged or not.
-dropped=$($CLIENT eval 'return [...State.tinyMCEEditor.getBody().querySelectorAll("img[src^=\"boson://app/api/media/\"]")].map(i => i.getAttribute("src"))')
-record "$(grep -q 'boson://app/api/media/' <<<"$dropped" && echo PASS || echo FAIL)" \
+dropped=$($CLIENT eval 'return [...State.tinyMCEEditor.getBody().querySelectorAll("img[src^=\"shell://app/api/media/\"]")].map(i => i.getAttribute("src"))')
+record "$(grep -q 'shell://app/api/media/' <<<"$dropped" && echo PASS || echo FAIL)" \
     "Grafida: an image file dropped on the editor is inserted as offline media (File objects, as WebView2 delivers a drop)" \
     "$(tr -d '\n ' <<<"$dropped" | cut -c1-120)"
 
 # A real drag of a file out of File Explorer onto the editor (an OLE drop, which WebView2 turns
 # into the page's drop event).
 $CLIENT eval 'return __fresh("<p>drop here</p>")' >/dev/null
-images() { $CLIENT eval 'return State.tinyMCEEditor.getBody().querySelectorAll("img[src^=\"boson://app/api/media/\"]").length' | python3 -I -c 'import json,sys; print(json.load(sys.stdin).get("result"))'; }
+images() { $CLIENT eval 'return State.tinyMCEEditor.getBody().querySelectorAll("img[src^=\"shell://app/api/media/\"]").length' | python3 -I -c 'import json,sys; print(json.load(sys.stdin).get("result"))'; }
 before=$(images)
 from=$(desk explorer 'C:\winvm\files\dropped.png' | grep -o 'at [0-9]* [0-9]*')
 read -r px py < <($CLIENT eval 'const f = State.tinyMCEEditor.iframeElement.getBoundingClientRect(); return [Math.round(f.left + f.width * 0.8), Math.round(f.top + 120)]' | python3 -I -c 'import json,sys; print(*json.load(sys.stdin)["result"])')

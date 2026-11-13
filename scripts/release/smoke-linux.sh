@@ -35,7 +35,7 @@ cat > "$APP/shell.json" <<'JSON'
 {
     "id": "test.shell.smoke",
     "title": "Shell smoke test",
-    "scheme": "boson",
+    "scheme": "shell",
     "window": {"width": 640, "height": 480},
     "worker": {"binary": "smoke-worker", "readyTimeoutMs": 30000},
     "logDir": "logs"
@@ -67,7 +67,7 @@ log="$APP/logs/shell.log"
 [ -f "$log" ] || fail "no log at $log"
 grep -q 'worker ready' "$log" || fail "the worker never became ready"
 report="$(grep -o 'smoke: origin=[^ ]* post=[^ ]*' "$log" || true)"
-[ "$report" = "smoke: origin=boson://app post=200:5" ] || fail "page report: '${report:-none}'"
+[ "$report" = "smoke: origin=shell://app post=200:5" ] || fail "page report: '${report:-none}'"
 if pgrep -f "fake_worker.py page" >/dev/null; then fail "a worker outlived the shell"; fi
 
 echo "ok: smoke test passed in ${took}s ($report)"

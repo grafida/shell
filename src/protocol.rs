@@ -447,7 +447,7 @@ mod tests {
             header: Header::Request {
                 id: 1,
                 method: "GET".into(),
-                url: "boson://app/".into(),
+                url: "shell://app/".into(),
                 headers,
             },
             body: Vec::new(),

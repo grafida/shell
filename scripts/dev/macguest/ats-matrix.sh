@@ -53,7 +53,7 @@ for variant in shipped:yes without-key:no; do
     rm -f "$TMPDIR/app.grafida.automation.json"
     env HOME="$W/home" CFFIXED_USER_HOME="$W/home" "$app/Contents/MacOS/Grafida" --automation > "$W/$name.log" 2>&1 & pid=$!
     for _ in $(seq 1 100); do [ -f "$TMPDIR/app.grafida.automation.json" ] && break; sleep 0.1; done
-    $CLIENT wait 'return location.origin === "boson://app" && document.readyState === "complete"' 60 >/dev/null
+    $CLIENT wait 'return location.origin === "shell://app" && document.readyState === "complete"' 60 >/dev/null
     ats=$(plutil -extract NSAppTransportSecurity.NSAllowsArbitraryLoadsInWebContent raw -o - "$app/Contents/Info.plist" 2>/dev/null) || ats=absent
     for u in "${urls[@]}"; do
         r=$($CLIENT eval "try { await fetch('$u', {mode: 'no-cors', cache: 'no-store'}); return 'loaded'; } catch (e) { return 'blocked: ' + e.message; }" | python3 -I -c 'import json,sys; print(json.load(sys.stdin).get("result"))')

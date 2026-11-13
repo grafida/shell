@@ -291,7 +291,7 @@ pub(crate) mod tests {
         let host = Arc::new(FakeHost::default());
         let echo = Arc::new(Echo::default());
         let bridge = Bridge::new(
-            "boson://app".into(),
+            "shell://app".into(),
             1 << 20,
             vec!["/api/".into()],
             host.clone(),
@@ -315,7 +315,7 @@ pub(crate) mod tests {
         bridge.handle(
             Request {
                 method: method.into(),
-                url: format!("boson://app{path}"),
+                url: format!("shell://app{path}"),
                 headers: map,
                 body: body.as_bytes().to_vec(),
             },
@@ -349,7 +349,7 @@ pub(crate) mod tests {
             }
         }
         let b = Bridge::new(
-            "boson://app".into(),
+            "shell://app".into(),
             1 << 20,
             vec!["/api/".into()],
             Arc::new(FakeHost::default()),
@@ -362,14 +362,14 @@ pub(crate) mod tests {
     #[test]
     fn a_foreign_origin_never_reaches_the_worker() {
         let (b, _, echo) = bridge();
-        for origin in ["https://evil.example", "null", "boson://apple"] {
+        for origin in ["https://evil.example", "null", "shell://apple"] {
             let r = call(&b, "POST", "/api/sites", &[("origin", origin)], "{}");
             assert_eq!(r.status, 403, "{origin}");
             assert_eq!(json(&r)["error"], "cross_origin");
         }
         assert!(echo.seen.lock().unwrap().is_empty());
         assert_eq!(
-            call(&b, "POST", "/api/sites", &[("origin", "boson://app")], "{}").status,
+            call(&b, "POST", "/api/sites", &[("origin", "shell://app")], "{}").status,
             200
         );
     }

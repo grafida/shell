@@ -1,7 +1,7 @@
 {
     "id": "test.shell.echo",
     "title": "Shell echo test",
-    "scheme": "boson",
+    "scheme": "shell",
     "noStorePaths": ["/api/"],
     "window": {"width": 900, "height": 600},
     "worker": {"binary": "unused", "maxBodyBytes": 62914560},

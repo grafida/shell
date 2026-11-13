@@ -174,7 +174,7 @@ impl Harness {
 
     /// The pid of the worker currently answering (fake worker only).
     pub fn pid(&self) -> u32 {
-        let r = self.request("GET", "boson://app/pid", &[], Vec::new());
+        let r = self.request("GET", "shell://app/pid", &[], Vec::new());
         let v: serde_json::Value = serde_json::from_slice(&r.body).unwrap();
         v["pid"].as_u64().unwrap() as u32
     }
@@ -284,7 +284,7 @@ pub fn orphan_stub() {
     h.notice();
     let pid = h.pid();
     let _in_flight = std::env::var(STUB_BUSY_ENV).ok().map(|ms| {
-        let pending = h.submit("GET", &format!("boson://app/sleep?ms={ms}"));
+        let pending = h.submit("GET", &format!("shell://app/sleep?ms={ms}"));
         // Long enough for the worker to have read the request and started on it.
         std::thread::sleep(Duration::from_millis(300));
         pending

@@ -1,3 +1,7 @@
+shell 0.4.2
+================================================================================
+~ Docs, protocol fixtures and examples use the `shell://` scheme; `boson://` is gone (the manifest names the scheme)
+
 shell 0.4.1
 ================================================================================
 - Linux, KDE Plasma: the title bar stayed light in a dark app; KWin is now told the colour scheme (Wayland and X11)

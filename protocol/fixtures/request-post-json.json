@@ -6,7 +6,7 @@
         "type": "request",
         "id": 17,
         "method": "POST",
-        "url": "boson://app/api/drafts/3",
+        "url": "shell://app/api/drafts/3",
         "headers": {
           "content-type": [
             "application/json"

@@ -21,7 +21,7 @@ fn requests_are_answered_with_repeated_headers_and_bodies_intact() {
         let body: Vec<u8> = (0..size).map(|i| (i * 31 % 251) as u8).collect();
         let r = h.request(
             "POST",
-            "boson://app/api/echo?x=%C3%A9",
+            "shell://app/api/echo?x=%C3%A9",
             &[("x-a", "1"), ("x-a", "2")],
             body.clone(),
         );
@@ -31,7 +31,7 @@ fn requests_are_answered_with_repeated_headers_and_bodies_intact() {
         assert_eq!(json["bodyLength"], size);
         assert_eq!(json["bodySha256"], common::sha256(&body));
         assert_eq!(json["headers"]["x-a"], serde_json::json!(["1", "2"]));
-        assert_eq!(json["url"], "boson://app/api/echo?x=%C3%A9");
+        assert_eq!(json["url"], "shell://app/api/echo?x=%C3%A9");
         assert_eq!(json["maxBody"], (128u64 << 20).to_string());
     }
 }
@@ -42,7 +42,7 @@ fn a_crash_answers_the_pending_request_with_502_and_the_worker_comes_back() {
     h.notice();
 
     let before = h.pid();
-    let r = h.request("GET", "boson://app/crash", &[], vec![]);
+    let r = h.request("GET", "shell://app/crash", &[], vec![]);
     assert_eq!(r.status, 502);
     assert_eq!(
         serde_json::from_slice::<Value>(&r.body).unwrap()["error"],
@@ -69,8 +69,8 @@ fn an_external_kill_is_a_crash_too() {
 fn requests_queued_during_a_restart_are_served_by_the_new_worker() {
     let h = Harness::start(fake("echo"));
     h.notice();
-    let crash = h.submit("GET", "boson://app/crash");
-    let after = h.submit("GET", "boson://app/after");
+    let crash = h.submit("GET", "shell://app/crash");
+    let after = h.submit("GET", "shell://app/after");
     assert_eq!(
         crash.recv_timeout(Duration::from_secs(10)).unwrap().status,
         502
@@ -85,18 +85,18 @@ fn requests_queued_during_a_restart_are_served_by_the_new_worker() {
 fn one_crash_too_many_in_the_window_is_fatal_with_the_stderr_tail() {
     let h = Harness::start(fake("echo"));
     h.notice();
-    h.request("GET", "boson://app/stderr?lines=45", &[], vec![]);
+    h.request("GET", "shell://app/stderr?lines=45", &[], vec![]);
 
     for _ in 0..3 {
         assert_eq!(
-            h.request("GET", "boson://app/crash", &[], vec![]).status,
+            h.request("GET", "shell://app/crash", &[], vec![]).status,
             502
         );
         assert!(matches!(h.notice(), Notice::Restarting { .. }));
         assert!(matches!(h.notice(), Notice::Ready { .. }));
     }
     assert_eq!(
-        h.request("GET", "boson://app/crash", &[], vec![]).status,
+        h.request("GET", "shell://app/crash", &[], vec![]).status,
         502
     );
 
@@ -116,7 +116,7 @@ fn one_crash_too_many_in_the_window_is_fatal_with_the_stderr_tail() {
     );
 
     // From now on nothing reaches a worker.
-    assert_eq!(h.request("GET", "boson://app/x", &[], vec![]).status, 503);
+    assert_eq!(h.request("GET", "shell://app/x", &[], vec![]).status, 503);
 }
 
 #[test]
@@ -222,8 +222,8 @@ fn a_slow_request_does_not_block_submission() {
     let h = Harness::start(fake("echo"));
     h.notice();
     let started = Instant::now();
-    let slow = h.submit("GET", "boson://app/sleep?ms=800");
-    let next = h.submit("GET", "boson://app/next");
+    let slow = h.submit("GET", "shell://app/sleep?ms=800");
+    let next = h.submit("GET", "shell://app/next");
     // Both submits returned at once; the worker serves them in order.
     assert!(started.elapsed() < Duration::from_millis(100));
     assert_eq!(

@@ -6,7 +6,7 @@
         "type": "request",
         "id": 5,
         "method": "GET",
-        "url": "boson://app/",
+        "url": "shell://app/",
         "headers": {
           "accept": [
             "text/html",

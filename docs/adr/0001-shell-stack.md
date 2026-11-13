@@ -9,9 +9,13 @@ Grafida replaces Boson with a self-owned native shell (window, webview, custom s
 supervisor) talking to a PHP worker over framed stdio. This record fixes the implementation stack,
 the deployment floors, the architectures and the licence of the reusable repositories.
 
-The requirement behind the stack is that the page origin is **byte-identical, `boson://app`, on every
-platform**. Stored draft HTML and `.grafida` exports embed `boson://app/api/media/…` URLs,
+The requirement behind the stack is that the page origin is **byte-identical, `shell://app`, on every
+platform**. Stored draft HTML and `.grafida` exports embed `shell://app/api/media/…` URLs,
 `localStorage` is per-origin, and users have configured local AI endpoints' CORS for that origin.
+
+*Amended:* the scheme was `boson://` under Boson and in the shell's first releases; it is now `shell://`.
+The shell has no default scheme (the manifest names it), so nothing in the binary changed. Grafida rewrites
+stored `boson://app` URLs on upgrade and still accepts them in older `.grafida` exports.
 
 ## Decisions
 
@@ -52,8 +56,8 @@ The rules that follow, on every platform:
   are parked in a main-thread map; answers from other threads are posted back and completed on the
   main thread; `stopURLSchemeTask:` is honoured and a late answer to an aborted task is dropped.
 - **Windows:** the shell creates the WebView2 environment with a
-  `CoreWebView2CustomSchemeRegistration("boson")` (`TreatAsSecure`, `HasAuthorityComponent`,
-  `AllowedOrigins = ["boson://app"]`) and handles `WebResourceRequested` for `boson://*` itself,
+  `CoreWebView2CustomSchemeRegistration("shell")` (`TreatAsSecure`, `HasAuthorityComponent`,
+  `AllowedOrigins = ["shell://app"]`) and handles `WebResourceRequested` for `shell://*` itself,
   with the event args and deferral parked in a UI-thread map. The CRT is linked statically. A
   **release** build drops the `WEBVIEW2_*` variables that change the browser, so no debugging port can
   be injected.
@@ -106,7 +110,7 @@ What the stack was measured to do, and what the code relies on.
 
 | | Linux (WebKitGTK 2.54) | macOS 12.6 → 27.2 (Safari 15.6 → 17.6) | Windows 10 22H2 / 11 (WebView2 157) |
 |---|---|---|---|
-| `location.origin` | `boson://app` | `boson://app` | `boson://app` |
+| `location.origin` | `shell://app` | `shell://app` | `shell://app` |
 | Secure context | yes | yes | yes |
 | `POST` bodies, 0 B → 50 MiB, length + SHA-256 | intact, 142 ms for 50 MiB | intact, 127–281 ms | intact, 624–789 ms |
 | Token flow / forged token / injected `X-Shell-File-Path` | 200 / 400 / 400, stripped | the same | the same |

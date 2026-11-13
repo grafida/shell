@@ -34,7 +34,7 @@ cat > "$APP/Resources/shell.json" <<'JSON'
 {
     "id": "test.shell.smoke",
     "title": "Shell smoke test",
-    "scheme": "boson",
+    "scheme": "shell",
     "window": {"width": 640, "height": 480},
     "worker": {"binary": "smoke-worker", "readyTimeoutMs": 30000},
     "logDir": "logs"
@@ -60,7 +60,7 @@ grep -q "starting test.shell.smoke from .*/Smoke.app/Contents/Resources/shell.js
     || fail "the manifest was not found in ../Resources"
 grep -q 'worker ready' "$LOG" || fail "the worker never became ready"
 report="$(grep -o 'smoke: origin=[^ ]* post=[^ ]*' "$LOG" || true)"
-[ "$report" = "smoke: origin=boson://app post=200:5" ] || fail "page report: '${report:-none}'"
+[ "$report" = "smoke: origin=shell://app post=200:5" ] || fail "page report: '${report:-none}'"
 if pgrep -f "fake_worker.py page" >/dev/null; then fail "a worker outlived the shell"; fi
 
 echo "ok: smoke test passed in ${took}s ($report)"

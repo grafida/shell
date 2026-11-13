@@ -6,7 +6,7 @@
         "type": "request",
         "id": 1,
         "method": "GET",
-        "url": "boson://app/api/bootstrap",
+        "url": "shell://app/api/bootstrap",
         "headers": {}
       },
       "body": {
@@ -20,7 +20,7 @@
         "type": "request",
         "id": 2,
         "method": "POST",
-        "url": "boson://app/api/settings/language",
+        "url": "shell://app/api/settings/language",
         "headers": {
           "content-type": [
             "application/json"

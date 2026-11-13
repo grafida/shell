@@ -6,7 +6,7 @@
         "type": "request",
         "id": 10,
         "method": "GET",
-        "url": "boson://app/api/sites/1/media?path=a%20b%2Fc&x=%E2%82%AC+%25",
+        "url": "shell://app/api/sites/1/media?path=a%20b%2Fc&x=%E2%82%AC+%25",
         "headers": {}
       },
       "body": {

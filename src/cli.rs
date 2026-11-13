@@ -357,7 +357,7 @@ mod tests {
         format!("t-worker{}", std::env::consts::EXE_SUFFIX)
     }
 
-    const MANIFEST: &str = r#"{"id":"app.t","title":"T","scheme":"boson",
+    const MANIFEST: &str = r#"{"id":"app.t","title":"T","scheme": "shell",
         "window":{"width":10,"height":10},"worker":{"binary":"t-worker","args":["-q"]},
         "dev":{"worker":["php","bin/worker.php"]}}"#;
 
@@ -435,7 +435,7 @@ mod tests {
     #[test]
     fn dev_mode_without_a_dev_worker_is_an_error() {
         let dir = app_dir(
-            r#"{"id":"app.t","title":"T","scheme":"boson","window":{"width":10,"height":10},"worker":{"binary":"w"}}"#,
+            r#"{"id":"app.t","title":"T","scheme": "shell","window":{"width":10,"height":10},"worker":{"binary":"w"}}"#,
         );
         let o = Options {
             dev: Some(dir.clone()),

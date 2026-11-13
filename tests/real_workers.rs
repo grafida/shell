@@ -58,7 +58,7 @@ fn shell_php_echo_worker() {
         let body: Vec<u8> = (0..size).map(|i| (i * 7 % 256) as u8).collect();
         let r = h.request(
             "POST",
-            "boson://app/api/echo?q=%E2%9C%93",
+            "shell://app/api/echo?q=%E2%9C%93",
             &[("x-a", "1"), ("x-a", "2")],
             body.clone(),
         );
@@ -71,7 +71,7 @@ fn shell_php_echo_worker() {
     }
 
     // Stray output stays off the frame stream and reaches the log.
-    let r = h.request("GET", "boson://app/stray", &[], vec![]);
+    let r = h.request("GET", "shell://app/stray", &[], vec![]);
     assert_eq!(r.status, 200);
     assert_eq!(r.body, b"ok");
     let logged: Vec<_> = h.log.try_iter().collect();
@@ -84,11 +84,11 @@ fn shell_php_echo_worker() {
 
     // A handler that throws is a 500, not a crash.
     assert_eq!(
-        h.request("GET", "boson://app/throw", &[], vec![]).status,
+        h.request("GET", "shell://app/throw", &[], vec![]).status,
         500
     );
     assert_eq!(
-        h.request("GET", "boson://app/again", &[], vec![]).status,
+        h.request("GET", "shell://app/again", &[], vec![]).status,
         200
     );
 }
@@ -116,7 +116,7 @@ fn grafida_worker() {
     };
     assert_eq!(info.app.as_deref(), Some("grafida"));
 
-    let r = h.request("GET", "boson://app/api/bootstrap", &[], vec![]);
+    let r = h.request("GET", "shell://app/api/bootstrap", &[], vec![]);
     assert_eq!(r.status, 200, "{}", String::from_utf8_lossy(&r.body));
     let json: Value = serde_json::from_slice(&r.body).unwrap();
     assert_eq!(json["ok"], true);
@@ -126,7 +126,7 @@ fn grafida_worker() {
             .any(|v| v.contains("no-store"))
     );
 
-    let r = h.request("GET", "boson://app/", &[], vec![]);
+    let r = h.request("GET", "shell://app/", &[], vec![]);
     assert_eq!(r.status, 200);
     assert!(String::from_utf8_lossy(&r.body).contains("<html"));
 

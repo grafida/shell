@@ -9,7 +9,7 @@ Moved from the root `CLAUDE.md`; same rules, loaded on demand.
   security manager: secure **and** CORS-enabled) → webview → load the start URL after `ready`.
   The sandbox is verifiably on (`WebKitWebProcess`
   under `bwrap`); dialogs run in the UI process, outside it.
-- **Every `boson://` request is parked in a UI-thread map and completed from it on the UI thread**
+- **Every `shell://` request is parked in a UI-thread map and completed from it on the UI thread**
   (`linux/scheme.rs`). The body is read asynchronously on the main loop in 1 MiB chunks **to EOF**,
   and reading stops past `maxBodyBytes` → `413`. The responder only posts `(id, response)` through
   the tao event loop. `content-length`/`transfer-encoding` from the worker are dropped (B is the

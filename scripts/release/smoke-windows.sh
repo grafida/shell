@@ -42,7 +42,7 @@ cat > "$APP/shell.json" <<'JSON'
 {
     "id": "test.shell.smoke",
     "title": "Shell smoke test",
-    "scheme": "boson",
+    "scheme": "shell",
     "window": {"width": 640, "height": 480},
     "worker": {"binary": "smoke-worker.cmd", "readyTimeoutMs": 30000},
     "logDir": "logs"
@@ -60,7 +60,7 @@ took=$(( $(date +%s) - start ))
 grep -q 'starting test.shell.smoke from .*shell.json' "$LOG" || fail "the manifest was not found beside the shell"
 grep -q 'worker ready' "$LOG" || fail "the worker never became ready"
 report="$(grep -o 'smoke: origin=[^ ]* post=[^ ]*' "$LOG" || true)"
-[ "$report" = "smoke: origin=boson://app post=200:5" ] || fail "page report: '${report:-none}'"
+[ "$report" = "smoke: origin=shell://app post=200:5" ] || fail "page report: '${report:-none}'"
 grep -q 'worker stopped' "$LOG" || fail "the worker was not stopped cleanly"
 if tasklist //FI "IMAGENAME eq python.exe" //FO CSV //V 2>/dev/null | grep -q 'fake_worker'; then
     fail "a worker outlived the shell"

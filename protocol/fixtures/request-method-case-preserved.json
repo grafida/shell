@@ -6,7 +6,7 @@
         "type": "request",
         "id": 8,
         "method": "patch",
-        "url": "boson://app/api/drafts/1",
+        "url": "shell://app/api/drafts/1",
         "headers": {}
       },
       "body": {

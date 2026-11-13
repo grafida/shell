@@ -23,14 +23,14 @@ channel reaches the host through `winvm.sh tunnel`.
 These are in `.claude/docs/` and are **not** loaded automatically: read the file before changing the
 code it covers. Their rules are as binding as the ones below.
 
-- `.claude/docs/linux.md` — the Linux webview (`src/linux/`), the `boson://` request map, clipboard and file drops, the navigation policy, KDE decoration, and process-wide settings.
+- `.claude/docs/linux.md` — the Linux webview (`src/linux/`), the `shell://` request map, clipboard and file drops, the navigation policy, KDE decoration, and process-wide settings.
 - `.claude/docs/macos.md` — WKWebView (`src/macos/`), the Blob guard, macOS menus and key routing, spell checking, and run-time selectors.
 - `.claude/docs/windows.md` — WebView2 (`src/windows/`), its scheme bridge, navigation, keys and context menu, the worker Job Object and spawn (`spawn.rs`), the application manifest, and packaged paths.
 - `.claude/docs/dev-tooling.md` — the automation channel (`src/automation.rs`) and the `scripts/dev/parity-*.sh` scripts.
 
 ## Rules that are not guessable from the code
 
-- **The origin is sacred.** The page origin must be byte-identical — `boson://app` for Grafida — on
+- **The origin is sacred.** The page origin must be byte-identical — `shell://app` for Grafida — on
   every platform. Stored documents embed it. Never accept wry's `http://<scheme>.localhost` mapping on
   Windows: the shell creates the WebView2 environment itself with a
   `CoreWebView2CustomSchemeRegistration` and handles `WebResourceRequested` for `<scheme>://*` itself.
