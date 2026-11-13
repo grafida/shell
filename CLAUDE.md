@@ -148,3 +148,5 @@ code it covers. Their rules are as binding as the ones below.
   and CI (decided, grafida/grafida#92). Released sections keep the tooling entries they already
   have, as history.
 - Commit directly on `main`.
+- Before every commit run `cargo fmt --all --check` (CI fails all three platforms on it before any
+  test runs) and `cargo clippy --workspace --all-targets`.
