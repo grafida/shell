@@ -12,7 +12,9 @@ This shell was originally written for [Akeeba Grafida](https://github.com/grafid
 
 ### Getting started
 
-Read the [architecture diagrams](docs/user/architecture.md) to understand how each piece of the architecture fits together in a shipped application.
+Start with the [user documentation](docs/user/README.md): how the pieces fit together, how to start a project, the
+`shell.json` manifest, the PHP and JavaScript sides, and packaging. The [architecture diagrams](docs/user/architecture.md)
+show how each piece fits together in a shipped application.
 
 You can read the [architecture decisions](docs/adr/0001-shell-stack.md) and the [wire protocol v1](protocol/v1.md) for more information.
 

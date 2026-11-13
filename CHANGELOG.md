@@ -1,5 +1,6 @@
 shell 0.4.2
 ================================================================================
++ User documentation in `docs/user`: getting started, the PHP and JavaScript sides, the manifest, packaging
 ~ Docs, protocol fixtures and examples use the `shell://` scheme; `boson://` is gone (the manifest names the scheme)
 
 shell 0.4.1
