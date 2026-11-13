@@ -661,9 +661,13 @@ mod tests {
             assert_eq!(shell_beside(Path::new(launcher)), None, "{launcher:?}");
         }
         assert_eq!(shell_beside(Path::new("/")), None);
+        // An absolute path on this platform: `/opt/app` has no drive, so it is relative on Windows,
+        // where the launcher only builds (for the workspace) and never runs.
+        let app = std::env::temp_dir().join("app");
+        assert!(app.is_absolute());
         assert_eq!(
-            shell_beside(Path::new("/opt/app/grafida-launcher")),
-            Some(PathBuf::from("/opt/app/grafida-shell"))
+            shell_beside(&app.join("grafida-launcher")),
+            Some(app.join("grafida-shell"))
         );
     }
 
