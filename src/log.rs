@@ -29,6 +29,9 @@ impl Log {
     pub fn open(dir: Option<&Path>, echo: bool) -> Log {
         let path = dir.and_then(|d| fs::create_dir_all(d).ok().map(|()| d.join(FILE_NAME)));
         let file = path.as_deref().and_then(open_append);
+        if let Some(path) = &path {
+            owner_only_rotations(path);
+        }
         Log {
             echo: echo || file.is_none(),
             path: if file.is_some() { path } else { None },
@@ -83,6 +86,23 @@ fn open_append(path: &Path) -> Option<File> {
     {
         options.open(path).ok()
     }
+}
+
+/// `shell.log.1` … `shell.log.3` made owner-only too: an older shell left them at the umask, and they
+/// hold its worker's stderr for as long as it takes them to age out.
+fn owner_only_rotations(path: &Path) {
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt;
+        for n in 1..=KEEP {
+            let _ = fs::set_permissions(
+                format!("{}.{n}", path.display()),
+                fs::Permissions::from_mode(0o600),
+            );
+        }
+    }
+    #[cfg(not(unix))]
+    let _ = path;
 }
 
 /// `shell.log` → `shell.log.1` → … → `shell.log.3`, dropping the oldest.
@@ -193,11 +213,16 @@ mod tests {
         drop(log);
 
         fs::remove_file(&path).unwrap();
-        fs::write(&path, "an older shell's log\n").unwrap();
-        fs::set_permissions(&path, fs::Permissions::from_mode(0o644)).unwrap();
+        let rotated = |n: usize| PathBuf::from(format!("{}.{n}", path.display()));
+        for p in [path.clone(), rotated(1), rotated(KEEP)] {
+            fs::write(&p, "an older shell's log\n").unwrap();
+            fs::set_permissions(&p, fs::Permissions::from_mode(0o644)).unwrap();
+        }
         let log = Log::open(Some(&dir), false);
         log.line("test", "reopened");
         assert_eq!(mode(&path), 0o600, "a log an older shell left at 0644");
+        assert_eq!(mode(&rotated(1)), 0o600, "its rotation left at 0644");
+        assert_eq!(mode(&rotated(KEEP)), 0o600, "its oldest rotation left at 0644");
 
         fs::remove_dir_all(&dir).unwrap();
     }
