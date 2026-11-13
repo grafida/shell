@@ -18,6 +18,9 @@ PHP warnings and notices, and anything echoed by a handler, tagged `[stray-outpu
 Set `logDir` to an absolute path to put it elsewhere. Tell your users where it is; it is the first thing you will want
 in a bug report.
 
+On Linux and macOS the log files are readable by their owner only (mode `0600`), because your worker's stderr may
+contain the user's data. Still, ask users to look through a log before they send it to you.
+
 ## Tags in worker output
 
 | Tag | Origin |

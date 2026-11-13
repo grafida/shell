@@ -15,6 +15,7 @@ shell 0.4.2
 # [LOW] Linux launcher: if it could not find its own path it searched `PATH` for `grafida-shell`; now it refuses
 # [LOW] Linux launcher: a `shell.json` title starting with `-` could stop the failure alert from showing
 # [LOW] Linux launcher: markup in the app's title or a library name could show as a clickable link in the alert
+# [LOW] Linux, macOS: other users of the computer could read the log, which holds the worker's error output
 
 shell 0.4.1
 ================================================================================

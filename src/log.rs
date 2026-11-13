@@ -64,8 +64,25 @@ impl Log {
     }
 }
 
+/// The log, opened for appending and readable by its owner only (security.md I3): it holds the
+/// worker's stderr, which may carry the user's data. `mode` applies only when the file is created,
+/// so a log an older shell created under the umask (usually 0644) is tightened as well. On Windows
+/// the per-user `%LOCALAPPDATA%` already keeps other users out.
 fn open_append(path: &Path) -> Option<File> {
-    OpenOptions::new().create(true).append(true).open(path).ok()
+    let mut options = OpenOptions::new();
+    options.create(true).append(true);
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::{OpenOptionsExt, PermissionsExt};
+        options.mode(0o600);
+        let file = options.open(path).ok()?;
+        let _ = file.set_permissions(fs::Permissions::from_mode(0o600));
+        Some(file)
+    }
+    #[cfg(not(unix))]
+    {
+        options.open(path).ok()
+    }
 }
 
 /// `shell.log` → `shell.log.1` → … → `shell.log.3`, dropping the oldest.
@@ -150,6 +167,38 @@ mod tests {
         assert!(fs::read_to_string(&path).unwrap().contains("round 4"));
         assert!(Path::new(&format!("{}.3", path.display())).exists());
         assert!(!Path::new(&format!("{}.4", path.display())).exists());
+        fs::remove_dir_all(&dir).unwrap();
+    }
+
+    /// The log holds the worker's stderr, which may carry the user's data: owner-only, whatever
+    /// the umask, on a new file, after a rotation, and on one an older shell left world-readable.
+    #[cfg(unix)]
+    #[test]
+    fn the_log_is_readable_by_its_owner_only() {
+        use std::os::unix::fs::PermissionsExt;
+        let mode = |p: &Path| fs::metadata(p).unwrap().permissions().mode() & 0o777;
+
+        let dir = std::env::temp_dir().join(format!("shell-log-mode-{}", std::process::id()));
+        let _ = fs::remove_dir_all(&dir);
+        fs::create_dir_all(&dir).unwrap();
+        let path = dir.join(FILE_NAME);
+
+        let log = Log::open(Some(&dir), false);
+        log.line("test", "new");
+        assert_eq!(mode(&path), 0o600, "a new log");
+
+        fs::write(&path, vec![b'x'; MAX_BYTES as usize]).unwrap();
+        log.line("test", "rotated");
+        assert_eq!(mode(&path), 0o600, "the file after a rotation");
+        drop(log);
+
+        fs::remove_file(&path).unwrap();
+        fs::write(&path, "an older shell's log\n").unwrap();
+        fs::set_permissions(&path, fs::Permissions::from_mode(0o644)).unwrap();
+        let log = Log::open(Some(&dir), false);
+        log.line("test", "reopened");
+        assert_eq!(mode(&path), 0o600, "a log an older shell left at 0644");
+
         fs::remove_dir_all(&dir).unwrap();
     }
 }
