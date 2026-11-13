@@ -420,7 +420,12 @@ mod tests {
             let all = problems.join("\n");
             assert!(all.contains("/worker/binary"), "{bad:?}: {all}");
         }
-        for good in ["grafida-worker", "smoke-worker.cmd", "t-worker", "my_app.worker"] {
+        for good in [
+            "grafida-worker",
+            "smoke-worker.cmd",
+            "t-worker",
+            "my_app.worker",
+        ] {
             let mut v = minimal();
             v["worker"]["binary"] = json!(good);
             assert!(Manifest::parse(&v.to_string()).is_ok(), "{good:?}");

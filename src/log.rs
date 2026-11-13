@@ -222,7 +222,11 @@ mod tests {
         log.line("test", "reopened");
         assert_eq!(mode(&path), 0o600, "a log an older shell left at 0644");
         assert_eq!(mode(&rotated(1)), 0o600, "its rotation left at 0644");
-        assert_eq!(mode(&rotated(KEEP)), 0o600, "its oldest rotation left at 0644");
+        assert_eq!(
+            mode(&rotated(KEEP)),
+            0o600,
+            "its oldest rotation left at 0644"
+        );
 
         fs::remove_dir_all(&dir).unwrap();
     }

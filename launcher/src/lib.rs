@@ -151,7 +151,10 @@ fn read_up_to(file: &mut impl Read, buf: &mut [u8]) -> std::io::Result<usize> {
 /// Whether an interpreter is glibc's loader (`ld-linux-x86-64.so.2`, `ld-linux-aarch64.so.1`, …),
 /// the only one known to honour `LD_TRACE_LOADED_OBJECTS` by printing instead of running.
 pub fn is_glibc_loader(interpreter: &[u8]) -> bool {
-    let name = interpreter.rsplit(|&b| b == b'/').next().unwrap_or(interpreter);
+    let name = interpreter
+        .rsplit(|&b| b == b'/')
+        .next()
+        .unwrap_or(interpreter);
     name.starts_with(b"ld-linux")
 }
 
