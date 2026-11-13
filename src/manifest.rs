@@ -396,6 +396,38 @@ mod tests {
     }
 
     #[test]
+    fn the_worker_binary_is_a_file_name_never_a_path() {
+        // `Path::join` replaces the base with an absolute path, and on Windows with a drive prefix
+        // (`C:x`) too, so anything but a plain name could name a program outside the package.
+        for bad in [
+            "../x",
+            "/usr/bin/php",
+            "C:x",
+            "C:\\php\\php.exe",
+            "a\\b",
+            "bin/worker",
+            "..",
+            ".",
+            ".hidden",
+            "",
+        ] {
+            let mut v = minimal();
+            v["worker"]["binary"] = json!(bad);
+            let ManifestError::Invalid(problems) = Manifest::parse(&v.to_string()).unwrap_err()
+            else {
+                panic!("{bad:?}: expected a schema error");
+            };
+            let all = problems.join("\n");
+            assert!(all.contains("/worker/binary"), "{bad:?}: {all}");
+        }
+        for good in ["grafida-worker", "smoke-worker.cmd", "t-worker", "my_app.worker"] {
+            let mut v = minimal();
+            v["worker"]["binary"] = json!(good);
+            assert!(Manifest::parse(&v.to_string()).is_ok(), "{good:?}");
+        }
+    }
+
+    #[test]
     fn missing_required_members_are_reported() {
         let ManifestError::Invalid(problems) = Manifest::parse("{}").unwrap_err() else {
             panic!("expected a schema error");

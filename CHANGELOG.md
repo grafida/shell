@@ -5,6 +5,7 @@ shell 0.4.2
 ~ Docs, protocol fixtures and examples use the `shell://` scheme; `boson://` is gone (the manifest names the scheme)
 ~ A request for the app's scheme with a host other than `app` is answered `404` and never reaches the worker
 ~ A path containing `%2F` or `%00` is answered `404 bad_path` and never reaches the worker, as Apache does by default
+~ Manifest `worker.binary` must be a plain file name; a path (`../php`, `/usr/bin/php`, `C:php`) is refused
 # [MEDIUM] Embedded foreign pages could send Origin-less GET requests to the worker
 # [LOW] A foreign page embedded in the app could show the app's own pages inside its frame
 # [LOW] Windows: a URL with a quote or a trailing backslash could break out of the browser's command line

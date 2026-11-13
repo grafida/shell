@@ -71,9 +71,10 @@
             "required": ["binary"],
             "properties": {
                 "binary": {
-                    "description": "The worker executable, relative to the shell's resources directory.",
+                    "description": "The worker executable's file name, never a path: the packaged shell runs it from its own directory (Contents/MacOS in a macOS bundle), adding .exe on Windows if it has no extension. Letters, digits, '.', '_' and '-', not starting with '.', so it cannot name a program outside the package.",
                     "type": "string",
-                    "minLength": 1
+                    "pattern": "^[A-Za-z0-9_-][A-Za-z0-9._-]*$",
+                    "maxLength": 255
                 },
                 "args": {
                     "type": "array",

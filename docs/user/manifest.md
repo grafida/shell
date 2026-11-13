@@ -86,7 +86,7 @@ Sizes are logical pixels, integers from 1 to 32767.
 
 | Member | Type | Required | Default | Meaning |
 |---|---|---|---|---|
-| `binary` | string | **yes** | | The worker executable's name. In a package the shell looks for it **beside the shell executable** (`Contents/MacOS` in a macOS bundle). On Windows `.exe` is added if the name has no extension. It is not used in `--dev`, but it names the packaged worker, so choose it now. If the file is missing the shell shows an alert. |
+| `binary` | string | **yes** | | The worker executable's file name. In a package the shell looks for it **beside the shell executable** (`Contents/MacOS` in a macOS bundle). On Windows `.exe` is added if the name has no extension. It is not used in `--dev`, but it names the packaged worker, so choose it now. If the file is missing the shell shows an alert. It must be a plain name, never a path: letters, digits, `.`, `_` and `-`, not starting with `.` (so no `/`, `\`, `:`, `..` or spaces). Why: the shell would run whatever that path named, and a program outside the package is one the packager neither built nor signed. The packager also names the worker stub and its `.phar` after this value. |
 | `args` | array of strings | no | `[]` | Arguments passed to the packaged worker. |
 | `readyTimeoutMs` | integer | no | `15000` | How long the worker has to send its `ready` frame. 1000–600000. A worker that is not ready in time is a fatal start-up failure. |
 | `maxBodyBytes` | integer | no | `134217728` (128 MiB) | The largest body, per direction. 1048576 to 2^53 − 1. The shell passes it to the worker as the `SHELL_MAX_BODY_BYTES` environment variable, which `Worker::run()` honours. A larger request is answered `413 body_too_large` by the shell. |
