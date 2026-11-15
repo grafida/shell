@@ -186,10 +186,11 @@ arm64_running() { [ -f "$VMS/$1/qemu.pid" ] && kill -0 "$(cat "$VMS/$1/qemu.pid"
 aarch64_firmware() { # the UEFI code image: Arch/Fedora edk2-aarch64, Debian/Ubuntu qemu-efi-aarch64, QEMU's own
     local f
     for f in /usr/share/edk2/aarch64/QEMU_CODE.fd /usr/share/edk2/aarch64/QEMU_EFI.fd \
-        /usr/share/AAVMF/AAVMF_CODE.fd /usr/share/qemu/edk2-aarch64-code.fd; do
+        /usr/share/AAVMF/AAVMF_CODE.fd /usr/share/qemu/edk2-aarch64-code.fd \
+        /home/linuxbrew/.linuxbrew/share/qemu/edk2-aarch64-code.fd; do
         [ -f "$f" ] && { echo "$f"; return; }
     done
-    die "no aarch64 UEFI firmware (Arch: edk2-aarch64; Debian/Ubuntu: qemu-efi-aarch64)"
+    die "no aarch64 UEFI firmware (Arch: edk2-aarch64; Debian/Ubuntu: qemu-efi-aarch64; Homebrew: qemu)"
 }
 
 fetch_arm64_image() { # into $1, fetched only when the copy there is missing or not the signed one
