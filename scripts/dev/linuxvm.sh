@@ -299,7 +299,8 @@ case $cmd in
     start)
         if is_arm64 "$distro"; then start_arm64 "$distro"; exit; fi
         display=()
-        [ "${1:-}" = --headless ] && display=(--display none)
+        # --viewer none as well: quickemu insists the default viewer (spicy) is installed even with no display.
+        [ "${1:-}" = --headless ] && display=(--display none --viewer none)
         # ⚠️ quickemu adds an SSH forward of its own on the first free port from 22220 up. With a
         # Windows guest on 22220 that is 22221, the forward ubuntu-22.04.conf already has, and QEMU
         # refuses the duplicate ("Could not set up host forwarding rule"). Name one nothing uses.
@@ -328,9 +329,13 @@ case $cmd in
             exit
         fi
         case $distro in
-            ubuntu-22.04) up='sudo DEBIAN_FRONTEND=noninteractive apt-get update -q && sudo DEBIAN_FRONTEND=noninteractive apt-get -yq full-upgrade' ;;
+            # Firefox is installed here, not by the installer: the installer's snapd (2.63, SNAP_REEXEC=0) is too
+            # old for today's Firefox snap, and a snap installed there never reaches the installed system. On the
+            # installed system, refreshing snapd first is all it takes.
+            ubuntu-22.04) up='sudo snap wait system seed.loaded; sudo DEBIAN_FRONTEND=noninteractive apt-get update -q && sudo DEBIAN_FRONTEND=noninteractive apt-get -yq full-upgrade && sudo snap refresh snapd && { snap list firefox >/dev/null 2>&1 || sudo snap install firefox; }' ;;
             fedora-43) up='sudo dnf -y upgrade --refresh' ;;
-            arch) up='sudo pacman -Syu --noconfirm' ;;
+            # plasma-meta carries no browser; a desktop test VM without one is not much use.
+            arch) up='sudo pacman -Syu --noconfirm && sudo pacman -S --noconfirm --needed firefox' ;;
         esac
         ssh $(ssh_opts "$distro") tester@localhost "$up"
         ssh $(ssh_opts "$distro") tester@localhost "$SESSION_ENV"'

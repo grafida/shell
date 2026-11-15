@@ -16,14 +16,36 @@ autoinstall:
     authorized-keys: ["@SSH_KEY@"]
   storage:
     layout: {name: direct}
+  # The 22.04.5 live ISO ships snapd 2.63 and runs it with SNAP_REEXEC=0, so a refreshed snapd is never
+  # used. ubuntu-desktop-minimal pulls in the firefox package, whose pre-install script installs the
+  # Firefox snap into the installer's snapd; today's Firefox snap (core26, mesa-2604) needs a newer
+  # snapd, because 2.63's AppArmor profiles deny exec of the Rust coreutils path /usr/lib/cargo/bin
+  # (the mesa-2604 install hook fails with "mkdir: Permission denied") and the whole install stops.
+  # So: refresh snapd, allow it to re-exec, and restart it, before anything is installed.
+  early-commands:
+    - |-
+      snap wait system seed.loaded
+      n=0; until snap refresh snapd; do n=$((n+1)); [ $n -ge 10 ] && break; sleep 15; done
+      mkdir -p /run/systemd/system/snapd.service.d
+      printf '[Service]\nEnvironment=SNAP_REEXEC=1\n' > /run/systemd/system/snapd.service.d/reexec.conf
+      systemctl daemon-reload
+      systemctl restart snapd
+      snap wait system seed.loaded
   packages: [ubuntu-desktop-minimal]
   late-commands:
+    # QEMU's user-mode network answers DNS on 10.0.2.3 whatever the host uses. Without this the guest
+    # sometimes boots with NetworkManager holding that server but systemd-resolved holding none, so
+    # nothing resolves (apt fails, and snapd never finishes "Initialize device").
+    - |-
+      curtin in-target -- sh -c 'mkdir -p /etc/systemd/resolved.conf.d && printf "[Resolve]\nDNS=10.0.2.3\n" > /etc/systemd/resolved.conf.d/10-qemu-dns.conf'
     - curtin in-target -- systemctl set-default graphical.target
     # As on a desktop install, NetworkManager owns the network (the server installer writes a
     # networkd netplan tied to the install-time interface name, which nothing brings up once the
     # name changes), and cloud-init does not write one back on first boot.
-    - curtin in-target -- sh -c 'rm -f /etc/netplan/*.yaml && printf "network:\n  version: 2\n  renderer: NetworkManager\n" > /etc/netplan/01-network-manager-all.yaml && chmod 600 /etc/netplan/01-network-manager-all.yaml'
-    - curtin in-target -- sh -c 'echo "network: {config: disabled}" > /etc/cloud/cloud.cfg.d/99-disable-network-config.cfg'
+    - |-
+      curtin in-target -- sh -c 'rm -f /etc/netplan/*.yaml && printf "network:\n  version: 2\n  renderer: NetworkManager\n" > /etc/netplan/01-network-manager-all.yaml && chmod 600 /etc/netplan/01-network-manager-all.yaml'
+    - |-
+      curtin in-target -- sh -c 'echo "network: {config: disabled}" > /etc/cloud/cloud.cfg.d/99-disable-network-config.cfg'
     - curtin in-target -- sh -c 'echo "tester ALL=(ALL) NOPASSWD:ALL" > /etc/sudoers.d/tester'
     - curtin in-target -- sh -c 'printf "[daemon]\nAutomaticLoginEnable=true\nAutomaticLogin=tester\n" > /etc/gdm3/custom.conf'
     # The account is created by cloud-init on first boot, not here, so the home directory gets
