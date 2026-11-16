@@ -38,8 +38,12 @@ mainly foreign content embedded in the page.
 
 ## The shell's releases
 
-* **Ship only the release assets** (`grafida-shell-*` and, on Linux, `grafida-launcher-*` from the release page), pinned
-  by version and by a SHA-256 you computed yourself (see [Packaging](packaging.md#finding-the-urls-and-hashes-to-pin)).
+* **Ship only the release assets** (`grafida-shell-*` and, on Linux, `grafida-launcher-*` from the release page). The
+  packager pins them by version (`shell.version`) and records, in the `shell-package.lock` you commit, the SHA-256 that
+  GitHub keeps for each asset; every build checks the files against it (see
+  [Packaging](packaging.md#the-lock-file-shell-packagelock)). That hash is GitHub's record, not one you computed: it
+  catches a damaged or replaced download, and trusts the repository's releases. Pin an exact version
+  (`"version": "0.4.2"`) when you want every build to use the same files whatever is published later.
 * **Never ship a `debug-automation-*` build.** The shell's release build produces these debug builds for its own tests. They carry
   a remote-control channel: it is off unless the shell is started with `--automation`, it listens on `127.0.0.1` only,
   and every command needs a random token from a file only the user can read. They are never attached to a release,
