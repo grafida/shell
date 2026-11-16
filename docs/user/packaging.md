@@ -105,7 +105,8 @@ desktop entry and icons, `title` is used in alerts, `worker.binary` names the st
     ],
     "ini": {"memory_limit": "512M", "display_errors": "stderr", "opcache.enable": false}
   },
-  "runtimes": { /* pinned downloads: see below */ },
+  "shell":    {"version": "^0.4"},   // the shell and launcher, by version: see below
+  "runtimes": { /* the PHP and AppImage runtimes, pinned: see below */ },
   "linux":   { /* … */ },
   "macos":   { /* … */ },
   "windows": { /* … */ }
@@ -141,19 +142,126 @@ Things to get right:
 * The PHAR is uncompressed and deterministic: with `SOURCE_DATE_EPOCH` set, the same input gives the same bytes.
 * The packager checks that `phar.ini` really took effect (phpmicro silently ignores a malformed block) before it writes a package.
 
-### `runtimes`: pinned downloads
+### `shell`: the shell and launcher, by version
 
-The packager downloads the **shell executable**, the **Linux launcher** and the **phpmicro stub** for each platform,
-and for an AppImage the **AppImage runtime**. You pin each by URL and SHA-256, so a build cannot silently change under
-you:
+The packager downloads the **shell executable** for each platform and the **Linux launcher** from a release of
+[grafida/shell](https://github.com/grafida/shell/releases). You choose the release with a version constraint (packager
+0.6.0 or later):
+
+```jsonc
+"shell": {
+  "version": "^0.4"
+}
+```
+
+* `version` (required) is a [Composer version constraint](https://getcomposer.org/doc/articles/versions.md), with
+  Composer's meaning: `^0.4` is any 0.4.x, `^1.2` is 1.2 or later below 2.0, `~1.2.3` is 1.2.3 or later below 1.3,
+  `>=1.0 <2.0` and `*` are what they say, and `0.4.2` is exactly that release. Every grafida/shell release is a tag
+  `X.Y.Z` that follows semantic versioning, and the packager takes the **highest** one the constraint allows.
+* Only stable releases are used, as in Composer, unless the constraint asks for less: a stability flag (`^1.0@beta`,
+  `^1.0@RC`, `@alpha`, `@dev`), or a pre-release written out (`1.0.0-rc1`). The order is dev, alpha, beta, RC, stable.
+  The version decides, not GitHub's "pre-release" checkbox. Draft releases are never used.
+* `repository` (optional, default `grafida/shell`) is the GitHub repository whose releases are used, as `owner/name`,
+  for a fork of the shell. **Public repositories only.**
+* `assets` (optional) renames the files, for a fork that publishes them under other names. The defaults are what
+  grafida/shell publishes:
+
+  ```jsonc
+  "assets": {
+    "linux":   {"shell": "grafida-shell-linux-{arch}", "launcher": "grafida-launcher-linux-{arch}"},
+    "macos":   {"shell": {"aarch64": "grafida-shell-macos-arm64", "x86_64": "grafida-shell-macos-x86_64"}},
+    "windows": {"shell": "grafida-shell-windows-{arch}.exe"}
+  }
+  ```
+
+  A name is a string in which `{arch}` stands for `x86_64` or `aarch64`, or an object with one name per architecture
+  (the macOS shell says `arm64`, hence the object). You give only what differs: each platform's `shell` or `launcher`
+  replaces that one default. There are exactly seven files (Linux shell and launcher on x86_64 and aarch64, macOS shell
+  on aarch64 and x86_64, Windows shell on x86_64); naming any other is an error.
+* `local` (optional) points at files on disk instead, to test a shell you have not released; see
+  [below](#testing-an-unreleased-shell).
+
+#### The lock file: `shell-package.lock`
+
+`shell-packager update --config=shell-package.json` resolves the constraint and writes what it found to
+`shell-package.lock`, beside the configuration file (the name follows the configuration's: `foo.json` gives
+`foo.lock`). **Commit the lock file.** It records the release (version and tag) and, for each of the seven files, its
+download URL and its SHA-256, which is GitHub's own record of it (the asset's `digest`). `update`:
+
+1. lists the repository's releases, through the [GitHub CLI](https://cli.github.com) when `gh` is installed and logged
+   in, and otherwise straight from GitHub's API (with `GH_TOKEN` or `GITHUB_TOKEN`, when set, against the rate limit
+   for anonymous requests);
+2. picks the highest version the constraint allows;
+3. downloads all seven files and checks each against its SHA-256;
+4. only then writes the lock, and prints the old and new version and every file's hash.
+
+A release that lacks one of the seven files, or a file GitHub has no SHA-256 for, makes `update` fail.
+
+A build reads the lock and **makes no GitHub API call**: it downloads the files it needs from the URLs in the lock and
+checks each against the lock's SHA-256. Files are cached by repository and version in `SHELL_PACKAGER_CACHE` (default
+`$XDG_CACHE_HOME/grafida-shell-packager`, under `shell/<owner>/<repo>/<version>/`), and a cached file is checked again
+every time it is used.
+
+* **No lock yet:** the first build does what `update` does, writes the lock, says `commit it`, and carries on.
+* **The lock is stale** (you changed `version`, `repository` or `assets` since it was written): the build fails and
+  tells you to run `update`. It never resolves on its own.
+* **The lock does not match the configuration** (another repository, a version the constraint does not allow, or a URL
+  that is not that release's file on GitHub): it is refused. The lock is written by `update` only; do not edit it.
+
+**Upgrading the shell** is `shell-packager update`: it moves to the newest release your constraint allows. To move
+past the constraint, change `version` first. With an exact version (`"0.4.2"`) every build uses the same files, lock or
+not.
+
+#### Testing an unreleased shell
+
+To try a shell you built yourself with your app, without publishing a release, name the files in `local`, in the same
+shape as `assets`, with paths relative to the configuration file:
+
+```jsonc
+"shell": {
+  "version": "^0.4",
+  "local": {
+    "macos": {"shell": {"aarch64": "../shell/target/release/grafida-shell"}},
+    "linux": {"shell": "../shell/dist/grafida-shell-linux-{arch}"}
+  }
+}
+```
+
+You can name any of the seven files. Each local file is used as it is and announced as **UNPINNED**, with its path and
+SHA-256, every time; never ship a build made with one. The files you do not name still come from the lock. A build
+that needs only local files needs no lock and no network. `local` never makes the lock stale. `--local shell=PATH`
+(or `launcher=PATH`) on the command line does the same for one build and wins over `local`.
+
+#### Moving from packager 0.5
+
+Packager 0.5 pinned the shell and launcher as `runtimes.<platform>.shell` and `runtimes.linux.launcher`, with a URL and
+hashes each. Those entries are now refused, with a message saying what to do: delete them all, add the `shell` block,
+and run `shell-packager update`. `{"latest": true}` no longer applies to the shell or launcher; `"version": "*"` and
+`update` do the same, and record what they found.
+
+#### Publishing a fork of the shell
+
+What the packager expects of `repository`'s releases, which grafida/shell keeps:
+
+* one tag per version, following semantic versioning (`X.Y.Z`, or `vX.Y.Z`; a tag that is not a version is ignored);
+* every release carries all seven files, under the default names or under the ones your apps put in `assets`;
+* the repository is public, and the files are GitHub release assets, which GitHub records a SHA-256 for. The packager
+  uses that record. The `.sha256` files the shell publishes beside each asset are for people downloading by hand;
+  the packager does not read them;
+* a published release is never changed. Replacing an asset makes every lock that names it fail its check. Publish a
+  new version instead.
+
+**Linux only:** `launcher` is a small static program that is the app's entry point. It checks that the system has the
+libraries the shell needs and either starts the shell or shows a helpful alert listing the packages to install.
+
+### `runtimes`: the PHP runtime and the AppImage runtime
+
+The packager also downloads the **phpmicro stub** for each platform, and for an AppImage the **AppImage runtime**. You
+pin each by URL and SHA-256, so a build cannot silently change under you:
 
 ```jsonc
 "runtimes": {
   "linux": {
-    "shell":    {"url": "https://github.com/grafida/shell/releases/download/0.4.1/grafida-shell-linux-{arch}",
-                 "sha256": {"x86_64": "…", "aarch64": "…"}},
-    "launcher": {"url": "https://github.com/grafida/shell/releases/download/0.4.1/grafida-launcher-linux-{arch}",
-                 "sha256": {"x86_64": "…", "aarch64": "…"}},
     "sfx":      {"url": "https://github.com/grafida/phpmicro/releases/download/sfx-20261109.16/linux-{arch}.standard.sfx",
                  "sha256": {"x86_64": "…", "aarch64": "…"}},
     // Only for linux-appimage:
@@ -161,14 +269,11 @@ you:
                          "sha256": {"x86_64": "…", "aarch64": "…"}}
   },
   "macos": {
-    "shell": {"url": {"aarch64": "…/grafida-shell-macos-arm64", "x86_64": "…/grafida-shell-macos-x86_64"},
-              "sha256": {"aarch64": "…", "x86_64": "…"}},
-    "sfx":   {"url": "https://github.com/grafida/phpmicro/releases/download/sfx-…/macos-{arch}.standard.sfx",
+    "sfx":   {"url": {"aarch64": "https://github.com/grafida/phpmicro/releases/download/sfx-…/macos-aarch64.standard.sfx",
+                      "x86_64": "https://github.com/grafida/phpmicro/releases/download/sfx-…/macos-x86_64.standard.sfx"},
               "sha256": {"aarch64": "…", "x86_64": "…"}}
   },
   "windows": {
-    "shell": {"url": "https://github.com/grafida/shell/releases/download/0.4.1/grafida-shell-windows-x86_64.exe",
-              "sha256": {"x86_64": "…"}},
     "sfx":   {"url": "https://github.com/grafida/phpmicro/releases/download/sfx-…/windows-x86_64.standard.sfx",
               "sha256": {"x86_64": "…"}}
   }
@@ -177,77 +282,58 @@ you:
 
 * `{arch}` in a URL is `x86_64` or `aarch64`. A `url` can instead be an object mapping each architecture to its own URL,
   for when they come from different releases.
-* Shell and launcher assets come from [grafida/shell releases](https://github.com/grafida/shell/releases); the
-  `sfx` stubs from [grafida/phpmicro releases](https://github.com/grafida/phpmicro/releases) (tags `sfx-<date>.<run>`,
-  which are never rewritten). For releases, pin an immutable tag; `sfx-latest` is what [`latest`](#using-the-latest-release-instead-of-a-pin) uses.
-* **Where the hashes come from:** download the asset yourself, compute its SHA-256 (`shasum -a 256 FILE`), and record it. Each
-  release asset also has a `.sha256` file beside it; compare the two once, over HTTPS, when you first pin. **The
-  packager never reads those `.sha256` files**: a mismatch with the hash in your configuration, or a missing pin
-  for an architecture, is fatal (unless the runtime is [`latest`](#using-the-latest-release-instead-of-a-pin)). Downloads are cached by hash in `SHELL_PACKAGER_CACHE` (default
-  `$XDG_CACHE_HOME/grafida-shell-packager`).
+* The `sfx` stubs come from [grafida/phpmicro releases](https://github.com/grafida/phpmicro/releases) (tags
+  `sfx-<date>.<run>`, which are never rewritten). For releases, pin an immutable tag; `sfx-latest` is what
+  [`latest`](#using-the-latest-release-instead-of-a-pin) uses.
+* **Where the hashes come from:** download the asset yourself, compute its SHA-256 (`shasum -a 256 FILE`), and record it.
+  A mismatch with the hash in your configuration, or a missing pin for an architecture, is fatal (unless the runtime is
+  [`latest`](#using-the-latest-release-instead-of-a-pin)). Downloads are cached by hash in `SHELL_PACKAGER_CACHE`.
 * `shell-packager fetch --config=shell-package.json --arch=x86_64 [--platform=linux|macos|windows]` downloads and verifies
-  the runtimes without building.
-* `--local NAME=PATH` replaces one runtime (`shell`, `launcher`, `sfx`, `appimage-runtime`, or `nfpm` for
-  `linux-deb`/`linux-rpm`) with a local file, to test an unreleased build.
-  It is announced as UNPINNED every time; never use it for a release. It works per runtime and mixes with pinned and
-  `latest` runtimes.
-* Upgrading the shell is: change the URL and hashes, rebuild.
+  the shell files and the runtimes without building.
+* `--local NAME=PATH` replaces one file (`shell`, `launcher`, `sfx`, `appimage-runtime`, or `nfpm` for
+  `linux-deb`/`linux-rpm`) with a local file, to test an unreleased build. It is announced as UNPINNED every time; never
+  use it for a release.
 
 #### Finding the URLs and hashes to pin
 
-**1. Choose the releases.** Open the release pages and note the tag you want from each:
-
-* [grafida/shell releases](https://github.com/grafida/shell/releases): tags like `0.4.1`. One release holds the shell
-  and the Linux launcher for every platform.
-* [grafida/phpmicro releases](https://github.com/grafida/phpmicro/releases): tags like `sfx-20261111.28`. Pick the newest
-  `sfx-<date>.<run>` tag (not `sfx-latest`, which moves). Each tag holds the stubs for every platform and, for Windows,
-  `vc-runtime-x86_64.zip`, which you do not pin.
+**1. Choose the release.** On [grafida/phpmicro releases](https://github.com/grafida/phpmicro/releases), pick the newest
+`sfx-<date>.<run>` tag (not `sfx-latest`, which moves). Each tag holds the stubs for every platform and, for Windows,
+`vc-runtime-x86_64.zip`, which you do not pin.
 
 **2. Build the URLs.** A URL is `https://github.com/<owner>/<repo>/releases/download/<tag>/<asset>`. The asset names
 are:
 
 | Runtime | Asset |
 |---|---|
-| `shell`, Linux | `grafida-shell-linux-x86_64`, `grafida-shell-linux-aarch64` |
-| `shell`, macOS | `grafida-shell-macos-x86_64`, `grafida-shell-macos-arm64` |
-| `shell`, Windows | `grafida-shell-windows-x86_64.exe` |
-| `launcher` (Linux only) | `grafida-launcher-linux-x86_64`, `grafida-launcher-linux-aarch64` |
 | `sfx` | `<platform>-<arch>.standard.sfx`, e.g. `linux-x86_64.standard.sfx`, `macos-aarch64.standard.sfx`, `windows-x86_64.standard.sfx` |
 | `appimage-runtime` (Linux only) | `runtime-x86_64`, `runtime-aarch64`, from [AppImage/type2-runtime releases](https://github.com/AppImage/type2-runtime/releases) (a dated tag such as `20251108`, not `continuous`, which moves) |
-
-Mind the naming: the macOS **shell** asset says `arm64`, but the macOS **sfx** and the `sha256`/`url` keys in
-`shell-package.json` say `aarch64`. That is why the macOS shell in the example above uses an object for `url`, with one
-entry per architecture.
 
 **3. Get the hashes.** Compute them yourself from the downloaded file; do not copy them from anywhere unchecked:
 
 ```sh
-shasum -a 256 grafida-shell-linux-x86_64          # macOS, Linux
-sha256sum grafida-shell-linux-x86_64              # Linux
-Get-FileHash -Algorithm SHA256 grafida-shell-windows-x86_64.exe   # Windows PowerShell
+shasum -a 256 linux-x86_64.standard.sfx            # macOS, Linux
+sha256sum linux-x86_64.standard.sfx                # Linux
+Get-FileHash -Algorithm SHA256 windows-x86_64.standard.sfx   # Windows PowerShell
 ```
 
 You can also read GitHub's own record of the hash, without downloading, with the [GitHub CLI](https://cli.github.com):
 
 ```sh
-gh release view 0.4.1 -R grafida/shell --json assets \
+gh release view sfx-20261111.28 -R grafida/phpmicro --json assets \
   -q '.assets[] | "\(.digest | sub("^sha256:"; ""))  \(.name)"'
 ```
 
-The same command with `-R grafida/phpmicro` and an `sfx-…` tag lists the stubs. Each asset also has a `.sha256` file
-in the same format as `shasum` output (`<hash>  <name>`); comparing it to the hash you computed is a cheap
-cross-check, but it is only a cross-check, since it comes from the same place as the file.
-
 **4. Let the packager do it for you.** To avoid copying 64-character strings by hand, put the URLs in
 `shell-package.json` with a placeholder hash of 64 zeros (the packager insists on 64 hex digits) and run
-`shell-packager fetch`. It fails with `does not match its pin`, and the `got:` line is the actual SHA-256 of what was downloaded. Treat that as **a value to verify, not to trust**: it is the hash of
-whatever the URL served. Compare it with the value from `gh release view` or the `.sha256` file, then paste it in.
-(Alternatively, make the runtime [`latest`](#using-the-latest-release-instead-of-a-pin) once: the warning prints the
-SHA-256 it downloaded, to compare in the same way.)
+`shell-packager fetch`. It fails with `does not match its pin`, and the `got:` line is the actual SHA-256 of what was
+downloaded. Treat that as **a value to verify, not to trust**: it is the hash of whatever the URL served. Compare it
+with the value from `gh release view`, then paste it in. (Alternatively, make the runtime
+[`latest`](#using-the-latest-release-instead-of-a-pin) once: the warning prints the SHA-256 it downloaded, to compare in
+the same way.)
 
 Pin every architecture you build. Hashes are per file, so each platform and architecture needs its own entry, and the
-packager fails when the one it needs is missing. Re-do the steps whenever you upgrade; the
-URL and its hash always change together.
+packager fails when the one it needs is missing. Re-do the steps whenever you upgrade; the URL and its hash always
+change together.
 
 #### Using the latest release instead of a pin
 
@@ -256,19 +342,16 @@ Instead of a URL and hashes, a runtime can be just `{"latest": true}`:
 ```jsonc
 "runtimes": {
   "linux": {
-    "shell":    {"latest": true},
-    "launcher": {"latest": true},
-    "sfx":      {"latest": true}
+    "sfx": {"latest": true}
   }
 }
 ```
 
-Each runtime is either pinned or `latest`; giving both is an error. You can mix them: pin the shell and take the newest
-`sfx`, for instance. The packager picks the right asset for the platform and architecture:
+Each runtime is either pinned or `latest`; giving both is an error. The packager picks the right asset for the platform
+and architecture:
 
 | Runtime | Resolves to |
 |---|---|
-| `shell`, `launcher` | The asset of the [newest grafida/shell release](https://github.com/grafida/shell/releases/latest) (`…/releases/latest/download/…`). `launcher` exists for Linux only. |
 | `sfx` | The `sfx-latest` release of [grafida/phpmicro](https://github.com/grafida/phpmicro/releases/tag/sfx-latest), which is rebuilt on every push to its `sibling-phar` branch. |
 | `appimage-runtime` | The newest release of [AppImage/type2-runtime](https://github.com/AppImage/type2-runtime/releases/latest), which is its rolling `continuous` build. Needs packager 0.6.0 or later. |
 
@@ -277,18 +360,15 @@ file is cached under that hash.
 
 > [!WARNING]
 > **"Latest" changes your build under you.** Nothing is checked against a hash you chose, so two builds of the same
-> commit, made on different days, can ship different shells and different PHP runtimes: a new shell release, a new PHP
-> patch version, a changed extension list, a different minimum operating system. A release can contain incompatible
-> changes, and you will find out when your packaged app misbehaves, not when you build it. **Do not use `latest` for a
-> release you ship to users.** It is for trying an upcoming shell or runtime during development, and for CI jobs that
-> exist to catch incompatibilities early. For releases, pin: take the same asset from a specific release, check that its
-> SHA-256 is the one in the warning, and the build stays the same until you change it.
+> commit, made on different days, can ship different PHP runtimes: a new PHP patch version, a changed extension list, a
+> different minimum operating system. A release can contain incompatible changes, and you will find out when your
+> packaged app misbehaves, not when you build it. **Do not use `latest` for a release you ship to users.** It is for
+> trying an upcoming runtime during development, and for CI jobs that exist to catch incompatibilities early. For
+> releases, pin: take the same asset from a specific release, check that its SHA-256 is the one in the warning, and the
+> build stays the same until you change it.
 
-`latest` is rejected for a runtime that does not exist on a platform (there is no macOS or Windows launcher). It needs
-packager 0.5.0 or later; earlier versions require a pin for everything.
-
-**Linux only:** `launcher` is a small static program that is the app's entry point. It checks that the system has the
-libraries the shell needs and either starts the shell or shows a helpful alert listing the packages to install.
+`latest` is rejected for a runtime that does not exist on a platform (there is no macOS or Windows AppImage runtime).
+It needs packager 0.5.0 or later; earlier versions require a pin for everything.
 
 ### The PHP runtime inside the package
 
@@ -322,7 +402,8 @@ takes `--config=shell-package.json`; every command that builds a package also ta
 | `windows-tree` | An install tree (x86_64 only) |
 | `windows-installer` | A Windows installer `.exe` |
 | `windows-sign --file=FILE [--overlay]` | Signs one executable. Your installer script runs it for the uninstaller. |
-| `fetch --arch=… [--platform=linux\|macos\|windows] [--nfpm]` | Downloads and verifies the runtimes (and with `--nfpm` the pinned nfpm) without building anything |
+| `fetch --arch=… [--platform=linux\|macos\|windows] [--nfpm]` | Downloads and verifies the shell files and the runtimes (and with `--nfpm` the pinned nfpm) without building anything |
+| `update` | Resolves `shell.version` against the shell's releases, downloads and checks the seven shell files, and writes `shell-package.lock` (see [the lock file](#the-lock-file-shell-packagelock)) |
 | `version`, `help` | The packager's version; every command and option |
 
 `--arch` takes `x86_64` or `aarch64`, or their Debian names `amd64` and `arm64`. `--output=` overrides the output path,
@@ -474,7 +555,7 @@ usr/share/icons/hicolor/<n>x<n>/apps/<id>.png
 
 An AppImage is a small program, the **AppImage runtime**, followed by a compressed (squashfs) image of those files. The
 packager uses the static runtime from [AppImage/type2-runtime](https://github.com/AppImage/type2-runtime), which you pin
-as `runtimes.linux.appimage-runtime` (see [`runtimes`](#runtimes-pinned-downloads)). The static runtime does not need
+as `runtimes.linux.appimage-runtime` (see [`runtimes`](#runtimes-the-php-runtime-and-the-appimage-runtime)). The static runtime does not need
 `libfuse2`, which current distributions no longer install. It is not self-contained, though: see
 [AppImage requirements](#appimage-requirements) for what your users need.
 

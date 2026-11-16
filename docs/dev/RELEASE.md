@@ -12,7 +12,7 @@ A release is the tag `X.Y.Z` plus seven binaries, each with a `.sha256`:
 
 They are built, checked, smoke-tested and published from the maintainer's Mac by
 `scripts/release/local-release.sh`. There is no CI: nothing else builds, tests or publishes the
-shell, so whatever this script and the steps below do not run does not run at all. Consumers pin the tag and the hashes, so a release is written once and never changed.
+shell, so whatever this script and the steps below do not run does not run at all. Apps pin the shell by version (a Composer constraint, `shell.version`), and the packager records each asset's SHA-256 from GitHub in their committed lock, so a release is written once and never changed. Every release follows semantic versioning and carries all seven assets under these names: that is the contract the packager relies on (`docs/user/packaging.md`, "Publishing a fork of the shell").
 
 ## 1. Initial Mac setup (once)
 
@@ -175,7 +175,7 @@ scripts/release/local-release.sh build --refresh-image                # rebuild 
   `publish` refuses because a release exists. Check with `gh release view X.Y.Z` that it really is a
   draft, delete it with `gh release delete X.Y.Z --yes` (this keeps the tag), and run `publish`
   again.
-- **A published release is wrong.** Never replace its assets: consumers have pinned their hashes.
+- **A published release is wrong.** Never replace its assets: apps' locks hold their hashes, and a replaced asset fails every build that uses it.
   Release `X.Y.Z+1`.
 
 ## 7. Changing the release toolchain
