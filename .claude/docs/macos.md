@@ -1,6 +1,6 @@
 # macOS notes
 
-Moved from the root `CLAUDE.md`; same rules, loaded on demand.
+Moved from the root `AGENTS.md`; same rules, loaded on demand.
 
 - **On macOS the shell owns WKWebView through objc2; neither wry nor muda is used** (ADR 0001,
   grafida/grafida#88). `src/macos/` builds its own `WKWebViewConfiguration` (the `WKURLSchemeHandler`,

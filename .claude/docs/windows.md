@@ -1,6 +1,6 @@
 # Windows notes
 
-Moved from the root `CLAUDE.md`; same rules, loaded on demand.
+Moved from the root `AGENTS.md`; same rules, loaded on demand.
 
 - **The Windows application manifest is linked from a `.res` that `build.rs` writes** (one
   `RT_MANIFEST` entry, the documented RESOURCEHEADER format): `embed-manifest` and friends need

@@ -1,6 +1,6 @@
 # Dev tooling notes
 
-Moved from the root `CLAUDE.md`; same rules, loaded on demand.
+Moved from the root `AGENTS.md`; same rules, loaded on demand.
 
 - **The automation channel (`src/automation.rs`) exists only with the `automation` feature in a
   debug build** (a release build with the feature is a `compile_error!`, and CI checks it), and only

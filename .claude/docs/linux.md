@@ -1,6 +1,6 @@
 # Linux notes
 
-Moved from the root `CLAUDE.md`; same rules, loaded on demand.
+Moved from the root `AGENTS.md`; same rules, loaded on demand.
 
 - **On Linux the shell builds the WebKitGTK webview itself; wry is not used there.** wry's WebKit
   context is crate-private, so the scheme, the data directories and the sandbox could only be set
