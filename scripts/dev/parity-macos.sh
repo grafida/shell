@@ -22,7 +22,7 @@
 # is never modified, and the release binary never carries the channel.
 #
 # An x86_64 SHELL_BIN on Apple Silicon runs under Rosetta 2 (grafida/grafida#92: the guests'
-# macos-*-rosetta clones, with the debug-automation-macos-x86_64 artifact and an x86_64 bundle); the
+# macos-*-rosetta clones, with dist/LABEL/debug-automation/macos-x86_64/ and an x86_64 bundle); the
 # first row then proves the shell, and a packaged bundle's worker, really run as x86_64.
 #
 # Over SSH, run it inside the desktop session (`sudo launchctl asuser $(id -u) sudo -u $USER …`):

@@ -12,7 +12,7 @@
 #   scripts/dev/parity-linux.sh            # everything, including the 2-minute idle-CPU sample
 #   QUICK=1 scripts/dev/parity-linux.sh    # a 10 s idle sample instead
 #
-# Against a packaged Grafida (grafida/grafida#86), e.g. on a clean VM, with the CI-built debug shell:
+# Against a packaged Grafida (grafida/grafida#86), e.g. on a clean VM, with the debug shell from local-release.sh build:
 #   GRAFIDA_PACKAGED=~/grafida SHELL_BIN=~/grafida-shell-debug scripts/dev/parity-linux.sh
 # Needs only python3 there (no Rust, no PHP).
 #
@@ -25,8 +25,8 @@ set -uo pipefail
 SHELL_DIR=$(cd "$(dirname "$0")/../.." && pwd)
 GRAFIDA_DIR=${GRAFIDA_DIR:-$SHELL_DIR/../grafida}
 WORK=$(mktemp -d -t shell-parity-XXXXXX)
-# SHELL_BIN: a prebuilt debug build with the automation channel (CI uploads one built on Ubuntu
-# 22.04, which runs on every supported distribution); otherwise it is built here.
+# SHELL_BIN: a prebuilt debug build with the automation channel (scripts/release/local-release.sh build
+# leaves one built on Ubuntu 22.04, which runs on every supported distribution); otherwise it is built here.
 BIN=${SHELL_BIN:-$SHELL_DIR/target/debug/grafida-shell}
 # GRAFIDA_PACKAGED: an extracted shell tarball (its grafida/ directory). Grafida then runs as
 # installed — the packaged launcher's neighbours, the SFX worker and its PHAR, the manifest beside

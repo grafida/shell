@@ -14,7 +14,7 @@
 # worker and the Job Object came up, and shutdown is clean.
 #
 # Usage: scripts/release/smoke-windows.sh SHELL.exe       (Git Bash, on Windows)
-# Needs a desktop session (a GitHub Windows runner has one); a window flashes up for a moment.
+# Needs a desktop session; a window flashes up for a moment.
 # LOCALAPPDATA and APPDATA point at a temp dir; failure alerts go to stderr (SHELL_ALERTS=stderr).
 
 set -euo pipefail

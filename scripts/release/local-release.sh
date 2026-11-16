@@ -1,8 +1,7 @@
 #!/usr/bin/env bash
 #
-# Builds, checks, smoke-tests and publishes the release assets on the maintainer's Mac, instead of
-# waiting for GitHub Actions. release.yml still builds, checks and smoke-tests every push and tag
-# (as a second, independent build), but no longer publishes: this script does.
+# Builds, checks, smoke-tests and publishes the release assets on the maintainer's Mac. There is no
+# CI: this script is the only build of a release (docs/dev/RELEASE.md).
 #
 #   build [--refresh-image] [PLATFORM…]   build the assets into dist/LABEL/ (all platforms by default)
 #   publish TAG                           upload dist/TAG/ as the release TAG
@@ -11,22 +10,21 @@
 #
 # PLATFORM is linux-x86_64, linux-aarch64, macos-arm64, macos-x86_64 or windows-x86_64. LABEL is the
 # tag when HEAD is exactly a tag (X.Y.Z) and the tree is clean, otherwise the short commit (+ -dirty).
-# Each platform runs what its release.yml job runs, with the same scripts:
+# Each platform runs its check and smoke scripts (scripts/release/check-*.sh, smoke-*.sh):
 #
 #   linux-*   in an Ubuntu 22.04 container (linux-build.Dockerfile, Docker Desktop): aarch64 natively,
 #             x86_64 emulated. linux-container-build.sh: build, check, the glibc check's negative
 #             test, the headless smoke test, the debug automation build and its marker canary.
 #             The emulated x86_64 smoke test runs with WebKit's sandbox off (it cannot start under
-#             emulation), so this x86_64 shell has never run with it on; CI's own build has.
+#             emulation), so this x86_64 shell has never run with it on.
 #   macos-*   natively, linked for macOS 12.0 against MACOS_SDK (SDK 15.5, the one macos-15's Xcode
 #             16.4 linked every earlier release with; this Mac's Xcode is newer). x86_64 is
-#             cross-compiled from arm64 and smoke-tested under Rosetta 2 (CI builds it on Intel).
+#             cross-compiled from arm64 and smoke-tested under Rosetta 2.
 #             The smoke test shows a window for a moment.
 #   windows-* cross-compiled with cargo-xwin (lld-link, Microsoft's CRT and SDK downloaded by xwin,
 #             whose licence this script accepts: XWIN_ACCEPT_LICENSE=1) and checked. NOT smoke-tested:
-#             smoke-windows.sh needs Windows, so the published .exe has not run before release. CI
-#             smoke-tests its own (MSVC-linked) build of the commit, not these bytes; a Windows guest
-#             (docs/dev/windows-test-vm.md) can run this one.
+#             smoke-windows.sh needs Windows, so the published .exe has not run before release; a
+#             Windows guest (docs/dev/windows-test-vm.md) can run it.
 #
 # Output: dist/LABEL/ holds the named assets and their .sha256 (what a release publishes),
 # BUILD-INFO (the commit), and debug-automation/PLATFORM/ (verification builds, never published).
@@ -68,7 +66,7 @@ no_home_path() { # FILE: fail if this Mac's home directory is anywhere in it
     if grep -qaF "$HOME/" "$1"; then die "$1 embeds paths under $HOME"; fi
 }
 
-# The tag must equal both crates' versions (release.yml checks the same on a tag push).
+# The tag must equal both crates' versions.
 check_versions() {
     local tag=$1 toml version
     for toml in Cargo.toml launcher/Cargo.toml; do
@@ -100,13 +98,13 @@ build_linux() {
 
     step "linux-$arch: build, check, smoke-test"
     # /dev/shm: WebKit's processes share memory through it, and Docker's default is 64 MB.
-    # The smoke test runs with WebKit's bubblewrap sandbox on, as on a CI runner, which takes two
+    # The smoke test runs with WebKit's bubblewrap sandbox on, as on a user's machine, which takes two
     # relaxations of the container (it runs only this repository's code): seccomp=unconfined, as
     # Docker's default profile refuses user namespaces, and systempaths=unconfined, as the kernel
     # refuses bwrap's new /proc while Docker masks parts of the container's.
     # Emulated (x86_64 on Apple silicon), the sandbox cannot start at all: bwrap's seccomp filter is
     # an x86_64 program the arm64 kernel underneath refuses (prctl(PR_SET_SECCOMP): Invalid argument).
-    # That smoke test runs without it (CI's own x86_64 build, on real hardware, runs with it).
+    # That smoke test runs without it.
     local nosandbox=()
     [ "$arch" = "$(uname -m | sed 's/arm64/aarch64/')" ] || nosandbox=(-e WEBKIT_DISABLE_SANDBOX_THIS_IS_DANGEROUS=1)
     docker run --rm --platform "$platform" --shm-size=1g \
@@ -171,8 +169,7 @@ build_windows() {
     step "windows-x86_64: check"
     scripts/release/check-windows-binaries.sh "$bin"
     no_home_path "$bin"
-    echo "(no smoke test: smoke-windows.sh needs Windows. This lld-linked .exe has not run anywhere;"
-    echo " CI smoke-tests its own MSVC-linked build of the commit, not these bytes.)"
+    echo "(no smoke test: smoke-windows.sh needs Windows; this .exe has not run anywhere yet)"
 
     cp "$bin" "$OUT/grafida-shell-windows-x86_64.exe"
     (cd "$OUT" && shasum -a 256 grafida-shell-windows-x86_64.exe > grafida-shell-windows-x86_64.exe.sha256 && cat grafida-shell-windows-x86_64.exe.sha256)

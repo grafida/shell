@@ -14,7 +14,7 @@
 # and webview came up, the scheme and the worker answered, and shutdown is clean.
 #
 # Usage: scripts/release/smoke-linux.sh SHELL LAUNCHER
-# Runs under xvfb-run when it is installed and there is no display (CI); otherwise on the current
+# Runs under xvfb-run when it is installed and there is no display (the release container); otherwise on the current
 # desktop, where a window flashes up for a moment. Every per-user directory is a temp dir.
 
 set -euo pipefail

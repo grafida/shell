@@ -140,8 +140,8 @@ The order matters, because some steps change the guest:
    raises the install dialog in the guest.)
 5. **The automated checks**, in the desktop session (`sudo launchctl asuser $(id -u) sudo -u tester
    …`) with `TMPDIR=$(getconf DARWIN_USER_TEMP_DIR)`: `scripts/dev/parity-macos.sh` with
-   `GRAFIDA_PACKAGED=/Applications/<App>.app SHELL_BIN=<the release workflow's
-   debug-automation-macos-arm64 artifact; x86_64: section 3>`, then `scripts/dev/macguest/ats-matrix.sh`. Copy in the
+   `GRAFIDA_PACKAGED=/Applications/<App>.app SHELL_BIN=<dist/LABEL/debug-automation/
+   macos-arm64/grafida-shell from local-release.sh build; x86_64: section 3>`, then `scripts/dev/macguest/ats-matrix.sh`. Copy in the
    shell repo's `scripts/dev` and `tests/apps`, `tests/workers` (`git archive`). Keep off the VM:
    the key rows activate the app.
 6. **By hand**, then **`scripts/dev/macguest/idle-cpu.sh`** on the release app, with the user's
@@ -189,7 +189,7 @@ attribute" before installing it: Apple's catalogue, harmless.
 From then on `macos-12-rosetta` is a guest like the others (`fresh`, `run`, `wait`, `ssh`, `stop`); it
 counts towards the two-guest limit. A run follows section 2 with the x86_64 artefacts: the
 `-macos-amd64` DMG, installed and first launched through Gatekeeper on the untouched clone, then
-`parity-macos.sh` with `SHELL_BIN=<the debug-automation-macos-x86_64 artifact>`. The parity script
+`parity-macos.sh` with `SHELL_BIN=<dist/LABEL/debug-automation/macos-x86_64/grafida-shell>`. The parity script
 reads the architecture from `SHELL_BIN`, refuses an x86_64 one on a Mac without Rosetta 2, and its
 first row proves what runs: `_native/info`'s `arch` (fixed at compile time, so `x86_64` from a shell
 on an arm64 Mac is Rosetta 2) and every executable in the packaged bundle (shell and worker stub),

@@ -66,4 +66,4 @@ Moved from the root `AGENTS.md`; same rules, loaded on demand.
   ignores `HOME` and `CFFIXED_USER_HOME`: a dev run writes `~/Library/Preferences/grafida-shell.plist`.
 - **Selectors and symbols newer than macOS 12 are looked up at run time** (`isInspectable` behind
   `respondsToSelector:`); UTIs and WebKit menu identifiers are string literals. Builds link for 12.0
-  (`.cargo/config.toml`, checked from `LC_BUILD_VERSION` in CI).
+  (`.cargo/config.toml`, checked from `LC_BUILD_VERSION` by `check-macos-binaries.sh`).

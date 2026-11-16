@@ -3,7 +3,7 @@
 Moved from the root `AGENTS.md`; same rules, loaded on demand.
 
 - **The automation channel (`src/automation.rs`) exists only with the `automation` feature in a
-  debug build** (a release build with the feature is a `compile_error!`, and CI checks it), and only
+  debug build** (a release build with the feature is a `compile_error!`), and only
   opens with `--automation`. Two traps when writing checks with it: a script it injects **counts as
   a user gesture** in WebKit, and a gesture survives about a second through timers, so a no-gesture
   case must run from a `setTimeout` well past that; and while it is open the shell **records**
@@ -29,8 +29,8 @@ Moved from the root `AGENTS.md`; same rules, loaded on demand.
   PASS/FAIL Markdown table with the commits it ran on (`QUICK=1` shortens the idle-CPU sample).
   `GRAFIDA_PACKAGED=<extracted tarball>/grafida` runs the Grafida checks against the **packaged**
   app instead (a copy of it, with only `grafida-shell` swapped for the debug build), and
-  `SHELL_BIN` takes a prebuilt debug build, e.g. the `debug-automation-linux-<arch>` artifact the
-  release workflow uploads (built on 22.04, so it runs on every supported distribution; a release
+  `SHELL_BIN` takes a prebuilt debug build, e.g. `dist/LABEL/debug-automation/linux-<arch>/grafida-shell`
+  from `scripts/release/local-release.sh build` (built on 22.04, so it runs on every supported distribution; a release
   asset never). On a clean VM it needs python3 only. The
   automation channel's runtime file is removed in the shell's stop path, not only in `Drop`: tao
   ends the process without dropping anything, and a stale file hands a client a dead pid. The

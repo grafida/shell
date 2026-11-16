@@ -84,8 +84,8 @@ scripts/dev/linuxvm.sh session fedora-43 'grafida/grafida'   # starts it in the 
 
 `session` runs a command with the logged-in desktop's `WAYLAND_DISPLAY`, `XDG_RUNTIME_DIR` and
 D-Bus address, which is what a GUI program over SSH needs. For the automated parity checks, copy
-the shell repository's `scripts/` and `tests/` and the release workflow's
-`debug-automation-linux-x86_64` artifact over, and run
+the shell repository's `scripts/` and `tests/` and the debug automation build
+`local-release.sh build` leaves in `dist/LABEL/debug-automation/linux-x86_64/` over, and run
 `GRAFIDA_PACKAGED=~/grafida SHELL_BIN=~/grafida-shell-debug scripts/dev/parity-linux.sh` through
 `session`. It needs only `python3` on the VM. The release binary never has the automation
 channel, so this is the only way in.
@@ -208,7 +208,7 @@ copied in (`scp -P 22225 -i ~/.ssh/grafida-linuxvm_ed25519 … tester@localhost:
    `Exec=` of `~/.local/share/applications/app.grafida.desktop`. Over SSH there is no display and no
    alert program, so the launcher prints its missing-libraries message on stderr and exits 69.
 
-`parity-linux.sh` also runs here, packaged, with the `debug-automation-linux-aarch64` artifact, in
+`parity-linux.sh` also runs here, packaged, with the `dist/LABEL/debug-automation/linux-aarch64/` build, in
 `dbus-run-session -- xvfb-run -a -s "-screen 0 1280x800x24"` (about 4 minutes), but under TCG
 four rows fail for timing alone (RC5, grafida/grafida#93):
 - "A worker that never sends ready": the row's fixed `sleep 3` ends before the shell's 2 s `ready`

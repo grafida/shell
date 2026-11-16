@@ -14,7 +14,7 @@
 # and the worker answered, and shutdown is clean.
 #
 # Usage: scripts/release/smoke-macos.sh SHELL
-# Needs a desktop session (a GitHub macOS runner has one); a window flashes up for a moment. HOME
+# Needs a desktop session; a window flashes up for a moment. HOME
 # and CFFIXED_USER_HOME point at a temp dir; failure alerts go to stderr (SHELL_ALERTS=stderr).
 
 set -euo pipefail

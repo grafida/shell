@@ -40,13 +40,12 @@ mainly foreign content embedded in the page.
 
 * **Ship only the release assets** (`grafida-shell-*` and, on Linux, `grafida-launcher-*` from the release page), pinned
   by version and by a SHA-256 you computed yourself (see [Packaging](packaging.md#finding-the-urls-and-hashes-to-pin)).
-* **Never ship a `debug-automation-*` build.** The shell's CI produces these debug builds for its own tests. They carry
+* **Never ship a `debug-automation-*` build.** The shell's release build produces these debug builds for its own tests. They carry
   a remote-control channel: it is off unless the shell is started with `--automation`, it listens on `127.0.0.1` only,
   and every command needs a random token from a file only the user can read. They are never attached to a release,
   and nothing here tells you to download one.
 * The release assets are built and published by the maintainer, on the maintainer's own Mac, from a tag that only the
   maintainer can push, with the toolchain pinned in `rust-toolchain.toml` (`scripts/release/local-release.sh`: Linux in
-  an Ubuntu 22.04 container, macOS natively, Windows cross-compiled). GitHub Actions builds, checks and smoke-tests the
-  same tag separately on GitHub's runners, but its builds are not the ones published. Trusting the assets means
+  an Ubuntu 22.04 container, macOS natively, Windows cross-compiled). No other build service is involved. Trusting the assets means
   trusting the maintainer's build machine and the crates the shell depends on. If that is not enough for you, build the
   shell yourself from the tag.

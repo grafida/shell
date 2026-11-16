@@ -77,7 +77,7 @@ code it covers. Their rules are as binding as the ones below.
   the misbehaviour the supervisor must survive (never ready, wrong protocol, garbage, crashes, ignoring
   EOF). Like the fixture writer, it must never share code with either codec. `tests/real_workers.rs`
   runs shell-php's echo worker and Grafida's `bin/worker.php` (sibling clones, or `SHELL_PHP_DIR` /
-  `GRAFIDA_DIR`) and skips with a note when they are absent, as on CI. Grafida's worker runs with every
+  `GRAFIDA_DIR`) and skips with a note when they are absent. Grafida's worker runs with every
   per-user directory pointed at a temp dir, never the real data.
 - **`src/bridge.rs` is the platform-neutral half and is where request policy lives**: a foreign
   `Origin` → `403 cross_origin` (an article's `<iframe>` must not drive the app's API); any host of
@@ -108,42 +108,39 @@ code it covers. Their rules are as binding as the ones below.
   README "System requirements" is the text apps copy). Only undefined symbols *the shell itself* needs count (it is `-z now`; a library's
   own unresolved references bind lazily), and output it does not recognise **fails open**.
   `launcher/tests/loader.rs` breaks real C programs' libraries to pin the loader's formats.
-- **Releases** (`.github/workflows/release.yml`; the procedure is `docs/dev/RELEASE.md`): every push builds, checks
-  (`scripts/release/check-linux-binaries.sh`: glibc ≤ 2.35, every NEEDED library from
-  `libwebkit2gtk-4.1-0` + `libgtk-3-0`'s dependency closure, no automation marker, a static
-  launcher) and smoke-tests (`scripts/release/smoke-linux.sh`: the launcher → the shell → the fake
-  worker's `page` mode, which POSTs, reports to the log and quits; no automation channel) on
-  `ubuntu-22.04` and `ubuntu-22.04-arm`; and on `macos-15` (arm64, grafida/grafida#88) and
-  `macos-15-intel` (x86_64, grafida/grafida#92) checks (`check-macos-binaries.sh` with `EXPECT_ARCH`:
-  one thin architecture, `LC_BUILD_VERSION` minos ≤ 12.0, only `/usr/lib` and `/System/Library`
-  linked, no automation marker) and smoke-tests natively (`smoke-macos.sh`: the shell in a bundle
-  layout, manifest in `Contents/Resources`, worker beside the shell, the fake worker's `page` mode)
-  each macOS shell, built with an explicit `--target`; and on `windows-2022` (grafida/grafida#91) checks
-  (`check-windows-binaries.sh`: PE32+ AMD64, the GUI subsystem, only DLLs that ship with Windows, so
-  no VC++ runtime and no `WebView2Loader.dll`, the manifest, no automation marker) and smoke-tests
-  (`smoke-windows.sh`: the packaged layout, a `.cmd` running the fake worker's `page` mode) the
-  Windows shell. **CI publishes nothing.** The maintainer publishes a tag `X.Y.Z` equal to **both**
-  crates' versions from the Mac with `scripts/release/local-release.sh` (`build`, then `publish TAG`
-  once the tag is pushed), which runs the same check and smoke scripts: Linux in an Ubuntu 22.04
-  container (`linux-build.Dockerfile` + `linux-container-build.sh`, aarch64 native, x86_64
-  emulated; an unprivileged user with `seccomp` and `systempaths` unconfined, or WebKit's bubblewrap
-  sandbox cannot start), macOS natively against the **SDK 15.5** in `.sdk/` (`macos-sdk DMG`
-  extracts it from Command Line Tools for Xcode 16.4; earlier releases were linked against it), and
-  Windows with `cargo xwin` (not smoke-tested: the published `.exe` is lld-linked and has not run
-  before release; CI smoke-tests its own MSVC build, not those bytes). The emulated x86_64 Linux
-  smoke test runs with WebKit's sandbox off (bwrap's seccomp filter cannot load under emulation).
+- **Releases** (`docs/dev/RELEASE.md`). There is no CI (removed 2026-11-16: it cost money for
+  software given away). The maintainer builds, checks, smoke-tests and publishes on the Mac with
+  `scripts/release/local-release.sh` (`build`, then `publish TAG` once the tag `X.Y.Z`, equal to
+  **both** crates' versions, is pushed). Linux x86_64 and aarch64 build in an Ubuntu 22.04 container
+  (`linux-build.Dockerfile` + `linux-container-build.sh`; aarch64 native, x86_64 emulated; an
+  unprivileged user with `seccomp` and `systempaths` unconfined, or WebKit's bubblewrap sandbox
+  cannot start; emulated it cannot start at all, so the x86_64 smoke test runs with it off), checked
+  by `check-linux-binaries.sh` (glibc ≤ 2.35, every NEEDED library from `libwebkit2gtk-4.1-0` +
+  `libgtk-3-0`'s dependency closure, no automation marker, a static launcher) and smoke-tested by
+  `smoke-linux.sh` (the launcher → the shell → the fake worker's `page` mode, which POSTs, reports
+  to the log and quits; no automation channel). macOS arm64 and x86_64 (cross-compiled; smoke-tested
+  under Rosetta 2) build natively against the **SDK 15.5** in `.sdk/` (`macos-sdk DMG` extracts it
+  from Command Line Tools for Xcode 16.4; every earlier release was linked against it), checked by
+  `check-macos-binaries.sh` with `EXPECT_ARCH` (one thin architecture, `LC_BUILD_VERSION` minos ≤
+  12.0, only `/usr/lib` and `/System/Library` linked, no automation marker) and smoke-tested by
+  `smoke-macos.sh` (the shell in a bundle layout, manifest in `Contents/Resources`, worker beside
+  the shell). Windows x86_64 builds with `cargo xwin`, checked by `check-windows-binaries.sh` (PE32+
+  AMD64, the GUI subsystem, only DLLs that ship with Windows, so no VC++ runtime and no
+  `WebView2Loader.dll`, the manifest, no automation marker), and is **not smoke-tested**:
+  `smoke-windows.sh` (the packaged layout, a `.cmd` running the fake worker's `page` mode) needs
+  Windows, so the published `.exe` has not run before release unless someone runs it in a guest.
   Host builds remap `$CARGO_HOME` and the checkout to `/cargo` and `/src` (through `--config`, never
   `RUSTFLAGS`, which would drop the Windows static CRT); `publish` refuses an asset holding `$HOME`
-  or a macOS asset not linked against SDK 15.5. It uploads `grafida-{shell,launcher}-linux-{x86_64,aarch64}`,
-  `grafida-shell-macos-{arm64,x86_64}` and `grafida-shell-windows-x86_64.exe`, each with a
-  `.sha256`, once; consumers pin tag + hashes. The macOS asset is only linker-signed (ad hoc): the
-  app's packager signs it inside the bundle. Both platforms also upload a debug automation build as
-  a workflow artifact (`debug-automation-{linux-*,macos-arm64,macos-x86_64,windows-x86_64}`), never
-  a release asset. ⚠️ **x86_64 macOS is tested only under Rosetta 2** (ADR 0001, amended in #92): CI
-  lints it by cross-compiling from arm64 (`--target x86_64-apple-darwin`, with and without
-  `automation`, plus the release guard) and the release workflow runs it on an Intel runner, but the
-  packaged app is verified in the guests' Rosetta clones (`macvm.sh rosetta`, which needs
-  `--agree-to-license`: installing Rosetta 2 accepts Apple's licence, so ask the operator first).
+  or a macOS asset not linked against SDK 15.5. It uploads
+  `grafida-{shell,launcher}-linux-{x86_64,aarch64}`, `grafida-shell-macos-{arm64,x86_64}` and
+  `grafida-shell-windows-x86_64.exe`, each with a `.sha256`, once; consumers pin tag + hashes. The
+  macOS asset is only linker-signed (ad hoc): the app's packager signs it inside the bundle. `build`
+  also leaves a debug automation build per platform in `dist/LABEL/debug-automation/PLATFORM/` (for
+  the parity runs; never a release asset), and checks it carries the marker the release checks look
+  for. ⚠️ **x86_64 macOS is tested only under Rosetta 2** (ADR 0001, amended in #92): it is
+  cross-compiled from arm64, and the packaged app is verified in the guests' Rosetta clones
+  (`macvm.sh rosetta`, which needs `--agree-to-license`: installing Rosetta 2 accepts Apple's
+  licence, so ask the operator first).
 - **Menu accelerators fire before the webview sees the key.** Never bind a chord the manifest
   reserves (Grafida: `CmdOrCtrl+Shift+V`).
 - **In packaged mode the worker is resolved beside the shell's real path** (`cli.rs`), not beside the
@@ -156,8 +153,8 @@ code it covers. Their rules are as binding as the ones below.
 - Keep a terse `CHANGELOG.md` entry per change that ships: the shell, the launcher, the protocol,
   the schema, release assets, the README (Grafida's `!` `+` `-` `~` `# [HIGH|MEDIUM|LOW]` style).
   **Development tooling gets none**: `scripts/dev/` (the VM, parity and automation scripts), tests
-  and CI (decided, grafida/grafida#92). Released sections keep the tooling entries they already
+  and the build and release scripts in `scripts/release/` (decided, grafida/grafida#92). Released sections keep the tooling entries they already
   have, as history.
 - Commit directly on `main`.
-- Before every commit run `cargo fmt --all --check` (CI fails all three platforms on it before any
-  test runs) and `cargo clippy --workspace --all-targets`.
+- Before every commit run `cargo fmt --all --check` (there is no CI: nothing else
+  runs them) and `cargo clippy --workspace --all-targets`.

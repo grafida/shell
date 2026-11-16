@@ -1,6 +1,6 @@
 shell 0.4.3
 ================================================================================
-~ Release assets are built and published by the maintainer, no longer by GitHub Actions (which still checks each tag)
+~ Release assets are built and published by the maintainer, no longer by GitHub Actions
 
 shell 0.4.2
 ================================================================================
