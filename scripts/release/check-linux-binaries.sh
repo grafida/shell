@@ -47,7 +47,9 @@ if command -v dpkg >/dev/null && command -v apt-cache >/dev/null; then
                | grep -v '^ ' | grep -v '^<' | sed 's/:.*//' | sort -u)"
     while read -r lib; do
         [ -n "$lib" ] || continue
-        path="$(ldconfig -p | awk -v l="$lib" '$1 == l { print $NF; exit }')"
+        # awk reads to the end: exiting at the first match would SIGPIPE ldconfig, which pipefail
+        # turns into a failure whenever ldconfig is still writing (it raced so in a container).
+        path="$(ldconfig -p | awk -v l="$lib" '$1 == l && p == "" { p = $NF } END { if (p != "") print p }')"
         [ -n "$path" ] || fail "NEEDED $lib is not installed on the build host"
         pkg="$(dpkg -S "$(readlink -f "$path")" 2>/dev/null | head -1 | cut -d: -f1)" \
             || pkg="$(dpkg -S "$path" 2>/dev/null | head -1 | cut -d: -f1)"
