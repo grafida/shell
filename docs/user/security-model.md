@@ -44,6 +44,9 @@ mainly foreign content embedded in the page.
   a remote-control channel: it is off unless the shell is started with `--automation`, it listens on `127.0.0.1` only,
   and every command needs a random token from a file only the user can read. They are never attached to a release,
   and nothing here tells you to download one.
-* The release assets are built by GitHub Actions, on GitHub's own runners, from a tag that only the maintainer can push.
-  Trusting them means trusting GitHub's build infrastructure and the crates the shell depends on. If that is not
-  enough for you, build the shell yourself from the tag.
+* The release assets are built and published by the maintainer, on the maintainer's own Mac, from a tag that only the
+  maintainer can push, with the toolchain pinned in `rust-toolchain.toml` (`scripts/release/local-release.sh`: Linux in
+  an Ubuntu 22.04 container, macOS natively, Windows cross-compiled). GitHub Actions builds, checks and smoke-tests the
+  same tag separately on GitHub's runners, but its builds are not the ones published. Trusting the assets means
+  trusting the maintainer's build machine and the crates the shell depends on. If that is not enough for you, build the
+  shell yourself from the tag.

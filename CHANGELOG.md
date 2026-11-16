@@ -1,3 +1,7 @@
+shell 0.4.3
+================================================================================
+~ Release assets are built and published by the maintainer, no longer by GitHub Actions (which still checks each tag)
+
 shell 0.4.2
 ================================================================================
 + User documentation in `docs/user`: getting started, the PHP and JavaScript sides, the manifest, packaging

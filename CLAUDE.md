@@ -108,7 +108,7 @@ code it covers. Their rules are as binding as the ones below.
   README "System requirements" is the text apps copy). Only undefined symbols *the shell itself* needs count (it is `-z now`; a library's
   own unresolved references bind lazily), and output it does not recognise **fails open**.
   `launcher/tests/loader.rs` breaks real C programs' libraries to pin the loader's formats.
-- **Releases** (`.github/workflows/release.yml`): every push builds, checks
+- **Releases** (`.github/workflows/release.yml`; the procedure is `docs/dev/RELEASE.md`): every push builds, checks
   (`scripts/release/check-linux-binaries.sh`: glibc ≤ 2.35, every NEEDED library from
   `libwebkit2gtk-4.1-0` + `libgtk-3-0`'s dependency closure, no automation marker, a static
   launcher) and smoke-tests (`scripts/release/smoke-linux.sh`: the launcher → the shell → the fake
@@ -122,9 +122,20 @@ code it covers. Their rules are as binding as the ones below.
   (`check-windows-binaries.sh`: PE32+ AMD64, the GUI subsystem, only DLLs that ship with Windows, so
   no VC++ runtime and no `WebView2Loader.dll`, the manifest, no automation marker) and smoke-tests
   (`smoke-windows.sh`: the packaged layout, a `.cmd` running the fake worker's `page` mode) the
-  Windows shell. A tag `X.Y.Z` equal to **both** crates' versions publishes
-  `grafida-{shell,launcher}-linux-{x86_64,aarch64}`, `grafida-shell-macos-{arm64,x86_64}` and
-  `grafida-shell-windows-x86_64.exe`, each with a
+  Windows shell. **CI publishes nothing.** The maintainer publishes a tag `X.Y.Z` equal to **both**
+  crates' versions from the Mac with `scripts/release/local-release.sh` (`build`, then `publish TAG`
+  once the tag is pushed), which runs the same check and smoke scripts: Linux in an Ubuntu 22.04
+  container (`linux-build.Dockerfile` + `linux-container-build.sh`, aarch64 native, x86_64
+  emulated; an unprivileged user with `seccomp` and `systempaths` unconfined, or WebKit's bubblewrap
+  sandbox cannot start), macOS natively against the **SDK 15.5** in `.sdk/` (`macos-sdk DMG`
+  extracts it from Command Line Tools for Xcode 16.4; earlier releases were linked against it), and
+  Windows with `cargo xwin` (not smoke-tested: the published `.exe` is lld-linked and has not run
+  before release; CI smoke-tests its own MSVC build, not those bytes). The emulated x86_64 Linux
+  smoke test runs with WebKit's sandbox off (bwrap's seccomp filter cannot load under emulation).
+  Host builds remap `$CARGO_HOME` and the checkout to `/cargo` and `/src` (through `--config`, never
+  `RUSTFLAGS`, which would drop the Windows static CRT); `publish` refuses an asset holding `$HOME`
+  or a macOS asset not linked against SDK 15.5. It uploads `grafida-{shell,launcher}-linux-{x86_64,aarch64}`,
+  `grafida-shell-macos-{arm64,x86_64}` and `grafida-shell-windows-x86_64.exe`, each with a
   `.sha256`, once; consumers pin tag + hashes. The macOS asset is only linker-signed (ad hoc): the
   app's packager signs it inside the bundle. Both platforms also upload a debug automation build as
   a workflow artifact (`debug-automation-{linux-*,macos-arm64,macos-x86_64,windows-x86_64}`), never
