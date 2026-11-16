@@ -18,8 +18,12 @@ show how each piece fits together in a shipped application.
 
 You can read the [architecture decisions](docs/adr/0001-shell-stack.md) and the [wire protocol v1](protocol/v1.md) for more information.
 
-- Stack: Rust + [wry](https://github.com/tauri-apps/wry) / [tao](https://github.com/tauri-apps/tao) /
-  [rfd](https://github.com/PolyMeilex/rfd) / [muda](https://github.com/tauri-apps/muda)
+- Stack: Rust + [tao](https://github.com/tauri-apps/tao) (windows and event loop) and
+  [rfd](https://github.com/PolyMeilex/rfd) (file dialogs) everywhere; on Linux
+  [gtk-rs](https://gtk-rs.org) and [webkit2gtk](https://crates.io/crates/webkit2gtk); on macOS
+  [objc2](https://github.com/madsmtm/objc2) with AppKit and WebKit (WKWebView); on Windows
+  [webview2-com](https://github.com/wravery/webview2-rs) and [windows](https://github.com/microsoft/windows-rs). No wry
+  or muda: the shell drives each webview itself, and builds the macOS menus with AppKit.
 - Platforms: Windows 10 22H2+ (WebView2), macOS 12+ (WKWebView), Linux (WebKitGTK 4.1 ≥ 2.40); see
   [System requirements](#system-requirements)
 - Companion repositories: [shell-php](https://github.com/grafida/shell-php) (worker runtime),

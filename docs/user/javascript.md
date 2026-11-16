@@ -39,7 +39,7 @@ Two error classes, which mean different things:
 
 | Class | Meaning | What to do |
 |---|---|---|
-| `GrafidaShell.ShellUnavailableError` | The page is **not** hosted by the shell (a plain browser, another host) | Use your web fallback, or tell the user the feature needs the desktop app |
+| `GrafidaShell.ShellUnavailableError` | The page is **not** hosted by the shell (a plain browser, another host). `error.status` is the HTTP status of the non-JSON answer, or `0` when the request failed outright | Use your web fallback, or tell the user the feature needs the desktop app |
 | `GrafidaShell.ShellError` | The shell is there and **refused** the call. `error.code` says why; `error.status` is the HTTP status; `error.detail` may carry text | Show a message. Do not fall back to the web version. |
 
 ```js
@@ -54,10 +54,10 @@ try {
 }
 ```
 
-Codes you can meet: `bad_request` (400, malformed arguments), `not_found` (404), `method_not_allowed` (405),
-`dialog_busy` (409, a dialog is already open: only one at a time), `unsupported_url` (400), `unknown_file_token` and
-`stale_file_token` (400), `open_failed` and `reveal_failed` (500, the operating system could not do it; `detail` has the
-reason).
+Codes you can meet: `bad_request` (400, malformed arguments), `not_found` (404), `method_not_allowed` (405, with an
+`Allow` header naming the endpoint's method), `dialog_busy` (409, a dialog is already open: only one at a time),
+`unsupported_url` (400), `unknown_file_token` and `stale_file_token` (400), `open_failed` and `reveal_failed` (500, the
+operating system could not do it; `detail` has the reason).
 
 ## Files are tokens, not paths
 
@@ -81,14 +81,19 @@ if (!result.cancelled) {
 }
 ```
 
-`fileHeaders(token)` is `{"X-Shell-File": token}`. Before the request reaches the worker the shell:
+`fileHeaders(token)` is `{"X-Shell-File": token}`; the header's name is also `GrafidaShell.FILE_HEADER`. Before the
+request reaches the worker the shell:
 
 1. **drops any `X-Shell-File-Path` header the page sent**, so a script cannot forge a path;
 2. looks the `X-Shell-File` token up and, if it is good, adds `X-Shell-File-Path: /the/real/path`;
 3. removes the token header itself.
 
 If the token is unknown or stale, the shell answers `400 unknown_file_token` or `400 stale_file_token` itself and your
-worker never sees the request. Your PHP code reads the path from the header and does the real work:
+worker never sees the request. It does the same with `400 bad_file_token` when the request carries more than one
+`X-Shell-File` value (send one token per request), and with `400 unsupported_path` when the file's path cannot be put
+in a header: it contains a line break or a NUL, or (on Linux) is not valid UTF-8. These come back to your own `fetch()`
+as a JSON body, `{"error": "<code>"}`, not as a `ShellError`. Your PHP code reads the path from the header and does the
+real work:
 
 ```php
 $path = $request->header('X-Shell-File-Path');   // null when no token was sent
@@ -146,7 +151,8 @@ Internally this is a `shell:drop` event on `window` whose `detail` is `{files, x
 const response = await fetch('/api/paste', {method: 'POST', headers: GrafidaShell.clipboardHeaders()});
 ```
 
-`clipboardHeaders()` is `{"X-Shell-Clipboard": "read"}`. The shell replaces the request **body** with the clipboard's
+`clipboardHeaders()` is `{"X-Shell-Clipboard": "read"}`; the header's name is also `GrafidaShell.CLIPBOARD_HEADER`.
+The shell replaces the request **body** with the clipboard's
 text (empty if it holds none), replaces the header with `X-Shell-Clipboard: text`, and forwards it. Read the text from
 `$request->body`. There is no prompt and no helper tool.
 
@@ -209,12 +215,33 @@ page JavaScript.
 ## Keyboard shortcuts and menus
 
 On Linux and Windows the shell has no menu bar, and on macOS it has the standard application, Edit and Window menus
-(`menu.preset`, see the [manifest](manifest.md#menu)). Menu accelerators fire **before** the webview sees a key. If your
-page implements a shortcut itself, list its chord in `menu.reservedChords` so the shell never binds it.
+(`menu.preset`, see the [manifest](manifest.md#menu)). On macOS a key that a menu item binds is routed this way:
+
+* **Edit shortcuts** (undo, redo, cut, copy, paste, select all, spelling) go to your page first. If your handler calls
+  `preventDefault()`, the menu never sees the key; otherwise the menu's native command runs. A rich editor can
+  therefore keep its own Cmd+Z.
+* **Application and Window shortcuts** (Quit, Hide, Minimize, …) go to the menu first, so a page cannot stop the app
+  from quitting.
+* Any other key goes to your page.
+
+If your page implements a shortcut that a menu item would otherwise take, list its chord in `menu.reservedChords`, so
+the shell never binds it.
+
+On macOS, with `menu.preset` `"standard"`, the application menu has an **About** `<title>` item (`title` from the
+manifest). The shell has no About panel of its own: the item dispatches a `shell:about` event on the top-level page's
+`window`, a plain `CustomEvent` with no `detail`. `shell.js` has no helper for it; listen for it yourself and show your
+own About box:
+
+```js
+window.addEventListener('shell:about', () => showAboutDialog());
+```
+
+If the page does not listen, the item does nothing. On Linux and Windows the event never fires.
 
 > [!NOTE]
-> **Custom application menus are not supported.** You cannot add, change or remove menu items, and a menu click cannot
-> call into your page or your PHP code. If your app needs a menu, build it in HTML and CSS inside the page.
+> **Custom application menus are not supported.** You cannot add, change or remove menu items. A menu click never
+> reaches your PHP code, and About (above) is the only item that reaches your page. If your app needs a menu, build it
+> in HTML and CSS inside the page.
 
 ## Raw endpoints
 

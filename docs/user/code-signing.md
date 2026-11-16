@@ -159,7 +159,7 @@ Things to know first:
 * **It does not remove SmartScreen warnings by itself.** SmartScreen reputation builds with download volume over time. A
   signed file shows your publisher's name instead of "Unknown publisher", and it behaves better with antivirus and
   AppLocker policies, but a new app with few downloads can still show "Windows protected your PC". See
-  [Unsigned builds: Windows](packaging.md#windows-1).
+  [Unsigned builds: Windows](packaging.md#unsigned-on-windows).
 
 ### What you need on your machine
 

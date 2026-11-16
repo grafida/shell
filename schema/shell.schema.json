@@ -185,7 +185,7 @@
             }
         },
         "logDir": {
-            "description": "\"auto\" for the platform log directory, or an absolute path. The shell's own log and the worker's stderr go there, rotated.",
+            "description": "\"auto\" for the platform log directory, or a path (a relative one is resolved against the worker's working directory). The shell's own log and the worker's stderr go there, rotated.",
             "type": "string",
             "minLength": 1,
             "default": "auto"

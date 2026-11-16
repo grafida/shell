@@ -1,8 +1,9 @@
 # Packaging
 
 [grafida/shell-packager](https://github.com/grafida/shell-packager) turns your app into something users can install:
-a tarball for Linux, a disk image for macOS, an installer for Windows. Which of them you can build depends on the
-machine you build on: see [Which machine builds what](#which-machine-builds-what).
+for Linux a tarball, `.deb` and `.rpm` packages, an AppImage and an Arch Linux `PKGBUILD`; a disk image for macOS; an
+installer for Windows. Which of them you can build depends on the machine you build on: see
+[Which machine builds what](#which-machine-builds-what).
 
 ## Which machine builds what
 
@@ -10,16 +11,22 @@ machine you build on: see [Which machine builds what](#which-machine-builds-what
 and both exist only on macOS. Even an unsigned disk image (`--no-sign`) is made with `hdiutil`. Nothing replaces them
 on another operating system.
 
-| Build machine | Linux tarball | Windows installer | macOS disk image |
-|---|---|---|---|
-| **A Mac** | ✅ | ✅ | ✅ |
-| **Linux** | ✅ | ✅ | ❌ |
-| **Windows** | ✅ | ✅ | ❌ |
+| Build machine | Linux tarball, `PKGBUILD` | `.deb`, `.rpm` | AppImage | Windows installer | macOS disk image |
+|---|---|---|---|---|---|
+| **A Mac** | ✅ | ✅ | ✅ | ✅ | ✅ |
+| **Linux** | ✅ | ✅ | ✅ | ✅ | ❌ |
+| **Windows** | ✅ | ❌ | ✅ with Docker (untested) | ✅ | ❌ |
 
-So with a Mac you can produce every deliverable, for both CPU architectures of each platform. With Linux or Windows you
-can produce the Linux and Windows ones, and for macOS you need a Mac, or a macOS runner in your CI.
+So with a Mac you can produce every deliverable, for both CPU architectures of each platform. With Linux you can
+produce the Linux and Windows ones, and for macOS you need a Mac, or a macOS runner in your CI.
 
-* The Linux tarball is written by the packager itself, in PHP, so it needs no extra tool on any host.
+* The Linux tarball and the `PKGBUILD` are written by the packager itself, in PHP, so they need no extra tool on any
+  host.
+* The `.deb` and `.rpm` are made by [nfpm](https://nfpm.goreleaser.com), which the packager downloads and verifies
+  itself. It pins nfpm for macOS and Linux build machines only.
+* The AppImage needs `mksquashfs`: either installed on the build machine, or run in a Docker container that the packager
+  builds itself. On Windows, Docker is the only way. That route was built for Windows, but so far it has only been run
+  on a Mac. See [AppImage](#appimage).
 * The Windows installer needs `makensis`, and signing it needs `jsign`; checking the signature needs `osslsigncode`. All
   three are available for macOS and Linux (Homebrew, apt). See [Install the packager](#install-the-packager).
 * **A cross-built package is not run before it is written.** The packager's
@@ -41,8 +48,8 @@ The stub and the payload are **two files, side by side**, never one. A stub with
 code-signed, because the signature would land past the PHAR and corrupt it.
 
 At run time the shell starts the stub; the stub finds `<name>.phar` next to it and runs your entry point from inside the
-PHAR, with no PHP installation on the machine. Platform specifics of the layout are in
-[the packager's README](https://github.com/grafida/shell-packager#readme).
+PHAR, with no PHP installation on the machine. Where each file goes on each platform is shown with that platform's
+package, under [Building](#building).
 
 ## Install the packager
 
@@ -59,7 +66,7 @@ It is a development tool. Like `shell-php`, it is not on Packagist:
         "grafida/shell-php": "^0.2"
     },
     "require-dev": {
-        "grafida/shell-packager": "^0.4"
+        "grafida/shell-packager": "^0.6"
     }
 }
 ```
@@ -71,8 +78,11 @@ You need, on the build machine:
 * `composer` on `PATH`, and a committed **`composer.lock`**. The packager installs your runtime dependencies from the
   lock with `--no-dev --no-scripts` into a staging directory; your own `vendor/` is never used, so development
   dependencies cannot leak into the package. Composer `scripts` do not run during that install.
+* For the AppImage: `mksquashfs` (Homebrew `squashfs`, apt `squashfs-tools`), or Docker. See [AppImage](#appimage).
 * For macOS packages (on a Mac only): Xcode's command line tools (`codesign`, `hdiutil`, and for notarisation `notarytool`).
 * For Windows packages: `makensis` 3.08 or later (the installer), and for signing `jsign` and `osslsigncode`.
+
+The tarball, the `.deb`/`.rpm` and the `PKGBUILD` need nothing else: the packager downloads and verifies nfpm itself.
 
 ## The configuration file: `shell-package.json`
 
@@ -133,8 +143,9 @@ Things to get right:
 
 ### `runtimes`: pinned downloads
 
-The packager downloads the **shell executable**, the **Linux launcher** and the **phpmicro stub** for each platform.
-You pin each by URL and SHA-256, so a build cannot silently change under you:
+The packager downloads the **shell executable**, the **Linux launcher** and the **phpmicro stub** for each platform,
+and for an AppImage the **AppImage runtime**. You pin each by URL and SHA-256, so a build cannot silently change under
+you:
 
 ```jsonc
 "runtimes": {
@@ -144,7 +155,10 @@ You pin each by URL and SHA-256, so a build cannot silently change under you:
     "launcher": {"url": "https://github.com/grafida/shell/releases/download/0.4.1/grafida-launcher-linux-{arch}",
                  "sha256": {"x86_64": "…", "aarch64": "…"}},
     "sfx":      {"url": "https://github.com/grafida/phpmicro/releases/download/sfx-20261109.16/linux-{arch}.standard.sfx",
-                 "sha256": {"x86_64": "…", "aarch64": "…"}}
+                 "sha256": {"x86_64": "…", "aarch64": "…"}},
+    // Only for linux-appimage:
+    "appimage-runtime": {"url": "https://github.com/AppImage/type2-runtime/releases/download/20251108/runtime-{arch}",
+                         "sha256": {"x86_64": "…", "aarch64": "…"}}
   },
   "macos": {
     "shell": {"url": {"aarch64": "…/grafida-shell-macos-arm64", "x86_64": "…/grafida-shell-macos-x86_64"},
@@ -173,7 +187,8 @@ You pin each by URL and SHA-256, so a build cannot silently change under you:
   `$XDG_CACHE_HOME/grafida-shell-packager`).
 * `shell-packager fetch --config=shell-package.json --arch=x86_64 [--platform=linux|macos|windows]` downloads and verifies
   the runtimes without building.
-* `--local NAME=PATH` replaces one runtime (`shell`, `launcher`, `sfx`) with a local file, to test an unreleased build.
+* `--local NAME=PATH` replaces one runtime (`shell`, `launcher`, `sfx`, `appimage-runtime`, or `nfpm` for
+  `linux-deb`/`linux-rpm`) with a local file, to test an unreleased build.
   It is announced as UNPINNED every time; never use it for a release. It works per runtime and mixes with pinned and
   `latest` runtimes.
 * Upgrading the shell is: change the URL and hashes, rebuild.
@@ -198,6 +213,7 @@ are:
 | `shell`, Windows | `grafida-shell-windows-x86_64.exe` |
 | `launcher` (Linux only) | `grafida-launcher-linux-x86_64`, `grafida-launcher-linux-aarch64` |
 | `sfx` | `<platform>-<arch>.standard.sfx`, e.g. `linux-x86_64.standard.sfx`, `macos-aarch64.standard.sfx`, `windows-x86_64.standard.sfx` |
+| `appimage-runtime` (Linux only) | `runtime-x86_64`, `runtime-aarch64`, from [AppImage/type2-runtime releases](https://github.com/AppImage/type2-runtime/releases) (a dated tag such as `20251108`, not `continuous`, which moves) |
 
 Mind the naming: the macOS **shell** asset says `arm64`, but the macOS **sfx** and the `sha256`/`url` keys in
 `shell-package.json` say `aarch64`. That is why the macOS shell in the example above uses an object for `url`, with one
@@ -254,6 +270,7 @@ Each runtime is either pinned or `latest`; giving both is an error. You can mix 
 |---|---|
 | `shell`, `launcher` | The asset of the [newest grafida/shell release](https://github.com/grafida/shell/releases/latest) (`…/releases/latest/download/…`). `launcher` exists for Linux only. |
 | `sfx` | The `sfx-latest` release of [grafida/phpmicro](https://github.com/grafida/phpmicro/releases/tag/sfx-latest), which is rebuilt on every push to its `sibling-phar` branch. |
+| `appimage-runtime` | The newest release of [AppImage/type2-runtime](https://github.com/AppImage/type2-runtime/releases/latest), which is its rolling `continuous` build. Needs packager 0.6.0 or later. |
 
 Every use prints a `WARNING: … is LATEST, not pinned` line with the URL and the SHA-256 of what was downloaded, and the
 file is cached under that hash.
@@ -268,7 +285,7 @@ file is cached under that hash.
 > SHA-256 is the one in the warning, and the build stays the same until you change it.
 
 `latest` is rejected for a runtime that does not exist on a platform (there is no macOS or Windows launcher). It needs
-packager 0.5.0 (unreleased at the time of writing); earlier versions require a pin for everything.
+packager 0.5.0 or later; earlier versions require a pin for everything.
 
 **Linux only:** `launcher` is a small static program that is the app's entry point. It checks that the system has the
 libraries the shell needs and either starts the shell or shows a helpful alert listing the packages to install.
@@ -290,33 +307,53 @@ releases; see the [phpmicro workflow](https://github.com/grafida/phpmicro/blob/s
 
 ## Building
 
-All commands take `--config=shell-package.json` and `--app-version=1.2.3`. Always add `-d phar.readonly=0`.
+Always run the packager as `php -d phar.readonly=0 vendor/bin/shell-packager …`. Every command except `windows-sign`
+takes `--config=shell-package.json`; every command that builds a package also takes `--app-version=1.2.3`.
 
 | Command | Result |
 |---|---|
-| `shell-packager phar --output=build/worker.phar` | Just the worker payload. Useful to inspect what ships. |
-| `shell-packager linux-tarball --arch=x86_64` (or `aarch64`) | A `.tar.gz` |
-| `shell-packager macos-app [--arch=…]` | A signed `.app` bundle (default `aarch64`; `--arch=x86_64` for Intel) |
-| `shell-packager macos-dmg [--arch=…] [--no-style]` | A disk image holding the bundle and an `/Applications` link |
-| `shell-packager windows-tree` | An install tree (x86_64 only) |
-| `shell-packager windows-installer` | A Windows installer `.exe` |
-| `shell-packager windows-sign --file=FILE` | Signs one executable (used by installer scripts) |
+| `phar --output=build/worker.phar` | Just the worker payload. Useful to inspect what ships. |
+| `linux-tarball --arch=x86_64` (or `aarch64`) | A `.tar.gz` that users unpack and run, with an `install.sh` |
+| `linux-deb --arch=…`, `linux-rpm --arch=…` | A `.deb` or `.rpm` package that installs under `/opt` |
+| `linux-appimage --arch=…` | An AppImage: a single executable file |
+| `linux-pkgbuild [--arch=…]…` | An Arch Linux `PKGBUILD` for tarballs you have already built |
+| `macos-app [--arch=…]` | A signed `.app` bundle (default `aarch64`; `--arch=x86_64` for Intel) |
+| `macos-dmg [--arch=…] [--no-style] [--app=BUNDLE]` | A disk image holding the bundle and an `/Applications` link. `--app` images a bundle you already built instead of building one. |
+| `windows-tree` | An install tree (x86_64 only) |
+| `windows-installer` | A Windows installer `.exe` |
+| `windows-sign --file=FILE [--overlay]` | Signs one executable. Your installer script runs it for the uninstaller. |
+| `fetch --arch=… [--platform=linux\|macos\|windows] [--nfpm]` | Downloads and verifies the runtimes (and with `--nfpm` the pinned nfpm) without building anything |
+| `version`, `help` | The packager's version; every command and option |
 
-`--output=` overrides the output path; `--no-check` skips the worker test below. Output paths in the configuration may
-use `{name}`, `{version}`, `{arch}` (`x86_64`/`aarch64`) and `{debarch}` (`amd64`/`arm64`).
+`--arch` takes `x86_64` or `aarch64`, or their Debian names `amd64` and `arm64`. `--output=` overrides the output path,
+`--no-check` skips the worker test below, and `--no-sign` builds a macOS or Windows package with nothing signed (see
+[Unsigned builds](#unsigned-builds)). Output paths in the configuration may use `{name}`, `{version}`, `{arch}`
+(`x86_64`/`aarch64`) and `{debarch}` (`amd64`/`arm64`). Every package gets a `<file>.sha256` beside it, in `shasum`
+format, ready to publish.
 
-**Reproducibility.** With `SOURCE_DATE_EPOCH` set, the PHAR and the Linux tarball are byte-identical for identical inputs. The macOS bundle and image are not (`codesign` and `hdiutil` are not deterministic).
+**Reproducibility.** With `SOURCE_DATE_EPOCH` set, the PHAR, the Linux tarball and the AppImage are byte-identical for
+identical inputs. For the AppImage, `mksquashfs` and its zstd library must be the same versions, wherever they run. The
+macOS bundle and image are not reproducible: `codesign` and `hdiutil` are not deterministic.
 
 ### The packaged worker is tested before it is written
 
 On a machine of the target's operating system and CPU, the packager runs the packaged worker and checks that:
 
-* the `ini` settings read back exactly; and
-* it sends the protocol's `ready` frame and exits when its standard input closes.
+* the `ini` settings read back exactly (phpmicro silently ignores a malformed block); and
+* it sends the protocol's `ready` frame and exits when its standard input closes. Every shell worker speaks the
+  protocol, so this works for any app.
 
-That proves the PHAR, your autoloader and your bootstrap load from `phar://`. It cannot run when you cross-build
-(for example the Windows package on a Mac); then it is skipped with a note. A cross-built package should be tested on
-the target before you publish it.
+Both run with every per-user directory pointed at a temporary directory. That proves the PHAR, your autoloader and your
+bootstrap load from `phar://`.
+
+* **On macOS** the handshake runs on the **signed** worker stub inside the finished bundle, so it also proves the stub
+  finds its payload in `Contents/Resources` and runs under the hardened runtime with the entitlements you gave it. An
+  Apple Silicon Mac with Rosetta 2 also tests an x86_64 bundle.
+* **On Windows** it runs on the signed stub in the finished tree, after its resources were rewritten and its signature
+  appended.
+* **When you cross-build** (the Windows package on a Mac, a Linux package anywhere but Linux, an x86_64 bundle on an
+  Apple Silicon Mac without Rosetta 2), the test is skipped with a note, never faked. Test a cross-built package on the
+  target before you publish it.
 
 ### Linux
 
@@ -327,17 +364,187 @@ the target before you publish it.
   "icons": {"48": "assets/icons/48.png", "512": "assets/icons/512.png"},
   "files": {"LICENSE.txt": "LICENSE.txt"},
   "replaces": [],
-  "output": "build/dist/MyApp-{version}-linux-{debarch}.tar.gz"
+  "output": "build/dist/MyApp-{version}-linux-{debarch}.tar.gz",
+  "package":  { /* .deb and .rpm: see below */ },
+  "appimage": { /* the AppImage: see below */ },
+  "pkgbuild": { /* the PKGBUILD: see below */ }
 }
 ```
 
-* `name` is the launcher's file name (default: your title in lower case). `desktop` is a freedesktop `.desktop` file you
-  provide; the packager forces its `Exec`, `Icon` and `StartupWMClass` to agree with the package. `icons` maps pixel
-  sizes to PNG files. `files` adds extra files to the tarball. `replaces` lists desktop ids of an earlier build under
-  another id that `install.sh` should clean up.
-* The tarball unpacks to a folder with the launcher (named `name`), the shell, the worker stub and payload,
-  `shell.json`, the desktop entry, the icons, and `install.sh`. Users can run the launcher directly, or run
-  `./install.sh` to add a desktop entry and icons for themselves (`./install.sh --uninstall` removes them). It needs no root.
+These members are shared by every Linux package:
+
+* `name` is the launcher's file name and the package name. By default it is your title in lower case, with every run
+  of other characters turned into `-` (`My App` becomes `my-app`). For a `.deb` or `.rpm` it must be a valid package
+  name: lower-case letters, digits, `.`, `+` and `-`.
+* `desktop` is a freedesktop `.desktop` file you provide. The packager forces its `Exec`, `Icon` and `StartupWMClass`
+  to agree with the package. The desktop entry is named `<id>.desktop` after your manifest's `id`, and so are the icons,
+  because the shell's window reports the `id` as its Wayland `app_id`.
+* `icons` maps pixel sizes to PNG files. `files` adds extra files beside the shell.
+* `replaces` lists the desktop ids of an earlier build of your app installed under another id (`["myapp"]` for an app
+  whose old packaging used `myapp.desktop`); see each package below for what is cleaned up.
+* `output` is the tarball's path. The default is `build/dist/{name}-{version}-linux-{arch}.tar.gz`.
+
+WebKitGTK and GTK are **never bundled** in any Linux package: the shell uses the system's. The launcher checks for them
+and shows an alert listing the packages to install when they are missing.
+
+> [!WARNING]
+> A relative `logDir` in your manifest is resolved beside the shell. Users cannot write under `/opt`, where the `.deb`,
+> `.rpm` and `PKGBUILD` install it, so use `"auto"` (or an absolute path) for an app you package that way.
+
+#### The tarball
+
+`linux-tarball` writes:
+
+```
+myapp/
+  myapp                  the launcher (static): checks the system libraries, alerts, starts the shell
+  grafida-shell          the shell
+  myapp-worker           the worker stub
+  myapp-worker.phar      the worker payload
+  shell.json
+  <id>.desktop
+  icons/hicolor/<n>x<n>/apps/<id>.png
+  install.sh
+  …                      linux.files
+```
+
+Users can run the launcher directly, or run `./install.sh` to add a desktop entry and icons for themselves
+(`./install.sh --uninstall` removes them). It needs no root. With `replaces`, `install.sh` also removes each old id's
+`~/.local/share/applications/<id>.desktop` and its icons, but only when that entry's `Exec` (field codes dropped, quotes
+removed) ends in `/<name>`. An entry under that id that starts anything else is left alone, and `install.sh` says so.
+
+#### `.deb` and `.rpm`
+
+`linux-deb` and `linux-rpm` write packages with the same files, installed system-wide:
+
+```
+/opt/myapp/                       myapp, grafida-shell, myapp-worker, myapp-worker.phar, shell.json, linux.files
+/usr/bin/myapp                    a symbolic link to /opt/myapp/myapp
+/usr/share/applications/<id>.desktop        Exec=myapp, Icon and StartupWMClass = the id
+/usr/share/icons/hicolor/<n>x<n>/apps/<id>.png
+```
+
+The package metadata is yours, under `linux.package`:
+
+```jsonc
+"package": {
+  "maintainer": "Jane Doe <jane@example.com>",     // required
+  "license": "GPL-3.0-or-later",                   // required
+  "homepage": "https://example.com",
+  "description": "One paragraph.",                  // default: the manifest's title
+  "section": "utils",                               // .deb only; default utils
+  "depends": {"deb": ["xdg-utils"], "rpm": ["xdg-utils"]},
+  "output": {"deb": "build/dist/{name}-{version}-linux-{debarch}.deb",
+             "rpm": "build/dist/{name}-{version}-linux-{arch}.rpm"}
+}
+```
+
+* The packages **depend on WebKitGTK 4.1 and GTK 3**, so the package manager installs them: `libwebkit2gtk-4.1-0` and
+  `libgtk-3-0` for the `.deb`, `webkit2gtk4.1` and `gtk3` for the `.rpm`. These are the shell's own needs, so the
+  packager adds them for you; `depends` only adds to them.
+* Architectures are `amd64`/`arm64` for the `.deb` and `x86_64`/`aarch64` for the `.rpm`. A hyphen in `--app-version`
+  becomes `~`, so `1.0-rc1` is packaged as `1.0~rc1`, which sorts before `1.0`.
+* No field may contain a `$`, because nfpm expands environment variables in its configuration.
+* After installing or removing, the packages refresh the desktop-entry and icon caches. On a final removal (not an
+  upgrade) they delete `/opt/<name>`, with anything the app wrote there. They never touch a home directory: user data is
+  left alone, and so is a per-user entry from the tarball's `install.sh`. With `replaces`, installing removes a
+  system-wide `/usr/share/applications/<old id>.desktop` and its icons when its `Exec` is `<name>` or ends in `/<name>`.
+* The packages are **not signed**. Installing the `.rpm` with `rpm` needs `--nosignature`, and with `dnf` it needs
+  `--nogpgcheck` wherever dnf checks the signatures of local packages. A plain `dnf install ./myapp-….rpm` worked on
+  Fedora 43.
+* nfpm 2.49.0 is pinned inside the packager, for macOS and Linux build machines (x86_64 and aarch64), and verified by
+  SHA-256 like every runtime. `fetch --nfpm` downloads it ahead of time.
+
+#### AppImage
+
+`linux-appimage` writes a single executable file. Users download it, mark it executable and run it; nothing is
+installed. Inside, it holds:
+
+```
+AppRun                 the launcher; the AppImage runtime starts it
+grafida-shell          the shell
+myapp-worker, .phar    the worker stub and its payload
+shell.json
+<id>.desktop           the desktop entry, at the root as the AppImage format requires
+<id>.png               your largest icon, likewise
+.DirIcon -> <id>.png
+usr/share/icons/hicolor/<n>x<n>/apps/<id>.png
+…                      linux.files
+```
+
+An AppImage is a small program, the **AppImage runtime**, followed by a compressed (squashfs) image of those files. The
+packager uses the static runtime from [AppImage/type2-runtime](https://github.com/AppImage/type2-runtime), which you pin
+as `runtimes.linux.appimage-runtime` (see [`runtimes`](#runtimes-pinned-downloads)). The static runtime does not need
+`libfuse2`, which current distributions no longer install. It is not self-contained, though: see
+[AppImage requirements](#appimage-requirements) for what your users need.
+
+```jsonc
+"appimage": {
+  "output": "build/dist/{name}-{version}-linux-{arch}.AppImage",
+  "updateInformation": "gh-releases-zsync|myorg|myapp|latest|myapp-*-linux-{debarch}.AppImage.zsync",
+  "squashfs": "auto",
+  "docker": {"image": "example.com/squashfs@sha256:…"}
+}
+```
+
+All four are optional.
+
+* `output` defaults to `build/dist/{name}-{version}-linux-{arch}.AppImage`.
+* `updateInformation` is written into the AppImage for tools such as AppImageUpdate to read. Its formats are
+  `zsync|<URL>` and `gh-releases-zsync|<user>|<repo>|<tag>|<file>`; `{name}`, `{arch}` and `{debarch}` are expanded. The
+  packager only embeds it: it does not make the `.zsync` file, and no updater is installed.
+* `squashfs` says where the image is made, because the packager needs `mksquashfs` (from squashfs-tools) for it:
+
+  | `squashfs` | Uses |
+  |---|---|
+  | `"auto"` (default) | `mksquashfs` if it is on the `PATH`; otherwise Docker, if the `docker` command is there and Docker is running; otherwise it stops with an error that names both. |
+  | `"host"` | The `mksquashfs` on the `PATH`: `brew install squashfs` on macOS, `apt install squashfs-tools` on Debian and Ubuntu. |
+  | `"docker"` | `mksquashfs` in a Docker container. Docker Desktop must be running on macOS and Windows. |
+
+  The choice is made before anything is downloaded, so a missing tool fails fast.
+* **Docker**: the packager builds its own small image the first time, from a Dockerfile it ships (Alpine Linux with
+  squashfs-tools, all pinned), and tags it `grafida-shell-packager-squashfs:<hash>`. Building it needs network access
+  once per machine. It then runs it for each AppImage with no network access, and nothing on your disk is shared with
+  the container: the files go in on its standard input and the image comes back on its standard output. To use your own
+  image instead, set `docker.image`. It **must be pinned by digest** (`name@sha256:…`; a tag such as `:latest` is
+  refused), and it must contain `sh`, `mktemp`, `cat` and `mksquashfs` 4.6 or later.
+* **The same AppImage from anywhere.** The image is zstd-compressed, owned by root, without extended attributes, and
+  every timestamp is the build time. The packager feeds `mksquashfs` an archive with fixed permissions, so the build
+  machine's file system makes no difference. With the same `SOURCE_DATE_EPOCH`, a Mac, a Linux machine and the Docker
+  image give byte-identical AppImages, as long as their `mksquashfs` and zstd versions match. The Docker image's
+  versions are the ones Homebrew had when the packager was released. `mksquashfs` older than 4.6 (Ubuntu 22.04 has 4.5)
+  also works, but only on a Linux build machine.
+* The [worker test](#the-packaged-worker-is-tested-before-it-is-written) runs as for the tarball.
+
+#### Arch Linux `PKGBUILD`
+
+`linux-pkgbuild --app-version=V [--arch=ARCH]… [--output=FILE]` writes a `PKGBUILD` for tarballs that `linux-tarball`
+already built. Without `--arch` it uses whichever of the two architectures exist; with it, each one must exist.
+
+```jsonc
+"pkgbuild": {
+  "source": "https://example.com/dl/{name}-{version}-linux-{debarch}.tar.gz",   // where you publish the tarball
+  "license": ["GPL-3.0-or-later"],                 // required; SPDX identifiers
+  "description": "Edit your notes",
+  "url": "https://example.com",
+  "maintainer": "Jane Doe <jane@example.com>",
+  "depends": ["libsecret"],
+  "optdepends": ["wl-clipboard: paste on Wayland"],
+  "pkgrel": 1,
+  "output": "build/dist/PKGBUILD"
+}
+```
+
+* Each `source_<arch>` is your `source` URL, and each `sha256sums_<arch>` is computed from the tarball file. Publish the
+  tarballs at those URLs before anyone builds the package.
+* The package depends on `webkit2gtk-4.1`, `gtk3`, `hicolor-icon-theme` and `dbus`, plus your `depends`. It installs the
+  tarball under `/opt/<name>` (without `install.sh` and the icons folder), links `/usr/bin/<name>` to the launcher, puts
+  the desktop entry in `/usr/share/applications` and the icons in the hicolor theme.
+* It sets `!strip`, so `makepkg` leaves the prebuilt binaries alone. A version like `1.0.0-rc1` becomes `1.0.0_rc1`,
+  because pacman does not allow `-`.
+* Nothing is published to the AUR.
+* A licence that is not one of Arch's common ones needs its text in `/usr/share/licenses/<name>/`. Add it to
+  `linux.files` and extend the file by hand, or use a common identifier.
 
 ### macOS
 
@@ -348,31 +555,54 @@ the target before you publish it.
   "infoPlist": {"NSHumanReadableCopyright": "…", "LSApplicationCategoryType": "public.app-category.productivity"},
   "entitlements": {"worker": "build/macos/worker.entitlements"},
   "resources": {"LICENSE.txt": "LICENSE.txt"},
-  "dmg": {"background": "assets/dmg-background.tiff", "window": [640, 400], "iconSize": 128,
-          "positions": {"app": [160, 210], "applications": [480, 210]}, "volumeIcon": "assets/MyApp.icns"}
+  "dmg": {"background": "assets/dmg-background.tiff", "window": [640, 400], "iconSize": 128, "textSize": 13,
+          "positions": {"app": [160, 210], "applications": [480, 210]}, "volumeIcon": "assets/MyApp.icns",
+          "volumeName": "MyApp"},
+  "app": "build/shell-macos/{name}.app",
+  "output": "build/dist/{name}-{version}-macos-{debarch}.dmg"
 }
 ```
 
-The bundle: the shell is `Contents/MacOS/<name>` (the bundle's executable), the worker stub is beside it, and the
-payload, `shell.json`, the icon and your extra resources are in `Contents/Resources`. Code sits in `MacOS`, data in
-`Resources`, as `codesign` requires.
+The bundle:
 
+```
+MyApp.app/Contents/
+  Info.plist                    generated (below)
+  MacOS/MyApp                   the shell, the bundle's executable
+  MacOS/myapp-worker            the worker stub
+  Resources/myapp-worker.phar   the worker payload
+  Resources/shell.json
+  Resources/MyApp.icns          macos.icon
+  Resources/…                   macos.resources
+```
+
+Code sits in `MacOS` and data in `Resources`, as `codesign` requires.
+
+* `name` is the bundle's name, without `.app` (default: your title). `app` is where the bundle is written, and `output`
+  is the disk image; the defaults are shown above. `dmg.volumeName` (default: the name) is the mounted image's name,
+  and `dmg.textSize` its Finder label size.
 * **One architecture per bundle.** Build twice for both Mac families; there is no universal binary. Both executables
-  must be thin and must not require a macOS newer than the bundle's `LSMinimumSystemVersion` (12.0).
+  must be thin and must not require a macOS newer than the bundle's `LSMinimumSystemVersion` (12.0). Put `{arch}` or
+  `{debarch}` in `app` and `output` if you build both, or the second build overwrites the first.
+* **The worker stub must be bare.** A stub with its PHAR still appended is refused, because signing it would corrupt
+  the PHAR.
 * **`Info.plist` is generated** from the manifest and `--app-version` (one to three integers). Add your own keys with
   `infoPlist`. Keys the packager computes cannot be overridden.
 * **Signing comes from the environment, never the configuration**: `MACOS_SIGN_IDENTITY` (a "Developer ID Application:
   …" identity name). Without it the build is signed *ad hoc*, which runs on the machine that built it but is blocked by
   Gatekeeper elsewhere. To sign nothing at all, see [Unsigned builds](#unsigned-builds). Everything is signed inside out (stub, shell, bundle) with the **hardened runtime**, so an
-  ad-hoc build behaves like the final one.
+  ad-hoc build behaves like the final one. Each signature is then verified (`codesign --verify --strict`) and read
+  back: the hardened runtime on each binary, and exactly the entitlements you configured.
 * **Entitlements** are optional per binary (`entitlements.shell`, `entitlements.worker`), applied at signing and
   verified afterwards. The hardened runtime blocks things PHP may need. Grafida's worker, for example, needs only
   `com.apple.security.cs.allow-jit`, so that PCRE's JIT can allocate memory; without it PCRE falls back to the
   interpreter and logs a warning on every start. Start with none and add one only when you see a failure.
 * **Notarisation** runs when `MACOS_NOTARY_PROFILE` names a `notarytool` keychain profile (it needs the identity too):
   submit, wait, staple, validate. Create the profile once with `xcrun notarytool store-credentials`.
-* The disk image is laid out by Finder through AppleScript, best effort: it needs Finder's Automation permission.
-  Use `--no-style` on a CI runner without Finder. The image is compressed (UDZO) and signed with your identity.
+* The disk image is laid out by Finder through AppleScript, best effort: it needs Finder's Automation permission, runs
+  under a time limit, and only styles a volume mounted at exactly `/Volumes/<volumeName>`. Otherwise the image stays
+  plain, with a warning. Use `--no-style` on a CI runner without Finder. The image is compressed (UDZO) and signed with
+  your identity; with `MACOS_NOTARY_PROFILE` it is also notarised, stapled and checked with `spctl`.
 
 ### Windows
 
@@ -380,14 +610,34 @@ payload, `shell.json`, the icon and your extra resources are in `Contents/Resour
 "windows": {
   "name": "MyApp",
   "icon": "assets/MyApp.ico",
-  "version": {"companyName": "Example Ltd", "legalCopyright": "© Example Ltd", "workerDescription": "MyApp worker"},
+  "version": {"companyName": "Example Ltd", "legalCopyright": "© Example Ltd", "productName": "MyApp",
+              "shellDescription": "MyApp", "workerDescription": "MyApp worker"},
   "files": {"LICENSE.txt": "LICENSE.txt"},
-  "installer": {"script": "build/windows/installer.nsi", "defines": {"SHORTCUTS": "yes"}}
+  "installer": {"script": "build/windows/installer.nsi", "defines": {"SHORTCUTS": "yes"}},
+  "tree": "build/shell-windows/{name}",
+  "output": "build/dist/{name}-{version}-windows-{debarch}-Setup.exe"
 }
 ```
 
-* x86_64 only. The tree holds `<name>.exe` (the shell), `<worker>.exe` (the stub), `<worker>.phar`, `shell.json`, the
-  icon and your extra `files`. Icon and version resources are written in PHP, on any host.
+The install tree:
+
+```
+MyApp/
+  MyApp.exe              the shell, with your icon and a version resource
+  myapp-worker.exe       the worker stub, likewise
+  myapp-worker.phar      the worker payload
+  shell.json
+  MyApp.ico              windows.icon, for shortcuts and Add/Remove Programs
+  …                      windows.files
+```
+
+* x86_64 only. `tree` is where the tree is written and `output` is the installer; the defaults are shown above.
+* **Icon and version resources are written in PHP**, on any host. Task Manager names each process by its description:
+  `version.shellDescription` (default: the name) and `version.workerDescription` (default: "<name> worker").
+  `productName` defaults to the name; `version` accepts no other keys.
+* **The four-part Windows version comes from `--app-version`**: major.minor.patch, then a fourth number that makes a
+  pre-release sort below its release: 1000 for a release, 0–9 for alpha (or dev) N, 10–100 for beta N and 900–999 for
+  rc N (`1.2.0-beta2` is `1.2.0.11`). Any other suffix is an error.
 * **Installers are your own NSIS script** (`installer.script`), compiled with `makensis`. The packager hands it the
   tree and these defines: `SRCDIR`, `OUTFILE`, `APPNAME`, `APPID`, `APPEXE`, `WORKEREXE`, `WORKERPHAR`, `ICONFILE`,
   `APPVERSION`, `VIVERSION` and `PUBLISHER` (taken from `windows.version.companyName`), plus anything of your own in
@@ -419,7 +669,7 @@ On Windows, a build with no credentials in the environment is already unsigned; 
 **What the package is not.** An unsigned package works, but the operating systems treat it as software of unknown
 origin. Tell your users what to expect, because the first thing they see is a warning, not your app.
 
-### macOS
+### Unsigned on macOS
 
 * **Gatekeeper rejects the app.** The bundle is not sealed, so `codesign --verify` fails ("code has no resources but
   signature indicates they must be present") and `spctl --assess` rejects it. If the user downloaded it (a browser, a
@@ -439,7 +689,7 @@ origin. Tell your users what to expect, because the first thing they see is a wa
   runs under the hardened runtime, which makes it a good test of your entitlements, but Gatekeeper rejects it elsewhere
   just the same.
 
-### Windows
+### Unsigned on Windows
 
 These are behaviours of Windows rather than of the packager; they have not been verified on a test machine for this guide.
 
@@ -476,7 +726,7 @@ how they got there. If a variable is absent, that kind of signing is simply off 
 | macOS | `MACOS_NOTARY_PROFILE` | A `notarytool` keychain profile, created once with `xcrun notarytool store-credentials`. Needs the identity. Unset: not notarised. |
 | Windows, certificate file | `WINDOWS_SIGN_PKCS12` | Path to a PKCS#12 (`.p12` / `.pfx`) keystore. |
 | Windows, certificate file | `WINDOWS_SIGN_PKCS12_PASSWORD` | Its password. |
-| Windows, Azure Trusted Signing | `WINDOWS_SIGN_ENDPOINT` | The signing endpoint's URL. |
+| Windows, Azure Trusted Signing | `WINDOWS_SIGN_ENDPOINT` | The account's endpoint host name, without `https://`, for example `weu.codesigning.azure.net`. |
 | Windows, Azure Trusted Signing | `WINDOWS_SIGN_PROFILE` | `<account>/<profile>`. |
 | Windows, Azure Trusted Signing | `WINDOWS_SIGN_TOKEN` | An access token for `https://codesigning.azure.net`. You obtain it (for example with the Azure CLI or a CI step) and export it; the packager does not fetch it. Tokens are short-lived, so get one just before building. |
 | Windows, optional | `WINDOWS_SIGN_TSAURL` | Overrides the timestamp server. |
@@ -547,6 +797,25 @@ Also used, and normally installed with the desktop:
 - **The launcher's alert** is shown with the first of `zenity`, `kdialog`, a desktop notification (`notify-send`) or
   `xmessage` that works. Its text is always written to stderr as well.
 
+The `.deb`, `.rpm` and `PKGBUILD` packages install WebKitGTK and GTK themselves, as dependencies. The tarball and the
+AppImage do not: their users install them with the commands above, and the launcher's alert tells them which.
+
+### AppImage requirements
+
+An AppImage is not self-contained: it needs everything above, and also **FUSE**, because it mounts itself as a
+read-only file system when it starts. That means kernel FUSE support and the `fusermount` helper, from the `fuse3`
+package on Debian, Ubuntu, Fedora and Arch Linux. The older `libfuse2` is **not** needed.
+
+Without FUSE (in some containers, for example), the AppImage can unpack itself into a temporary directory and run from
+there instead:
+
+```sh
+./MyApp-1.0-linux-x86_64.AppImage --appimage-extract-and-run
+```
+
+To start it from a desktop menu, users can integrate it with a tool such as Gear Lever or AppImageLauncher. The
+AppImage carries its desktop entry and icon for them.
+
 ## Release checklist
 
 1. Bump your version; commit `composer.lock`.
@@ -554,4 +823,5 @@ Also used, and normally installed with the desktop:
 3. Build each package with `php -d phar.readonly=0 vendor/bin/shell-packager …`.
 4. Install each package on a clean machine (or VM) of that platform. Start it, use every feature that touches the
    disk, the database, dialogs and the clipboard, then quit.
-5. Publish the packages together with their SHA-256 checksums.
+5. Publish the packages together with their SHA-256 checksums: the `.sha256` file the packager wrote beside each one.
+   For the `PKGBUILD`, publish the tarballs at the URLs in `linux.pkgbuild.source` first.

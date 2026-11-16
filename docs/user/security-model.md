@@ -9,7 +9,7 @@ foreign content (an embedded video, an article's `<iframe>`) inside your app, or
 |---|---|---|
 | **You, the app's developer**: the manifest, the worker, the page | Yes | Nothing. The worker runs with the user's own rights and can do anything the user can. A user who installs your app trusts *you*, so the shell does not defend the user against your code. |
 | **Your page**: scripts running at `<scheme>://app` | Yes | It may call every native endpoint and every route of your worker. |
-| **Foreign content inside your page**: an `<iframe>` showing another site | No | It cannot use the native endpoints that do anything (they are all `POST`), call your worker's `POST` routes, show your pages inside its own frame, or open the browser or a window without a click. On some platforms it **can** still send `GET` requests to your app, which is why your `GET` handlers must change nothing. See [Links and navigation](javascript.md#links-and-navigation). |
+| **Foreign content inside your page**: an `<iframe>` showing another site | No | It cannot use the native endpoints that do anything (they are all `POST`), call your worker's `POST` routes, show your pages inside its own frame (unless you set `webview.frameGuard` to `false`, which lets any page frame yours), or open the browser or a window without a click. On some platforms it **can** still send `GET` requests to your app, which is why your `GET` handlers must change nothing. See [Links and navigation](javascript.md#links-and-navigation). |
 | **Other user accounts on the same computer** | No | The webview's data and the log are kept in the user's own directories (under their home folder or Windows profile), and on Linux and macOS the shell makes the log files readable by their owner only. |
 | **The user's administrator, or other software running as the user** | Out of scope | It can read the user's files, attach a debugger or change the webview's settings. No desktop app can defend against that. |
 
@@ -23,7 +23,11 @@ mainly foreign content embedded in the page.
   opening file dialogs, and calling every route of your worker. Escape whatever you put into HTML, especially content
   that came from the network or from a document the user opened.
 * **Keep `GET` handlers free of side effects.** Change state with `POST` and a custom header. Not every webview tells
-  the shell which frame sent a request, and a `GET` from a foreign frame may carry no `Origin`.
+  the shell which frame sent a request, and a `GET` from a foreign frame may carry no `Origin`. The shell answers
+  `403 cross_origin` to a request with a foreign `Origin`, and to one with no `Origin` that says
+  `Sec-Fetch-Site: cross-site`. WKWebView (macOS) does not send that header; there the shell refuses a foreign
+  frame's requests by the frame they come from instead, unless `webview.frameGuard` is `false` (see
+  [Links and navigation](javascript.md#links-and-navigation)).
 * **Never take a file path from the page.** Files reach your worker as tokens that the shell resolves itself (see
   [Files are tokens, not paths](javascript.md#files-are-tokens-not-paths)).
 * **Your worker's stderr goes to the log.** Do not write passwords or keys there. The log is readable by the user's

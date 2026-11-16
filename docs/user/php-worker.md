@@ -39,12 +39,21 @@ Worker::run($handler, new WorkerOptions(app: 'myapp', version: '1.0.0'));
 ```
 
 `Worker::run(Handler $handler, WorkerOptions $options = new WorkerOptions()): never` is the last thing your entry point
-does. It never returns; it calls `exit()` with the worker's exit status (0 normally; 65 after a protocol error; 74 if
-standard output cannot be written, i.e. the shell has gone).
+does. It never returns; it calls `exit()` with the worker's exit status: `Worker::EXIT_OK` (0) normally,
+`Worker::EXIT_PROTOCOL` (65) after a protocol error, `Worker::EXIT_IO` (74) if standard output cannot be written, i.e.
+the shell has gone.
 
 `WorkerOptions` holds `app` and `version` (names announced in `ready`, shown in the shell's log) and `maxBodyBytes`.
 You should leave `maxBodyBytes` alone: the shell tells the worker its limit through the `SHELL_MAX_BODY_BYTES`
-environment variable, set from `worker.maxBodyBytes` in the manifest (128 MiB by default), and that value wins.
+environment variable (`Worker::BODY_LIMIT_ENV`), set from `worker.maxBodyBytes` in the manifest (128 MiB by default),
+and that value wins. An invalid value is ignored, with a `[worker]` line in the log.
+`Worker::withShellBodyLimit($options, $value)` is that step on its own: `$options` with the limit taken from `$value`
+(the variable's value, or `false` when it is unset).
+
+`Worker::serve($handler, $options, $input, $output, $error): int` is the loop itself, on any three streams, and returns
+the exit status instead of exiting. `run()` is `serve()` on the standard streams, after it has sent `display_errors` to
+standard error, flushed any output buffer there and applied `SHELL_MAX_BODY_BYTES`; `serve()` does none of that. Use it
+to run a worker in process, on memory streams, in a test.
 
 Do your start-up work (building a container, opening a database) **before** `Worker::run()`. If it fails, write a
 clear sentence to standard error and `exit(1)` (or any non-zero status) without sending `ready`: the shell shows the end
@@ -93,12 +102,16 @@ Immutable. Build one with a constructor or a factory, adjust with the `with*()` 
 | | |
 |---|---|
 | `new Response($body = '', $status = 200, $headers = [])` | Status must be 100–599 |
-| `Response::json($data, $status = 200, $headers = [])` | `application/json; charset=utf-8`, slashes and Unicode unescaped |
+| `Response::json($data, $status = 200, $headers = [])` | `application/json; charset=utf-8`, slashes and Unicode unescaped. Throws `JsonException` if `$data` cannot be encoded; left uncaught, that is `500 internal_error`. |
 | `Response::html($html, …)` / `Response::text($text, …)` | The matching `Content-Type` |
-| `Response::file($path, $contentType = null, $headers = [])` | A file's contents; type from the extension. Works for `phar://` paths. Throws `RuntimeException` if unreadable. |
+| `Response::file($path, $contentType = null, $headers = [])` | A file's contents; type from the extension (see [`MimeTypes`](#static-files)). Works for `phar://` paths. Throws `RuntimeException` if unreadable. |
 | `->withHeader($name, $values)` | Replace a header |
 | `->withAddedHeader($name, $value)` | Add another value (use for repeated headers such as `Set-Cookie`) |
 | `->withStatus($s)` / `->withBody($b)` | |
+| `->header($name)` | The first value of a response header, or `null` |
+
+Its properties `body`, `status` and `headers` (a [`Headers`](#headers)) are public and read-only, which is what a test
+checks.
 
 You do not set `Content-Length`; the shell derives it. Bodies are strings held in memory, so there is no streaming:
 the shell reads the whole body in a request or a response and enforces `worker.maxBodyBytes` both ways.
@@ -121,9 +134,10 @@ either: WKWebView (macOS) ignores both on your app's responses, although it enfo
 ### `Headers`
 
 `Request::$headers` and `Response::$headers` are `Headers` objects: immutable, case-insensitive, and they keep **every**
-value of a repeated header. `get($name)` is the first value, `all($name)` a list, `line($name)` the values joined by
-`", "`, `has()`, `with()`, `withAdded()` and `without()`. Iterating yields one `name => value` pair per value, with
-names in lower case.
+value of a repeated header. `get($name, $default = null)` is the first value (or `$default`), `all($name)` a list,
+`line($name)` the values joined by `", "`, `has()`, `with()`, `withAdded()` and `without()`. `toArray()` is the wire
+form, lower-case name => list of values. Iterating yields one `name => value` pair per value, with names in lower case;
+`count()` (it is `Countable`) is the number of distinct names.
 
 ## Routing
 
@@ -237,12 +251,21 @@ $assets = new StaticFiles([__DIR__ . '/../public']);
 $response = $assets->find($request);        // Response, or null on a miss
 ```
 
+* The constructor takes one root as a string, or several as an array.
 * Only `GET` and `HEAD` are served (`HEAD` returns no body).
 * Roots are searched in order and the first match wins.
-* A path containing `..`, a backslash or a NUL byte is refused. Directory listings are never served.
+* The path is percent-decoded first. A path that then contains a `..` segment, a backslash or a NUL byte is refused
+  (so `%2e%2e` is too); empty and `.` segments are dropped. Directory listings are never served, and there is no index
+  file: `/` or a directory is a miss.
 * Used directly as a `Handler`, a miss is `404 Not found`.
 
 `find()` answers `null` on a miss, so you can fall through to your own routes or to a single-page app's `index.html`.
+`StaticFiles::relativePath($urlPath)` is the path rule on its own: the root-relative file path, or `null`.
+
+The `Content-Type` comes from `MimeTypes::contentType($path)`, which `Response::file()` uses too: a short, fixed table
+of the types a web app ships (HTML, CSS, JavaScript, JSON, images, fonts, WebAssembly, PDF, audio, video), with
+`charset=utf-8` for text. An unknown extension is `application/octet-stream` (`MimeTypes::DEFAULT`), never
+`text/html`. `MimeTypes::type($path)` is the bare type.
 
 ### Serving `shell.js`
 
@@ -284,6 +307,7 @@ or call `exit` / `die` with a message inside a handler.
   `500 {"error":"internal_error"}`. The worker keeps serving. Catch exceptions yourself if you want a better response.
 * A body larger than the limit becomes `500 {"error":"response_too_large"}`.
 * A response the protocol cannot carry (for example, an invalid header value) becomes `500 {"error":"bad_response"}`.
+* These three `500` responses carry `Cache-Control: no-store`, so the webview never caches them.
 * A fatal PHP error or a segfault kills the worker. The in-flight request gets `502 {"error":"worker_restarted"}` and
   the shell restarts it.
 
@@ -341,9 +365,31 @@ self::assertStringNotContainsString('Fatal', $worker->stderr());
 ```
 
 The constructor takes the command, a working directory, an optional environment (pass your own so tests never touch
-real user data) and a ready timeout. `request()` sends a request and returns the matching response; `stderr()` returns
-what the worker logged; `kill()`, `send()`, `receive()` and `wait()` are there for protocol-level tests. Every wait has
-a deadline, so a hung worker fails a test instead of hanging the run.
+real user data) and a ready timeout (15 s). `$worker->ready` is the `ready` frame the worker sent (`protocol`, `pid`,
+`app`, `version`), and `pid()` the process id. `request()` sends a request and returns the matching response;
+`stderr()` returns what the worker logged; `kill()`, `send()`, `receive()` and `wait()` are there for protocol-level
+tests. Every wait has a deadline, so a hung worker fails a test instead of hanging the run: 30 s by default for
+`request()` and `receive()`, 10 s for `wait()`.
+
+`playFixture($name)` plays one of the protocol's conformance fixtures into a fresh worker, as the shell would, and
+returns `['responses' => …, 'exit' => …, 'stderr' => …]`; the worker is finished afterwards. `Testing\Fixtures` lists
+the fixtures, which ship with the library (`names()`, or `provider()` as a PHPUnit data provider), and says what a
+conforming worker does with each (`workerOutcome()`):
+
+```php
+use Grafida\Shell\Testing\{Fixtures, WorkerProcess};
+use PHPUnit\Framework\Attributes\DataProviderExternal;
+
+#[DataProviderExternal(Fixtures::class, 'provider')]
+public function testConformance(string $name): void
+{
+    $run     = (new WorkerProcess([PHP_BINARY, 'bin/worker.php'], cwd: __DIR__ . '/..'))->playFixture($name);
+    $outcome = Fixtures::workerOutcome(Fixtures::expected($name));
+
+    self::assertSame($outcome['exit'], $run['exit'], $run['stderr']);
+    self::assertSame($outcome['responses'], array_map(fn ($r) => $r->id, $run['responses']));
+}
+```
 
 Because a handler is just an object, you can also unit-test it by calling `$handler(new Request(…))` directly,
 without any process. Use `WorkerProcess` for the things that only the real thing shows: start-up, `ready`, clean exit,
