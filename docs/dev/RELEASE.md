@@ -60,8 +60,13 @@ directory between builds (`grafida-shell-{cargo,target}-{aarch64,x86_64}`).
    git diff Cargo.lock          # only the two crates' version lines change
    ```
 
-   Run `cargo fmt --all --check` and `cargo clippy --workspace --all-targets`, then commit on `main`
-   as `Version X.Y.Z: <what the release is about>`.
+   Run the code checks, then commit on `main` as `Version X.Y.Z: <what the release is about>`:
+
+   ```sh
+   scripts/release/local-release.sh check
+   ```
+
+   About three minutes. These are the checks the removed `ci.yml` ran on each platform (section 4).
 3. **The tag.** An annotated, signed tag:
 
    ```sh
@@ -105,7 +110,8 @@ directory between builds (`grafida-shell-{cargo,target}-{aarch64,x86_64}`).
 ## 3. What the local build does not cover
 
 Each platform runs its check and smoke scripts (`scripts/release/check-*.sh`, `smoke-*.sh`), plus
-the debug automation build and its marker canary. Three things are never tested:
+the debug automation build and its marker canary. `check` covers the code (section 4). Three
+things are never tested:
 
 - **The Windows `.exe` is not smoke-tested.** `smoke-windows.sh` needs Windows, so the published
   file has not run before release. To run it, copy it into a Windows guest
@@ -120,7 +126,24 @@ the debug automation build and its marker canary. Three things are never tested:
 Build paths are embedded in the binaries. On the Mac, `$CARGO_HOME` and the checkout are remapped
 to `/cargo` and `/src`; in the container, the paths are already `/opt/cargo` and `/src`.
 
-## 4. Other uses of `build`
+## 4. The code checks: `check`
+
+`scripts/release/local-release.sh check [GROUP…]` runs `scripts/release/checks.sh` for each group.
+That script runs clippy with `-D warnings`, with and without the `automation` feature. It checks
+that a release build refuses the automation feature. It runs the tests, including the automation
+module's own tests. `build` does not run `check`; run it yourself before a release.
+
+| Group | Where | Also |
+|---|---|---|
+| `linux-aarch64` (default) | the Ubuntu 22.04 container, native | the checkout is mounted read-write: the tests write git-ignored logs |
+| `macos` (default) | natively, arm64; x86_64 clippy and the guard only | `cargo fmt --all --check`; the protocol fixtures are complete and untouched (`make-fixtures.py` adds nothing) |
+| `windows` (default) | `cargo xwin`, cross | the tests are compiled, not run: that needs Windows |
+| `linux-x86_64` | the container, emulated (slow) | |
+
+`tests/real_workers.rs` runs shell-php's and Grafida's workers only where the sibling clones exist.
+That means on the Mac, never in the container.
+
+## 5. Other uses of `build`
 
 ```sh
 scripts/release/local-release.sh build linux-aarch64 windows-x86_64   # some platforms only
@@ -139,7 +162,7 @@ scripts/release/local-release.sh build --refresh-image                # rebuild 
   `parity-*.sh` runs on the test VMs and are never uploaded. The Linux ones are built on 22.04, so
   they load on the oldest supported distribution.
 
-## 5. When something goes wrong
+## 6. When something goes wrong
 
 - **The Linux smoke test fails with exit status 133** (SIGTRAP). WebKit could not start its
   sandbox. The script runs the container as the unprivileged user `builder`, with
@@ -155,7 +178,7 @@ scripts/release/local-release.sh build --refresh-image                # rebuild 
 - **A published release is wrong.** Never replace its assets: consumers have pinned their hashes.
   Release `X.Y.Z+1`.
 
-## 6. Changing the release toolchain
+## 7. Changing the release toolchain
 
 - **The Rust compiler** is `rust-toolchain.toml`, shared by the Mac and the Linux images. After
   bumping it, the next `build` rebuilds the images.

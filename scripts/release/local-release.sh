@@ -3,6 +3,12 @@
 # Builds, checks, smoke-tests and publishes the release assets on the maintainer's Mac. There is no
 # CI: this script is the only build of a release (docs/dev/RELEASE.md).
 #
+#   check [GROUP…]                        the code checks the removed ci.yml ran (scripts/release/
+#                                         checks.sh): clippy -D warnings, the release-build
+#                                         automation guard, the tests; GROUP is linux-aarch64 (the
+#                                         default three: linux-aarch64 macos windows), linux-x86_64
+#                                         (emulated, slow), macos (plus fmt and the protocol
+#                                         fixtures) or windows (tests compiled, not run)
 #   build [--refresh-image] [PLATFORM…]   build the assets into dist/LABEL/ (all platforms by default)
 #   publish TAG                           upload dist/TAG/ as the release TAG
 #   macos-sdk DMG                         extract the macOS SDK the assets are linked against from
@@ -86,15 +92,23 @@ label() {
 }
 
 # --- Linux, in the Ubuntu 22.04 container --------------------------------------------------------
-build_linux() {
+docker_platform() { case "$1" in x86_64) echo linux/amd64 ;; aarch64) echo linux/arm64 ;; esac; }
+
+linux_image() { # ARCH: build (or reuse, from Docker's cache) the image
     local arch=$1 platform ctx
-    case "$arch" in x86_64) platform=linux/amd64 ;; aarch64) platform=linux/arm64 ;; esac
+    platform="$(docker_platform "$arch")"
     step "linux-$arch: the build image ($platform)"
     ctx="$(mktemp -d)"
     cp scripts/release/linux-build.Dockerfile "$ctx/Dockerfile"
     cp rust-toolchain.toml "$ctx/"
     docker build ${REFRESH_IMAGE:+--pull --no-cache} --platform "$platform" -t "$IMAGE:$arch" "$ctx"
     rm -rf "$ctx"
+}
+
+build_linux() {
+    local arch=$1 platform
+    platform="$(docker_platform "$arch")"
+    linux_image "$arch"
 
     step "linux-$arch: build, check, smoke-test"
     # /dev/shm: WebKit's processes share memory through it, and Docker's default is 64 MB.
@@ -105,10 +119,11 @@ build_linux() {
     # Emulated (x86_64 on Apple silicon), the sandbox cannot start at all: bwrap's seccomp filter is
     # an x86_64 program the arm64 kernel underneath refuses (prctl(PR_SET_SECCOMP): Invalid argument).
     # That smoke test runs without it.
+    # (Expanded as ${a[@]+"${a[@]}"}: macOS's bash 3.2 calls an empty array unbound under set -u.)
     local nosandbox=()
     [ "$arch" = "$(uname -m | sed 's/arm64/aarch64/')" ] || nosandbox=(-e WEBKIT_DISABLE_SANDBOX_THIS_IS_DANGEROUS=1)
     docker run --rm --platform "$platform" --shm-size=1g \
-        --security-opt seccomp=unconfined --security-opt systempaths=unconfined "${nosandbox[@]}" \
+        --security-opt seccomp=unconfined --security-opt systempaths=unconfined ${nosandbox[@]+"${nosandbox[@]}"} \
         -v "$ROOT:/src:ro" -v "$OUT:/out" \
         -v "grafida-shell-cargo-$arch:/opt/cargo/registry" \
         -v "grafida-shell-target-$arch:/target" -e CARGO_TARGET_DIR=/target \
@@ -219,6 +234,65 @@ cmd_build() {
     ls -l "$OUT"
 }
 
+# --- check -------------------------------------------------------------------------------------------
+check_linux() {
+    local arch=$1 platform
+    platform="$(docker_platform "$arch")"
+    linux_image "$arch"
+    step "linux-$arch: clippy, the automation guard, the tests"
+    # The checkout is mounted read-write here: the tests write logs under tests/apps/*/logs
+    # (git-ignored). No smoke test, so no sandbox options.
+    docker run --rm --platform "$platform" --shm-size=1g \
+        -v "$ROOT:/src" \
+        -v "grafida-shell-cargo-$arch:/opt/cargo/registry" \
+        -v "grafida-shell-target-$arch:/target" -e CARGO_TARGET_DIR=/target \
+        "$IMAGE:$arch" /src/scripts/release/checks.sh
+}
+
+check_macos() {
+    step "macos: fmt"
+    cargo fmt --all --check
+    step "macos-arm64: clippy, the automation guard, the tests"
+    scripts/release/checks.sh
+    rustup target add x86_64-apple-darwin >/dev/null 2>&1 || true
+    step "macos-x86_64: clippy, the automation guard (tests run on arm64 only)"
+    scripts/release/checks.sh --target x86_64-apple-darwin --tests none
+    # The fixture writer only adds cases: anything it would add must already be committed.
+    step "protocol fixtures complete and untouched"
+    python3 -I scripts/protocol/make-fixtures.py
+    [ -z "$(git status --porcelain protocol/fixtures)" ] \
+        || { git status --porcelain protocol/fixtures; die "make-fixtures.py changed protocol/fixtures"; }
+    echo ok
+}
+
+check_windows() {
+    command -v cargo-xwin >/dev/null || die "cargo-xwin is not installed (cargo install --locked cargo-xwin)"
+    export XWIN_ACCEPT_LICENSE=1
+    step "windows-x86_64: clippy, the automation guard, the tests compiled (not run: needs Windows)"
+    scripts/release/checks.sh --xwin --target x86_64-pc-windows-msvc --tests compile
+}
+
+cmd_check() {
+    local groups=() g start=$SECONDS t
+    for g in "$@"; do
+        case "$g" in
+            linux-aarch64|linux-x86_64|macos|windows) groups+=("$g") ;;
+            *) die "unknown group '$g' (linux-aarch64, linux-x86_64, macos, windows)" ;;
+        esac
+    done
+    [ ${#groups[@]} -gt 0 ] || groups=(linux-aarch64 macos windows)
+    for g in "${groups[@]}"; do
+        t=$SECONDS
+        case "$g" in
+            linux-*) check_linux "${g#linux-}" ;;
+            macos) check_macos ;;
+            windows) check_windows ;;
+        esac
+        echo "--- $g: passed in $((SECONDS - t))s"
+    done
+    step "all checks passed in $((SECONDS - start))s: ${groups[*]}"
+}
+
 # --- publish -----------------------------------------------------------------------------------------
 cmd_publish() {
     local tag=${1:?usage: $0 publish TAG} dir commit remote a sha_list=() files=()
@@ -285,6 +359,7 @@ cmd_macos_sdk() {
 }
 
 case "${1:-}" in
+    check) shift; cmd_check "$@" ;;
     build) shift; cmd_build "$@" ;;
     publish) shift; cmd_publish "$@" ;;
     macos-sdk) shift; cmd_macos_sdk "$@" ;;

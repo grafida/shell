@@ -157,4 +157,5 @@ code it covers. Their rules are as binding as the ones below.
   have, as history.
 - Commit directly on `main`.
 - Before every commit run `cargo fmt --all --check` (there is no CI: nothing else
-  runs them) and `cargo clippy --workspace --all-targets`.
+  runs them); before a release, `scripts/release/local-release.sh check` (what `ci.yml` ran on each
+  platform: clippy `-D warnings`, the release-build automation guard, the tests, the fixtures) and `cargo clippy --workspace --all-targets`.

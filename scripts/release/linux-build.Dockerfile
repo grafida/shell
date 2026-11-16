@@ -23,6 +23,7 @@ RUN curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs \
       | sh -s -- -y --no-modify-path --profile minimal --default-toolchain none \
  && cd /opt/toolchain \
  && rustup toolchain install --no-self-update \
+ && rustup component add clippy \
  && case "$TARGETARCH" in amd64) arch=x86_64 ;; arm64) arch=aarch64 ;; *) exit 1 ;; esac \
  && rustup target add "$arch-unknown-linux-musl" \
  && rustc --version
