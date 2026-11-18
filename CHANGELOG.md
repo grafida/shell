@@ -1,6 +1,7 @@
 shell 0.4.3
 ================================================================================
 ~ Release assets are built and published by the maintainer, no longer by GitHub Actions
+~ README: development environment, test machines and the order tests run in
 
 shell 0.4.2
 ================================================================================

@@ -10,30 +10,10 @@ The application runs inside a window with a system webview, serves the app over 
 
 This shell was originally written for [Akeeba Grafida](https://github.com/grafida/grafida), but is made deliberately generic so it can be used by anyone. It draws heavy inspiration from [Boson](https://bosonphp.com) and aims to replace it – at least the parts we are using in our own software.
 
-### Getting started
+## Getting started
 
 Start with the [user documentation](docs/user/README.md): how the pieces fit together, how to start a project, the
-`shell.json` manifest, the PHP and JavaScript sides, and packaging. The [architecture diagrams](docs/user/architecture.md)
-show how each piece fits together in a shipped application.
-
-You can read the [architecture decisions](docs/adr/0001-shell-stack.md) and the [wire protocol v1](protocol/v1.md) for more information.
-
-- Stack: Rust + [tao](https://github.com/tauri-apps/tao) (windows and event loop) and
-  [rfd](https://github.com/PolyMeilex/rfd) (file dialogs) everywhere; on Linux
-  [gtk-rs](https://gtk-rs.org) and [webkit2gtk](https://crates.io/crates/webkit2gtk); on macOS
-  [objc2](https://github.com/madsmtm/objc2) with AppKit and WebKit (WKWebView); on Windows
-  [webview2-com](https://github.com/wravery/webview2-rs) and [windows](https://github.com/microsoft/windows-rs). No wry
-  or muda: the shell drives each webview itself, and builds the macOS menus with AppKit.
-- Platforms: Windows 10 22H2+ (WebView2), macOS 12+ (WKWebView), Linux (WebKitGTK 4.1 ≥ 2.40); see
-  [System requirements](#system-requirements)
-- Companion repositories: [shell-php](https://github.com/grafida/shell-php) (worker runtime),
-  [shell-packager](https://github.com/grafida/shell-packager) (build/sign/package),
-  [phpmicro](https://github.com/grafida/phpmicro) (the worker's PHP runtime)
-
-Developer setup: [Windows 11 test VM on a Linux host](docs/dev/windows-test-vm.md).
-
-This repository is also the home of the **wire protocol specification and its conformance
-fixtures** (`protocol/`), which both the Rust and PHP sides test against.
+`shell.json` manifest, the PHP and JavaScript sides, and packaging. The [architecture diagrams](docs/user/architecture.md) show how each piece fits together in a shipped application.
 
 ## System requirements
 
@@ -93,6 +73,132 @@ Also used, and normally installed with the desktop:
   `hunspell-en_us` on Arch Linux. Without one, spell check does nothing (no red squiggly lines).
 - **The launcher's alert** is shown with the first of `zenity`, `kdialog`, a desktop notification
   (`notify-send`) or `xmessage` that works. Its text is always written to stderr as well.
+
+## Development
+
+### Stack
+
+The shell is written in Rust with the following crates:
+* [tao](https://github.com/tauri-apps/tao)  - windows and event loop
+* [rfd](https://github.com/PolyMeilex/rfd) - file dialogs
+* [gtk-rs](https://gtk-rs.org) - shell window on Linux
+* [webkit2gtk](https://crates.io/crates/webkit2gtk) - webview on Linux
+* [objc2](https://github.com/madsmtm/objc2) - using AppKit (shell window) and WebKit (WKWebView, for the webview) on macOS
+* [windows](https://github.com/microsoft/windows-rs) - shell window on Windows
+* [webview2-com](https://github.com/wravery/webview2-rs) - webview on Windows
+ 
+We are not using wry or muda: the shell drives each webview itself, and builds the macOS menus with AppKit.
+
+### Companion repositories
+
+This repository is the Rust side of the shell. It works in step with the following repositories:
+* [shell-php](https://github.com/grafida/shell-php) - Worker runtime, the PHP side of the shell
+* [phpmicro](https://github.com/grafida/phpmicro) - The worker's PHP runtime
+* [shell-packager](https://github.com/grafida/shell-packager) - Build, sign, and package applications for distribution
+
+### Wire protocol
+
+The shell communicates with the PHP working using a custom protocol.
+
+You can find the wire protocol specification and its conformance fixtures under the `protocol/` directory. This is what both the Rust and PHP sides test against.
+
+### Development environment
+
+We develop Grafida Shell on Linux and macOS. Windows is not supported per se, but you do have WSL2 which is a Linux VM.
+
+#### Building and checking the shell
+
+The compiler is pinned in `rust-toolchain.toml`; install [rustup](https://rustup.rs) and it picks the right one when you
+run `cargo` in the checkout. Python 3 is needed for the tests (the fake worker) and the protocol fixtures.
+
+```sh
+cargo build                          # the shell and the launcher (a Cargo workspace)
+cargo test --workspace
+cargo fmt --all --check              # run before every commit
+cargo clippy --workspace --all-targets
+```
+
+What each platform needs on top of that:
+
+* **Linux**: a C toolchain, `pkg-config` and the WebKitGTK 4.1 and GTK 3 development files. Ubuntu and Debian:
+  `build-essential pkg-config libwebkit2gtk-4.1-dev libgtk-3-dev`. Fedora: `webkit2gtk4.1-devel gtk3-devel`. Arch
+  Linux: `webkit2gtk-4.1 gtk3`. Ubuntu 22.04 is the oldest Linux we support, so build there when you need to check the
+  binary's glibc and WebKitGTK floor.
+* **macOS**: the Xcode Command Line Tools (`xcode-select --install`). Nothing else; the webview is WKWebView.
+* **Windows**: the MSVC build tools (Visual Studio Build Tools, "Desktop development with C++"). The WebView2 runtime
+  ships with Windows 11 and current Windows 10. You can also cross-compile from another system with
+  [cargo-xwin](https://github.com/rust-cross/cargo-xwin) (strongly recommended; only method we have tested).
+
+The debug build can be driven from scripts: build with `--features automation` and start it with `--automation` (see
+`src/automation.rs`). The release builds, their checks and publishing are in [docs/dev/RELEASE.md](docs/dev/RELEASE.md).
+
+#### Test machines
+
+Packaged apps are tested on clean virtual machines which never see a build tool, so they behave like a user's computer.
+Each platform has a script in `scripts/dev/` and a setup guide. Which host you need depends on the guest:
+
+| Guests | Host | Script | Guide |
+|---|---|---|---|
+| Windows 11 (and Windows 10) | Linux x86_64 with KVM, QEMU and [quickemu](https://github.com/quickemu-project/quickemu) | `winvm.sh` | [Windows test VM](docs/dev/windows-test-vm.md) |
+| Ubuntu 22.04, Fedora 43, Arch Linux (KDE Plasma), Ubuntu 22.04 arm64 (emulated, headless) | Linux x86_64 with KVM, QEMU and quickemu | `linuxvm.sh` | [Linux test VMs](docs/dev/linux-test-vms.md) |
+| macOS 12 and macOS 27, each also under Rosetta 2 | Apple silicon Mac with [tart](https://tart.run) | `macvm.sh` | [macOS test VMs](docs/dev/macos-test-vms.md) |
+
+Notes:
+
+* macOS guests only run on Apple silicon, and Apple's licence allows two at a time. An Intel build is tested under
+  Rosetta 2 in a guest.
+* The Linux and Windows guests are set up unattended from their vendors' images and snapshotted as `clean`; the macOS
+  guests need Setup Assistant done by hand once. Every test run starts from the clean state.
+* A GUI program on a Windows guest must be started in the desktop session (`winvm.sh run`), not directly over SSH.
+* `scripts/dev/parity-linux.sh`, `parity-macos.sh` and `parity-windows.sh` run the shell and the automation checks in
+  `tests/apps/` on a desktop, or in a guest, and print a PASS/FAIL table.
+* `scripts/dev/macvm.conf` (copy `macvm.conf.sample`) sets where tart keeps the VMs and the macOS restore images; it
+  is git-ignored.
+
+#### Testing: what to run, and in which order
+
+Go from the cheapest and fastest check to the most expensive. Stop at the first failure: a later stage tests nothing
+useful if an earlier one fails.
+
+1. **While you work**, on your own machine (seconds):
+   ```sh
+   cargo test --workspace
+   cargo clippy --workspace --all-targets
+   ```
+   `tests/` holds the supervisor, protocol-fixture and packaged-layout tests; they use the fake worker
+   (`tests/workers/fake_worker.py`). `tests/real_workers.rs` also runs the real shell-php and Grafida workers, but only
+   when their repositories are cloned next to this one.
+2. **Before every commit**: `cargo fmt --all --check`, then the two commands above.
+3. **Before a release**, on the maintainer's Mac (about three minutes):
+   ```sh
+   scripts/release/local-release.sh check
+   ```
+   This is what CI used to run: clippy with `-D warnings` (with and without `automation`), the guard that a release
+   build refuses the `automation` feature, and the tests, for Linux (in an Ubuntu 22.04 container), macOS and Windows
+   (compiled only; it needs Windows to run). `build` does not run `check` for you.
+4. **Build the release candidate**: `scripts/release/local-release.sh build` (about four minutes). It builds every
+   platform, runs the binary checks (glibc and library floors, macOS minimum version, Windows imports, no automation
+   code in a release) and a headless smoke test of each shell it can run. It also leaves debug builds with the
+   automation channel in `dist/LABEL/debug-automation/PLATFORM/` for the next stages.
+5. **Parity checks on a desktop**, with those debug builds: `scripts/dev/parity-linux.sh` or `scripts/dev/parity-macos.sh`
+   run the shell against the apps in `tests/apps/` and Grafida, with throwaway user directories, and print a PASS/FAIL
+   table (`QUICK=1` shortens the idle-CPU sample). Use `SHELL_BIN=` to point them at a prebuilt debug build.
+6. **Clean machines**, last, with the packaged app: this is the only stage that tests what a user installs. Start each
+   run from the `clean` state (`linuxvm.sh snapshot DISTRO apply clean`, `winvm.sh snapshot VM apply clean`,
+   `macvm.sh fresh NAME`). Within a guest the order matters, because some steps change it:
+   1. Install and start the app as a user would, before any developer tool goes on the machine.
+   2. Check the floors (macOS: a copy with a too-high minimum system version must be refused).
+   3. Only then add what the scripts need (Python; on macOS the Command Line Tools) and run the parity script with
+      `GRAFIDA_PACKAGED=<the installed app>` and `SHELL_BIN=<the debug build for that platform>`
+      (`parity-windows.sh` runs on the host and drives the Windows guest).
+   4. The checks no script can make, by hand (context menus, native dialogs, drag and drop, and so on), then the
+      idle-CPU check on the release app with your hands off the machine.
+
+   Test the floor of each platform (Ubuntu 22.04, macOS 12, Windows 10) and the newest (Fedora, Arch, macOS 27,
+   Windows 11). x86_64 macOS is only ever tested under Rosetta 2, and the Windows `.exe` is not smoke-tested by
+   `build`: run it in a Windows guest before you publish. Only then tag and publish
+   ([docs/dev/RELEASE.md](docs/dev/RELEASE.md)).
+
 
 ## Licence
 
