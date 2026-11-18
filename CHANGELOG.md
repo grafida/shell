@@ -2,6 +2,7 @@ shell 0.4.3
 ================================================================================
 ~ Release assets are built and published by the maintainer, no longer by GitHub Actions
 ~ README: development environment, test machines and the order tests run in
+# [LOW] Linux launcher could miss a missing library on a system set to a non-English language
 
 shell 0.4.2
 ================================================================================

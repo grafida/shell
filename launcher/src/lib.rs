@@ -188,6 +188,9 @@ pub fn check(shell: &Path) -> Check {
         .env("LD_TRACE_LOADED_OBJECTS", "1")
         .env("LD_BIND_NOW", "1")
         .env("LD_WARN", "1")
+        // glibc translates the loader's messages, and `classify` reads the English ones. `LC_ALL`
+        // beats every other locale variable, and `LANGUAGE` is ignored in the `C` locale.
+        .env("LC_ALL", "C")
         .stdin(Stdio::null())
         .output();
     match output {
