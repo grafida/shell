@@ -53,7 +53,7 @@ pub fn classify(url: &str, origin: &str) -> Target {
 /// The form of an http(s) URL the OS browser is handed, or `None` when it must not be opened.
 ///
 /// On Windows `ShellExecuteW` substitutes the URL into the registered handler's command line
-/// (`"%1"`), so what it gets must not be able to leave that argument (security.md L3): the URL is
+/// (`"%1"`), so what it gets must not be able to leave that argument: the URL is
 /// parsed and re-serialised, which percent-encodes `"`, spaces and controls and turns `\` into `/`
 /// in the path; a `\` the query or fragment keeps is encoded too, since a trailing one would escape
 /// the closing quote. Whitespace and controls are refused first rather than silently dropped by the
@@ -118,7 +118,7 @@ pub fn for_main_frame_navigation(url: &str, origin: &str, user: bool) -> Decisio
 /// origin by the app: `source_is_app` is whether the frame that started the navigation has the app's
 /// origin (`Some(false)`: a foreign frame, which would make the engine request the app's URLs with
 /// no `Origin` header). `None`, the engine naming no source, is refused too: WebKit names the
-/// parent frame even for an iframe's initial load (measured, security.md M1), so a nameless source
+/// parent frame even for an iframe's initial load (measured), so a nameless source
 /// is not a case the app's own page produces.
 pub fn for_subframe_navigation(
     url: &str,
@@ -144,13 +144,13 @@ pub fn frame_is_app(protocol: &str, host: &str, origin: &str) -> bool {
 /// always (nothing off-origin ever renders there), a subframe only when it has the app's origin. A
 /// foreign frame's `<img src>` or `no-cors` fetch of the app's URLs carries no `Origin`, and on
 /// WKWebView no `Sec-Fetch-Site` either, so the frame is the only thing that gives it away
-/// (security.md M1).
+///.
 pub fn frame_may_request(is_main_frame: bool, protocol: &str, host: &str, origin: &str) -> bool {
     is_main_frame || frame_is_app(protocol, host, origin)
 }
 
 /// The document-start script every platform injects into **every frame** while the manifest's
-/// `webview.frameGuard` is on (security.md L1): one of the app's own pages, loaded in a frame with
+/// `webview.frameGuard` is on: one of the app's own pages, loaded in a frame with
 /// a foreign ancestor anywhere above it (an embed framing `<scheme>://app/…`, to overlay it), stops
 /// loading and empties itself before any of its own script runs. Inert everywhere else: in the
 /// main frame, in a foreign document (an embed's own page), and in the app's own `about:blank` /
@@ -209,7 +209,7 @@ mod tests {
 
     #[test]
     fn a_foreign_frame_cannot_send_a_subframe_to_the_app() {
-        // The Origin-less GET that the bridge cannot tell from the app's own (security.md M1).
+        // The Origin-less GET that the bridge cannot tell from the app's own.
         assert_eq!(
             for_subframe_navigation("shell://app/api/export", O, false, Some(false)),
             Decision::Refuse
@@ -255,7 +255,7 @@ mod tests {
         assert!(frame_may_request(true, "", "", O));
         assert!(frame_may_request(true, "http", "127.0.0.1", O));
         assert!(frame_may_request(false, "shell", "app", O));
-        // A foreign embed's subresources: the Origin-less GETs of security.md M1.
+        // A foreign embed's subresources: the Origin-less GETs.
         assert!(!frame_may_request(false, "http", "127.0.0.1", O));
         assert!(!frame_may_request(false, "https", "www.youtube.com", O));
         assert!(!frame_may_request(false, "", "", O));
@@ -301,7 +301,7 @@ mod tests {
 
     #[test]
     fn the_browser_is_handed_a_normalised_url() {
-        // `ShellExecuteW` substitutes the URL into the handler's `"%1"` (security.md L3): a quote
+        // `ShellExecuteW` substitutes the URL into the handler's `"%1"`: a quote
         // must not survive, nor a backslash that would escape the closing one.
         let opened = |url: &str| match for_navigation(url, O, true) {
             Decision::OpenExternally(u) => Some(u),

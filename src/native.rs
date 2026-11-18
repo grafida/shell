@@ -104,7 +104,7 @@ pub fn handle(bridge: &Bridge, endpoint: &str, request: Request, respond: Respon
             let url = body.get("url").and_then(Value::as_str).unwrap_or("");
             let lower = url.to_ascii_lowercase();
             // The prefix check keeps out what the parser would complete (`https:x`); the host is
-            // only ever handed the re-serialised form (security.md L3).
+            // only ever handed the re-serialised form.
             let url = if lower.starts_with("http://") || lower.starts_with("https://") {
                 crate::navigation::external_url(url)
             } else {
@@ -383,7 +383,7 @@ mod tests {
 
     #[test]
     fn the_host_is_handed_a_normalised_url() {
-        // `ShellExecuteW` substitutes the URL into the handler's `"%1"` (security.md L3).
+        // `ShellExecuteW` substitutes the URL into the handler's `"%1"`.
         let (b, host, _) = bridge();
         for (url, handed) in [
             (r#"https://x/a"b?q="c#"f"#, r"https://x/a%22b?q=%22c#%22f"),

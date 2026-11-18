@@ -51,7 +51,7 @@ impl Request {
     }
 
     /// [`Request::path`] percent-decoded once, which is what the shell's own path checks compare
-    /// (security.md L6): a worker that decodes before routing sees `/%61pi/x` as `/api/x`, so the
+    ///: a worker that decodes before routing sees `/%61pi/x` as `/api/x`, so the
     /// shell must too, as Apache matches `<Location>` on the decoded path. Bytes, since the result
     /// need not be UTF-8. A `%` not followed by two hex digits is kept as it is (as PHP's
     /// `rawurldecode()` does). `None` when an escape decodes to `/` or NUL: Apache's default

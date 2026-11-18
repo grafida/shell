@@ -1,4 +1,4 @@
-// macOS only: the key reporter's message handler is out of reach of page script (security.md L4).
+// macOS only: the key reporter's message handler is out of reach of page script.
 // Run with: scripts/dev/automation.py eval-file tests/apps/echo/keys.js, in the echo app. The
 // automation channel's eval runs in the page world, as the app's and any embed's own script does.
 // The reporter itself lives in a content world of its own; that it still reports is what the

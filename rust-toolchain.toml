@@ -1,4 +1,4 @@
-# The exact toolchain every build uses (security.md L11). Bump it deliberately.
+# The exact toolchain every build uses. Bump it deliberately.
 # Targets are not listed: the hosts differ, so each build adds its own with `rustup target add`
 # (scripts/release/local-release.sh, linux-build.Dockerfile).
 [toolchain]

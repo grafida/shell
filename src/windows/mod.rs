@@ -725,8 +725,8 @@ fn configure(
 
 /// [`navigation::frame_buster`] in every document the webview creates, child frames included
 /// (WebView2's documentation: a document-created script runs in iframes too; `framing.js`'s
-/// `foreign, worker allows` row is what shows it), before the page's own scripts
-/// (security.md L1). The main frame does not need it (the script is inert there).
+/// `foreign, worker allows` row is what shows it), before the page's own scripts. The main
+/// frame does not need it (the script is inert there).
 fn install_frame_buster(
     webview: &ICoreWebView2,
     origin: &str,
@@ -1195,7 +1195,7 @@ fn read_clipboard(owner: HWND) -> Option<String> {
 
 /// The UTF-16 text in a global memory object, up to its first NUL, or `None` when it cannot be
 /// locked. Its owner may have left the terminator out, so the scan never goes past the
-/// allocation's `GlobalSize` (security.md L5).
+/// allocation's `GlobalSize`.
 ///
 /// # Safety
 /// `global` must be a valid global memory handle that nothing frees while this runs.

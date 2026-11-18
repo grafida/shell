@@ -38,7 +38,7 @@ r = await fetch('/api/echo', { method: 'POST', body: new Uint8Array((60 << 20) +
 out.overLimit = r.status;
 check(r.status === 413 && (await r.json()).error === 'body_too_large', `over the limit: ${r.status}`);
 
-// Does the engine hand the scheme handler `Sec-Fetch-Site`? The bridge refuses `cross-site` (security.md M1).
+// Does the engine hand the scheme handler `Sec-Fetch-Site`? The bridge refuses `cross-site`.
 // Observed: WebKitGTK/WebView2 may; WKWebView (macOS 27.2) sends none, so there the source-frame check in
 // src/macos/webview.rs is the defence. Recorded in `secFetchSite`; the app's own request must never be cross-site.
 r = await fetch('/api/headers', { cache: 'no-store' });

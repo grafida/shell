@@ -1,4 +1,4 @@
-// Who may frame the app's pages (security.md L1), in the real webview against the fake echo worker.
+// Who may frame the app's pages, in the real webview against the fake echo worker.
 // Run with: scripts/dev/automation.py eval-file tests/apps/echo/framing.js, in the echo app
 // (frameGuard on, SHELL_APP_ID=test.shell.echo) and in tests/apps/unguarded (frameGuard off,
 // SHELL_APP_ID=test.shell.unguarded); the guard's state is read from the shell's own header.

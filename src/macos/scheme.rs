@@ -179,7 +179,7 @@ impl Scheme {
     /// ([`navigation::frame_may_request`]): the main frame, or a subframe of the app's origin. A
     /// foreign embed's `<img src>` or `no-cors` fetch of `<scheme>://app/…` carries no `Origin`,
     /// and WKWebView adds no `Sec-Fetch-Site`, so [`Bridge`] cannot tell it from the app's own
-    /// (security.md M1); the frame can. The public `WKURLSchemeTask` says nothing about who asked:
+    ///; the frame can. The public `WKURLSchemeTask` says nothing about who asked:
     /// this reads WebKit's private `_frame` (a `WKFrameInfo`, there since macOS 10.15) behind
     /// `respondsToSelector:`. Should the selector ever go, every request is let through and the log
     /// says so once, rather than the app going dark. A task that *has* the selector but names no

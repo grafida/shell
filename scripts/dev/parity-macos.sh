@@ -215,7 +215,7 @@ record "$( [ "$(ok_field <<<"$answer")" = yes ] && [ "$opened" = "['https://exam
     "Off-origin link → OS browser; window.open → OS browser; nothing navigates the app away" \
     "to the browser: $opened; $(ok_field <<<"$answer")"
 
-# On macOS the source-frame check (security.md M1) refuses a foreign frame's navigation to the app
+# On macOS the source-frame check refuses a foreign frame's navigation to the app
 # first; WKWebView enforces neither frame-ancestors nor X-Frame-Options on a scheme response.
 answer=$(js "$ECHO/framing.js")
 record "$( [ "$(ok_field <<<"$answer")" = yes ] && echo PASS || echo FAIL)" \

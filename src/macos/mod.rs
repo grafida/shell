@@ -223,7 +223,7 @@ pub fn run(launch: Launch, log: Arc<Log>) -> i32 {
         );
         config.userContentController().addUserScript(&guard);
         // In a content world of its own, with its handler: page script in any frame (an embed
-        // included) cannot post fake verdicts (security.md L4).
+        // included) cannot post fake verdicts.
         let reporter = WKUserScript::initWithSource_injectionTime_forMainFrameOnly_inContentWorld(
             WKUserScript::alloc(mtm),
             &NSString::from_str(keys::REPORTER),

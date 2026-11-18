@@ -108,7 +108,7 @@ fn the_real_loader() {
     // A glibc loader that does not exist (a musl system has none): move the loader's directory in
     // PT_INTERP, keeping its length and its `ld-linux-…` name, on either architecture
     // (`/lib64/` → `/lib6x/`, `/lib/` → `/lix/`). The name must stay glibc's: any other is not
-    // probed at all (security.md I10).
+    // probed at all.
     let elf = std::fs::read(&shell).unwrap();
     let needle = b"/ld-linux-";
     let at = elf
@@ -131,7 +131,7 @@ fn the_real_loader() {
 
 /// A shell glibc's loader does not run (here a static program, as a musl one would be) ignores
 /// `LD_TRACE_LOADED_OBJECTS`: probing it would run its `main()`, and the launcher's exec would run
-/// it a second time (security.md I10). It must not be run by the check at all.
+/// it a second time. It must not be run by the check at all.
 #[test]
 fn a_shell_glibc_does_not_load_is_never_probed() {
     let dir = std::env::temp_dir().join(format!("grafida-launcher-static-{}", std::process::id()));

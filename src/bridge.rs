@@ -76,7 +76,7 @@ pub type ClipboardDone = Box<dyn FnOnce(Option<String>) + Send>;
 
 /// The text in a UTF-16 clipboard buffer (Windows' `CF_UNICODETEXT`): up to its first NUL, or all
 /// of it when there is none. The program that put it on the clipboard sized the buffer and may
-/// have left the terminator out, so the scan never goes past `units` (security.md L5). Lone
+/// have left the terminator out, so the scan never goes past `units`. Lone
 /// surrogates become U+FFFD.
 #[cfg(any(windows, test))]
 pub fn utf16_until_nul(units: &[u16]) -> String {
@@ -183,7 +183,7 @@ impl Bridge {
         }
 
         // A worker that decodes the path before routing it must not see a different path from the
-        // one the shell checks (security.md L6), so the checks below use the decoded path. An
+        // one the shell checks, so the checks below use the decoded path. An
         // escaped `/` or NUL is refused, as Apache does by default (`AllowEncodedSlashes Off`).
         let Some(path) = request.decoded_path() else {
             respond(Response::error(404, "bad_path"));
@@ -295,7 +295,7 @@ fn forward(
     );
 }
 
-/// What the shell adds so that only the app itself may frame its pages (security.md L1): a foreign
+/// What the shell adds so that only the app itself may frame its pages: a foreign
 /// page the app embeds (an article's `<iframe>`) could otherwise frame a live app page and overlay
 /// it. On every response, not only HTML: an SVG, a PDF or a JSON answer renders in a frame too,
 /// and `frame-ancestors` means nothing to a subresource.
@@ -515,7 +515,7 @@ pub(crate) mod tests {
     }
 
     /// The shell's own prefix checks see the path decoded, as a worker that decodes it routes it
-    /// (security.md L6): `/%61pi/…` is `/api/…`, `/%5Fnative/…` is `/_native/…`. The worker still
+    ///: `/%61pi/…` is `/api/…`, `/%5Fnative/…` is `/_native/…`. The worker still
     /// gets the URL verbatim.
     #[test]
     fn prefixes_are_matched_on_the_decoded_path() {
@@ -871,7 +871,7 @@ pub(crate) mod tests {
     #[test]
     fn clipboard_text_is_read_up_to_its_nul_and_never_past_its_buffer() {
         let utf16 = |s: &str| s.encode_utf16().collect::<Vec<u16>>();
-        // Unterminated (security.md L5): all of it, nothing beyond.
+        // Unterminated: all of it, nothing beyond.
         assert_eq!(utf16_until_nul(&utf16("Καλημέρα")), "Καλημέρα");
         assert_eq!(utf16_until_nul(&[]), "");
         // Terminated: what follows the NUL is not text.

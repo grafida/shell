@@ -222,7 +222,7 @@ pub fn run(launch: Launch, log: Arc<Log>) -> i32 {
     // ── The webview ─────────────────────────────────────────────────────────────────────────
     let webview = WebView::with_context(&context);
     // WebKitGTK, like WKWebView, may well ignore the bridge's `frame-ancestors` on a scheme
-    // response; the script holds either way (security.md L1).
+    // response; the script holds either way.
     if manifest.webview.frame_guard
         && let Some(content) = webview.user_content_manager()
     {

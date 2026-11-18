@@ -34,7 +34,7 @@ echo "== check the binaries"
 scripts/release/check-linux-binaries.sh "$SHELL_BIN" "$LAUNCHER"
 
 # The glibc floor check must fail, and say why, when objdump lists no GLIBC versions at all
-# (security.md I8): a negative test of the check itself.
+#: a negative test of the check itself.
 echo "== the glibc check refuses a shell with no symbol versions"
 shim="$(mktemp -d)"
 printf '#!/bin/sh\nexit 0\n' > "$shim/objdump"

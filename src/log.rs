@@ -67,7 +67,7 @@ impl Log {
     }
 }
 
-/// The log, opened for appending and readable by its owner only (security.md I3): it holds the
+/// The log, opened for appending and readable by its owner only: it holds the
 /// worker's stderr, which may carry the user's data. `mode` applies only when the file is created,
 /// so a log an older shell created under the umask (usually 0644) is tightened as well. On Windows
 /// the per-user `%LOCALAPPDATA%` already keeps other users out.

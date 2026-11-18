@@ -46,9 +46,9 @@ pub const HANDLER: &str = "shellKey";
 
 /// The content world the reporter and its handler live in. Page script, the app's or an embed's, runs
 /// in the page world and cannot see the handler there: before, any frame could post `true` to eat
-/// every parked Edit key, or `false` to make the menu act on keys the page cancelled (security.md
-/// L4). The reporter still sees the page's `defaultPrevented`: the event is the same DOM object in
-/// every world. macOS 11+, below the shell's floor of 12.
+/// every parked Edit key, or `false` to make the menu act on keys the page cancelled. The reporter
+/// still sees the page's `defaultPrevented`: the event is the same DOM object in every world.
+/// macOS 11+, below the shell's floor of 12.
 pub fn world(mtm: MainThreadMarker) -> Retained<WKContentWorld> {
     // SAFETY: a plain class method; the name is ours.
     unsafe { WKContentWorld::worldWithName(&NSString::from_str("grafida-shell-keys"), mtm) }

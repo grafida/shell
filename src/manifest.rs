@@ -125,7 +125,7 @@ pub struct Webview {
     pub devtools: Devtools,
     #[serde(default = "yes")]
     pub spell_check: bool,
-    /// Only the app may frame its pages (security.md L1): the bridge's `frame-ancestors 'self'`
+    /// Only the app may frame its pages: the bridge's `frame-ancestors 'self'`
     /// and the frame-buster script in every frame; on macOS also the source-frame checks (M1).
     #[serde(default = "yes")]
     pub frame_guard: bool,

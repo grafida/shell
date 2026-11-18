@@ -162,7 +162,7 @@ pub fn is_glibc_loader(interpreter: &[u8]) -> bool {
 ///
 /// The probe executes the shell, trusting glibc's loader to print its libraries and stop. Under
 /// any other interpreter, or with none (a static or musl shell), `main()` would really run, and
-/// then run again when the launcher execs it (security.md I10). So the shell's `PT_INTERP` is read
+/// then run again when the launcher execs it. So the shell's `PT_INTERP` is read
 /// first, and anything but glibc's loader is not probed at all: the check fails open, as for any
 /// output it cannot read. A glibc loader that is *missing* (a musl system) is still probed, since
 /// the kernel then refuses the exec before anything runs.

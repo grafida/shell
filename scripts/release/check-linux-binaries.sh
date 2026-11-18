@@ -27,7 +27,7 @@ readelf -l "$SHELL_BIN" | grep -q 'Requesting program interpreter' || fail "the 
 
 newest="$(objdump -T "$SHELL_BIN" | grep -o 'GLIBC_[0-9][0-9.]*' | sed 's/GLIBC_//' | sort -uV | tail -1)" || true
 # An empty list would sort below any floor and pass: a glibc program always has versioned symbols,
-# so none means objdump read nothing (security.md I8; linux-container-build.sh checks this check fails then).
+# so none means objdump read nothing (linux-container-build.sh checks this check fails then).
 [ -n "$newest" ] || fail "no GLIBC symbol versions found in the shell (objdump -T read nothing?)"
 echo "newest glibc symbol: GLIBC_$newest (max $GLIBC_MAX)"
 [ "$(printf '%s\n%s\n' "$newest" "$GLIBC_MAX" | sort -V | tail -1)" = "$GLIBC_MAX" ] \
