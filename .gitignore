@@ -1,8 +1,20 @@
-/target/
+### JetBrains IDEs
 /.idea/
-__pycache__/
-/tests/apps/*/logs/
-/scripts/dev/macvm.conf
-/security.md
+
+### Caches and logs
+# Standard Cargo build directory
+/target/
+# Release staging
 /dist/
-/.sdk/
+# Python cache (module bytecode) - used in testing
+__pycache__/
+# Test fixture (shell.json) logs
+/tests/apps/*/logs/
+# Per-machine files for macOS test VMs
+/scripts/dev/macvm.conf
+# The pinned copy of the macOS 15.5 SDK
+/.sdk
+
+### Security audit report
+# This is a symlink to the concrete file in the internal private repo
+/security.md
